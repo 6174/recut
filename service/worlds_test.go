@@ -512,6 +512,16 @@ func TestExtendedContextMaterializers(t *testing.T) {
 	if _, err := manager.contextMaterials([]ChatContext{{Type: "skill", Source: "user", Payload: map[string]any{"appId": "recut.missing", "skillId": "x"}}}); err == nil {
 		t.Fatal("missing skill app was accepted")
 	}
+	platform, err := manager.contextMaterials([]ChatContext{{Type: "skill", Source: "user", Payload: map[string]any{"appId": platformSkillAppID, "skillId": recutSkillID}}})
+	if err != nil {
+		t.Fatalf("platform skill context was rejected: %v", err)
+	}
+	if len(platform) != 1 || !strings.Contains(platform[0].Text, "skillId="+recutSkillID) {
+		t.Fatalf("platform skill material = %#v", platform)
+	}
+	if _, err := manager.contextMaterials([]ChatContext{{Type: "skill", Source: "user", Payload: map[string]any{"appId": platformSkillAppID, "skillId": "recut.missing"}}}); err == nil {
+		t.Fatal("missing platform skill was accepted")
+	}
 }
 
 func TestArchiveWorldForUserHidesLocalWorldFromList(t *testing.T) {

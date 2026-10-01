@@ -86,7 +86,7 @@ recut.operation.register("plan.create", (input, ctx) => {
 | `files` | `ctx.files.readText(path)`、`writeText(path, text)`、`list(path?)`、`url(path)` | App 在**当前项目/当前 App**的文件沙箱中操作文本文件；`url` 只为已存在的私有预览文件生成当前 App scope URL。路径不能越界。 |
 | `artifacts.publish` | `ctx.artifacts.publish({ type, value })` | 发布不可变 Artifact，供项目事件与受控跨能力引用使用。 |
 | `media.compose` | `ctx.media.compose(input)` | 确定性组合已存在的媒体 Asset；不能拿它替代 AI 生成。 |
-| `media.read` | `ctx.media.materialize(assetId, options?)` | 将已完成素材复制进当前 App 的私有 `inputs/` 并返回相对路径；不创建新 Asset。传 `{ reference: true, model }` 声明该素材是**参考图**时，平台按模型 manifest 声明的 `referenceImage.maxEdge`（缺省 1024）把图片等比缩到单边上限、去 alpha 压成 JPEG——参考图只做参考，不喂原图。不带 options 的调用（如渲染合成素材）保持原图不动。 |
+| `media.read` | `ctx.media.materialize(assetId, options?)` | 将已完成素材复制进当前 App 的私有 `inputs/` 并返回相对路径；不创建新 Asset。**图片默认统一缩到参考图单边上限 1024**（等比、去 alpha 压成 JPEG）——参考图只做参考、不喂原图，全局口径，调用方无需声明。确实要原图的渲染/合成消费方传 `{ raw: true }` 退出。 |
 | `media.write` | `ctx.media.importFile({ path, name, mimeType })` | 仅在用户明确选择后，将 App 私有文件导入素材库并返回 Asset。 |
 | `shell` | `ctx.shell.exec({ command, args, cwd?, environment?, timeoutSeconds? })`、`start(...)`、`status(jobId)`、`logs(jobId)`、`cancel(jobId)` | 在 App 包根或私有 files 执行非交互命令；`start` 返回可恢复 Job，stdout/stderr 作为 `shell.job.log` 项目事件实时发出，`logs` 可在重连后读取持久记录。`environment` 可选择 manifest 声明的 venv。 |
 | `python` | `ctx.python.status()`、`prepare()`、`run(args)` | 仅供声明 `runtime.python` 的 App 使用。平台创建、指纹化和激活 venv；`prepare` 返回安装依赖与 bootstrap 的 Job，`run` 在就绪 venv 中启动 Python Job。 |

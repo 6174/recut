@@ -2041,6 +2041,26 @@ func materializeSkillContext(m *AgentManager, payload json.RawMessage) (contextM
 	if err := json.Unmarshal(payload, &input); err != nil || input.AppID == "" || input.SkillID == "" {
 		return contextMaterial{}, errors.New("skill context requires appId and skillId")
 	}
+	// Platform skills are daemon-owned (never installed Apps): resolve them from
+	// the embedded skill tree so appId=recut.platform is not treated as a
+	// missing App.
+	if input.AppID == platformSkillAppID {
+		skills, err := NewRecutSkillsManager(m.store.root).Skills()
+		if err != nil {
+			return contextMaterial{}, errors.New("skill catalog is unavailable")
+		}
+		for _, skill := range skills {
+			if skill.ID != input.SkillID {
+				continue
+			}
+			return contextMaterial{
+				Label: skill.Name,
+				Kind:  "skill",
+				Text:  "[Skill] appId=" + input.AppID + " skillId=" + input.SkillID + " name=" + skill.Name + " —— 本回合用户指定遵循该 skill 的工作流。",
+			}, nil
+		}
+		return contextMaterial{}, errors.New("skill context is unavailable")
+	}
 	if m.store.catalog == nil {
 		return contextMaterial{}, errors.New("skill catalog is unavailable")
 	}

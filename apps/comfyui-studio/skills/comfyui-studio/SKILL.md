@@ -28,7 +28,7 @@ ComfyUI 工作台是 Recut 的**本地 ComfyUI 工作流 App**：一个共享运
 - `manifest.contributes.media` 声明 `local-gen` provider 与静态工作流清单（由 `publish_registry.py` 从 `comfyuiapps/*/manifest.json` 生成）；平台据此把 `local-gen/<exposeModel>` 合入生图目录。
 - 把生图默认路由指向本地：`image.generate.default` → `local-gen/qwen-image`（或单次 `recut.image.generate { modelId: "local-gen/qwen-image" }`）。
 - 发现本机工作流：`recut.media.list_capability_models { capability: "image.generate" }`。
-- 参考图在提交前由平台归一：App 用 `ctx.media.materialize(id, { reference: true, model })` 复制时，按模型声明的 `referenceImage.maxEdge`（缺省 1024）等比缩小、去 alpha 压成 JPEG——参考图只做参考，不喂原图；工作流拿到的是归一后的文件。
+- 参考图由平台统一归一：App 用 `ctx.media.materialize(id)` 复制时，图片会被等比缩到单边上限 1024、去 alpha 压成 JPEG（全局口径，工作流无需声明；确实要原图的渲染类消费方传 `{ raw: true }`）——参考图只做参考，不喂原图。
 
 ## 扩展新工作流
 

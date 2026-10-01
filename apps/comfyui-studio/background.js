@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 ctx.sqlite 保存生成记录/任务账本/下载源，ctx.app.readText 读取 python/registry.json（由
- *          comfyuiapps/*\/manifest.json 生成的静态注册表），ctx.media 复制参考素材（提交前按模型的
- *          referenceImage 预算缩到单边上限，见平台 reference_image 层）与导入产物，ctx.files
+ *          comfyuiapps/*\/manifest.json 生成的静态注册表），ctx.media 复制参考素材（平台统一缩到参考图
+ *          单边上限）与导入产物，ctx.files
  *          生成私有预览 URL / 写 params 文件，ctx.python 与 ctx.shell 执行可观察本地任务（prepare 全量走
  *          ctx.python.prepare；定向走 bootstrap.py --target，但主 venv 未就绪时先回退平台全量准备；
  *          generate/install 走 ctx.python.run(studio_runner.py ...)）
@@ -656,7 +656,7 @@ function generate(input, ctx) {
   const referenceIds = Array.isArray(input.referenceAssetIds) ? input.referenceAssetIds : [];
   const referencePaths = [];
   for (const id of referenceIds) {
-    try { referencePaths.push(ctx.media.materialize(id, { reference: true, model: app.exposeModel || "" }).path); } catch (_) { /* skip missing reference */ }
+    try { referencePaths.push(ctx.media.materialize(id).path); } catch (_) { /* skip missing reference */ }
   }
   const id = outputID();
   const ext = outputExt(app);

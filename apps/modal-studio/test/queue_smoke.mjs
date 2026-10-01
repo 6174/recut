@@ -209,5 +209,24 @@ const check = (name, cond) => { if (cond) console.log(`  ok  ${name}`); else { f
   check("S8c 无调用 ID：返回「云端可能仍在运行」告警", result.cancelled === true && typeof result.warning === "string" && result.warning.length > 0 && cancelled.includes("sj-11"));
 }
 
+// S9：日志按「末尾」分页 —— 长日志先给最新的，nextCursor 回退取更早的（不再只显示最旧的一段）
+{
+  const lines = Array.from({ length: 1200 }, (_, i) => JSON.stringify({ ts: "", level: "info", message: `line-${i}` }));
+  const w = makeWorld({ filesText: { "tasks/g4.log": `${lines.join("\n")}\n` } });
+  w.pump();
+  w.db.prepare("insert into modal_tasks (id, shell_job_id, action, modalapp, function, record_id, source, submitted_by, state, progress, meta_json, payload_json, log_path, error, created_at, started_at, resolved_at) values (?, ?, ?, ?, ?, ?, 'manual', '', 'completed', 0, '{}', '{}', ?, '', ?, '', '')")
+    .run("g4", "sj-12", "generate", "sd-turbo", "text-to-image", "gen-4", "tasks/g4.log", "2026-01-01T00:00:00.000Z");
+
+  const first = ops["modal.task.logs"]({ id: "g4", limit: 500 }, w.ctx);
+  check("S9 首页是日志末尾（最新 500 行）", first.logs.length === 500 && first.logs[499].message === "line-1199");
+  check("S9 nextCursor 指向更早的一页", first.nextCursor === 700);
+
+  const second = ops["modal.task.logs"]({ id: "g4", limit: 500, cursor: first.nextCursor }, w.ctx);
+  check("S9 回退一页取到更早的 500 行", second.logs.length === 500 && second.logs[0].message === "line-200" && second.logs[499].message === "line-699");
+
+  const third = ops["modal.task.logs"]({ id: "g4", limit: 500, cursor: second.nextCursor }, w.ctx);
+  check("S9 末页到达头部且 nextCursor=null", third.logs.length === 200 && third.logs[0].message === "line-0" && third.logs[199].message === "line-199" && third.nextCursor === null);
+}
+
 console.log(failures ? `\n${failures} failing` : "\nall checks passed");
 process.exit(failures ? 1 : 0);

@@ -68,6 +68,7 @@ export default function App() {
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [generation, setGeneration] = useState<Generation | null>(null);
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [logsTruncated, setLogsTruncated] = useState(false);
   const [params, setParams] = useState<GenerationParams | null>(null);
   const [injectedReference, setInjectedReference] = useState<InjectedReference | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -191,8 +192,22 @@ export default function App() {
         setGeneration(null);
       }
       // 成功与否都回读日志：产物预览与完整参数/日志并存，不因成功就丢掉这次运行的执行记录。
-      const result = await op<{ logs: LogLine[] }>("modal.task.logs", { id, limit: 300 });
-      setLogs(result.logs ?? []);
+      // 日志从末尾往回分页（modal.task.logs 的游标语义）：**终态任务**逐页取全（上限 12 页 / 6000 行），
+      // 否则长任务的日志只能看到最旧的一段——之前固定 `limit: 300` 且不翻页，787 行的运行只显示了前 300 行。
+      // 运行中的任务只取首页（即最新的一页）：它由 shell.job.log 事件每秒驱动重取，回溯历史既无必要也浪费。
+      const active = current.state === "queued" || current.state === "running";
+      const collected: LogLine[] = [];
+      let cursor: number | null = null;
+      for (let page = 0; page < (active ? 1 : 12); page += 1) {
+        const input: Record<string, unknown> = { id, limit: 500 };
+        if (cursor !== null) input.cursor = cursor;
+        const result = await op<{ logs: LogLine[]; nextCursor: number | null }>("modal.task.logs", input);
+        collected.unshift(...(result.logs ?? []));
+        cursor = result.nextCursor ?? null;
+        if (cursor === null) break;
+      }
+      setLogs(collected);
+      setLogsTruncated(cursor !== null);
     },
     [op],
   );
@@ -554,7 +569,7 @@ export default function App() {
                 </button>
               </div>
             ) : null}
-            <PreviewPane task={detail} generation={generation} params={params} logs={logs} locale={locale} onCancel={handleCancel} onSave={handleSave} onEdit={handleEdit} onRemix={handleRemix} />
+            <PreviewPane task={detail} generation={generation} params={params} logs={logs} logsTruncated={logsTruncated} locale={locale} onCancel={handleCancel} onSave={handleSave} onEdit={handleEdit} onRemix={handleRemix} />
           </div>
         </Card>
       </div>

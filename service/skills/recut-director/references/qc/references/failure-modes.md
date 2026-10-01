@@ -384,7 +384,9 @@ AFTER   Extreme close-up on the counter surface. His hand enters frame from the 
 - Cause 1: the keyframe contained text or a logo, so the video model perpetuates and degrades it.
 - Cause 2: the scene type arrives with lettering attached whether or not you asked — storefronts, newspapers, screens, packaging.
 - Cause 3: stock-like compositions — a centred subject, a clean gradient background, an obvious commercial framing — come back with stock furniture attached. Corner watermarks and logo blocks arrive with the look, not with anything you asked for.
+- Cause 4 (only when the text was wanted): the prompt named the carrier — "a phone screen showing a chat interface" — but never gave the characters, so the model invented them. What comes back is the look of letterforms without the spelling: lookalike strokes that spell nothing. Raising the resolution or adding steps will not fix it, because the model was never told what to write.
 - Fix L1: add explicit negatives for text, captions, subtitles, logos, watermarks, and UI overlays.
+- Fix L1 for Cause 4 — the opposite move: when the shot deliberately needs readable text, do **not** add text negatives. Write the exact characters verbatim (quoted, one short line at a time, position and hierarchy per line) and give the carrier enough pixels to actually be read. See [generation-prompt](../../generation-prompt/SKILL.md) § 画内文字.
 - Fix L4: rebuild the keyframe with text out of focus, occluded, at a raking angle, or removed entirely.
 - Fix L5: if the story needs the words, deliver them by voice, by a designed title card in the edit, or by a composited still — not by generation.
 

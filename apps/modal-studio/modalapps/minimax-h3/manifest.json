@@ -5,7 +5,6 @@
     "en": "MiniMax-H3 video+audio (text/frames/reference)"
   },
   "capability": "video.generate",
-  "referenceImage": { "maxEdge": 1024 },
   "expose": {
     "model": "minimax-h3",
     "function": "reference-to-video"

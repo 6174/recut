@@ -51,7 +51,7 @@ references: references/story/SKILL.md, references/hooks/SKILL.md, references/sho
 | `remix` | `references/remix/SKILL.md` | 从已有视频反推什么公式、选哪段或如何迁移 | 拆解报告与公式/选段清单 | 链中出现 remix |
 | `platform` | `references/platform/SKILL.md` | 发给谁、什么画幅时长、哪些红线必避 | 平台规格与审核清单 | 链中出现 platform |
 | `sound` | `references/sound/SKILL.md` | 旁白/BGM/SFX 如何分层与避让 | 声音分层方案 | 链中出现 sound |
-| `generation-prompt` | `references/generation-prompt/SKILL.md` | 生成提示词怎么写（风格冻结、参考锚定、用满片段时长的多镜连续段、镜头与声音设计） | 提示词骨架与参考锚点 | 需把镜头意图落成图片/视频生成提示词 |
+| `generation-prompt` | `references/generation-prompt/SKILL.md` | 生成提示词怎么写（风格冻结、参考锚定、用满片段时长的多镜连续段、镜头与声音设计、画内可读文字逐字写死） | 提示词骨架与参考锚点 | 需把镜头意图落成图片/视频生成提示词 |
 | `qc` | `references/qc/SKILL.md` | 哪里坏了、怎么修、是否可进下一环节 | F-code 诊断与门禁结果 | 每环节结束时 |
 
 子技能交界处的“留话 vs 盖画面”等归属已由各子技能自己的边界声明划清，本技能不重复它们的配方与检查清单。

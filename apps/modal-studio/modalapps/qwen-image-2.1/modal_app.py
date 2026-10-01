@@ -1,14 +1,19 @@
 """
 [INPUT]: Modal 运行时（modal.Image / modal.Volume）；/models 卷里由 bootstrap.py 下载的 Qwen-Image-2.1 权重（diffusers 布局）
 [OUTPUT]: 云端 Modal App「recut-qwen-image-21」：类 QwenImage21 在容器内常驻 QwenImage21Pipeline，提供
-          generate_image（文生图，默认原生 2K、可经「分辨率」下调最长边，返回 PNG bytes）与 edit_image（图像编辑，
+          generate_image（文生图，默认官方原生 2K 画幅、可经「分辨率」下调最长边，返回 PNG bytes）
+          与 edit_image（图像编辑，
           接收 1–10 张参考图 bytes，默认输出尺寸跟随参考图、可用「画幅 + 分辨率」覆盖，返回 PNG bytes）；
           bootstrap_weights / bootstrap_from_modelscope 把权重下载进
           /models 卷。类开启
           GPU memory snapshot（enable_memory_snapshot + enable_gpu_snapshot），把 import/加载/预热挪进
           @modal.enter(snap=True)，后续冷启动直接从快照恢复。镜像设 PYTORCH_CUDA_ALLOC_CONF=expandable_segments，
-          VAE 分块解码只在输出较大时开启（原生 2K 在 L40S(48GB) 上不分块会 OOM）：分块会在块边界留下拼缝/色斑，
-          常用尺寸一律整图解码，不为了 2K 让基础画质一直打折。
+          调用一律照官方 quickstart：只传 prompt / width / height / num_inference_steps(默认 40) / generator，
+          不传 guidance —— 2.1 的 QwenImage21Pipeline 明确「meant to be sampled without guidance」
+          （true_cfg_scale 默认 1.0）。它与 1.x 的 QwenImagePipeline 不是同一个类：别拿 diffusers main 上
+          QwenImagePipeline 的默认值（true_cfg_scale=4.0）来套，main 里根本没有 2.1 这个 pipeline。
+          默认档位 A100-80GB（原生 2K 整图解码）；VAE 一律整图解码、从不分块：分块不仅会在块边界留下
+          拼缝/色斑，其 tile 几何还曾把 VAE 里的 3x3 卷积喂成越界形状（详见 _generate 的注释），故彻底不启用。
           另打印环境/精度/pipeline 接受参数，并在每次调用打印实际下发与被丢弃的参数、以及采样期数值警告——
           与本地 ComfyUI（int8 权重、整图 VAE 解码、resolution-conditioned 文本编码）对比出图差异时的事实依据
 [POS]: qwen-image-2.1 预设包的云端执行体；用 @app.cls 以支持 Modal 1.x 的 with_options(gpu=...) 逐档切换 GPU，
@@ -32,9 +37,6 @@ MARKER = ".recut-download-complete"
 HUGGINGFACE_REPO = "Qwen/Qwen-Image-2.1"
 MODELSCOPE_REPO = "Qwen/Qwen-Image-2.1"
 MAX_REFERENCES = 10
-# VAE 分块解码的启用阈值（输出最长边）：≥ 该值才分块（原生 2K 在 L40S(48GB) 上不分块会 OOM）；
-# 常用尺寸整图解码，避免块边界的拼缝/色斑——不为 2K 让基础画质一直打折。
-TILING_MIN_SIDE = 1536
 
 app = modal.App(APP_NAME)
 
@@ -53,7 +55,8 @@ image = (
         "sentencepiece",
     )
     .pip_install("git+https://github.com/huggingface/diffusers")
-    # 显存碎片是 L40S(48GB) 上原生 2K 解码 OOM 的直接诱因（错误日志亦建议此项）。
+    # 原生 2K 整图解码的峰值显存随像素数线性上涨：7B DiT（bf16）+ Qwen3-VL 8B 文本编码器常驻就占掉约 30GB，
+    # 48GB 档在官方 2K 画布上解码会 OOM。expandable_segments 减少碎片。
     .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
 )
 
@@ -63,7 +66,9 @@ models = modal.Volume.from_name(MODELS_VOLUME, create_if_missing=True)
 bootstrap_image = modal.Image.debian_slim(python_version="3.11").pip_install("huggingface_hub")
 modelscope_image = modal.Image.debian_slim(python_version="3.11").pip_install("modelscope")
 
-# Qwen-Image-2.1 原生 2K 推荐尺寸（宽, 高）：同画幅下总面积≈4.2MP，故「2K」是面积档而非固定短边。
+# Qwen-Image-2.1 官方推荐尺寸（宽, 高）：原生 2K，同画幅下总面积≈4.2MP，故「2K」是面积档而非固定短边。
+# 这一组就是官方 README 的 aspect_ratios 原值；也都满足 diffusers 侧的对齐要求——2.1 的 VAE 是 16× 空间压缩，
+# pipeline 再取 multiple_of = vae_scale_factor * 2 = 32，下列每个值都能被 32 整除。
 ASPECT_RATIOS = {
     "1:1": (2048, 2048),
     "16:9": (2752, 1536),
@@ -74,8 +79,11 @@ ASPECT_RATIOS = {
     "2:3": (1696, 2528),
 }
 DEFAULT_SIZE = (2048, 2048)
-# diffusers 侧要求边长对齐到 16 的倍数（VAE 下采样 8 × transformer patch 2）。
-SIZE_ALIGN = 16
+# 传给 pipeline 的 output_resolution：没给 width/height 时用它推导出图尺寸，同时也用它缩放编辑参考图。
+# 官方原生 2K ⇒ 2048（pipeline 自身默认只有 1024，画布比官方小一半）。
+OUTPUT_RESOLUTION = 2048
+# diffusers 侧要求边长对齐：2.1 的 VAE 下采样 16 × pipeline 的 multiple_of 系数 2 = 32。
+SIZE_ALIGN = 32
 
 
 def _align(value: float) -> int:
@@ -131,7 +139,7 @@ def _supported_kwargs(pipe, kwargs: dict) -> dict:
     return {key: value for key, value in kwargs.items() if key in params}
 
 
-@app.cls(image=image, volumes={MODELS_DIR: models}, gpu="L40S", timeout=1800, max_containers=1,
+@app.cls(image=image, volumes={MODELS_DIR: models}, gpu="A100-80GB", timeout=1800, max_containers=1,
          enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})
 class QwenImage21:
     @modal.enter(snap=True)
@@ -170,31 +178,39 @@ class QwenImage21:
         )
         print(f"[modal] pipeline 接受参数：{accepted}", flush=True)
 
-    def _generate(self, prompt: str, negative_prompt: str, width, height, steps: int,
-                  guidance: float, seed: int, image=None) -> dict:
+    def _generate(self, prompt: str, width, height, steps: int, seed: int, image=None) -> dict:
         import torch
 
-        kwargs = {"prompt": prompt, "num_inference_steps": int(steps), "generator": _generator(seed)}
+        # 照官方 quickstart：只传 prompt / width / height / num_inference_steps / generator。
+        # 不传 true_cfg_scale / negative_prompt —— 2.1 的 QwenImage21Pipeline 写明「meant to be sampled
+        # without guidance」（true_cfg_scale 默认 1.0），强行开 CFG（4.0 + negative_prompt=" "）属于偏离官方，
+        # 会把画面带向过曝/发僵；也不传 guidance_scale —— 那是 guidance-distilled 模型的参数，本类压根没有，
+        # 会被 _supported_kwargs 当「不支持的键」丢掉。
+        # output_resolution 决定「没给 width/height 时」的画布，也用于缩放编辑参考图：pipeline 默认 1024，
+        # 我们按官方原生 2K 提到 2048。
+        kwargs = {"prompt": prompt, "num_inference_steps": int(steps), "generator": _generator(seed),
+                  "output_resolution": OUTPUT_RESOLUTION}
         if width and height:
             kwargs["width"] = int(width)
             kwargs["height"] = int(height)
-        if negative_prompt:
-            kwargs["negative_prompt"] = negative_prompt
-        if guidance is not None:
-            kwargs["guidance_scale"] = float(guidance)
         if image is not None:
             kwargs["image"] = image
-        # 分块解码只在输出大到 48GB 装不下时才开：分块会在块边界留下拼缝/色斑，
-        # 常用尺寸整图解码才和本地 ComfyUI 的 VAEDecode 一致。
-        use_tiling = bool(width and height and max(int(width), int(height)) >= TILING_MIN_SIDE)
-        if getattr(self.pipe.vae, "use_tiling", None) != use_tiling:
-            self.pipe.vae.enable_tiling(use_tiling)
+        # VAE 始终整图解码，绝不启用分块（enable_tiling）。两个原因：
+        #   1) 分块会在块边界留下拼缝/色斑，与本地 ComfyUI 的整图 VAEDecode 不一致；
+        #   2) diffusers 的 enable_tiling 第一个位置参数是 tile_sample_min_height（像素），不是布尔开关。
+        #      曾经写成 enable_tiling(use_tiling) → tile_sample_min_height=True(==1)，分块被切成 1px 高，
+        #      VAE 里 ZeroPad2d((0,1,0,1)) 把 (1 x 256) 撑成 (2 x 257)，3x3 卷积随即报
+        #      「Kernel size can't be greater than actual input size」——该形状与参考图/输出尺寸无关，
+        #      故任何走到分块的调用（含带参考图的编辑）都会稳定崩在这一处。
+        # 若日后确有大图 OOM，应换更大显存档位，而不是重新打开分块。
+        vae = self.pipe.vae
+        if getattr(vae, "use_tiling", None):
+            vae.use_tiling = False
         effective = _supported_kwargs(self.pipe, kwargs)
         dropped = sorted(set(kwargs) - set(effective))
         if dropped:
             print(f"[modal] 注意：当前 pipeline 不接受这些参数，已静默丢弃 → {dropped}", flush=True)
-        print(f"[modal] 采样参数：{ {k: v for k, v in effective.items() if k != 'generator'} } seed={seed} "
-              f"vae_tiling={use_tiling}", flush=True)
+        print(f"[modal] 采样参数：{ {k: v for k, v in effective.items() if k != 'generator'} } seed={seed}", flush=True)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             with torch.inference_mode():
@@ -206,14 +222,14 @@ class QwenImage21:
                 "meta": {"width": result.width, "height": result.height, "seed": int(seed), "steps": int(steps)}}
 
     @modal.method()
-    def generate_image(self, prompt: str, negativePrompt: str = "", aspectRatio: str = "1:1",
-                       resolution: str = "", steps: int = 40, guidance: float = 1.0, seed: int = -1, refs=None):
+    def generate_image(self, prompt: str, aspectRatio: str = "1:1",
+                       resolution: str = "", steps: int = 40, seed: int = -1, refs=None):
         width, height = _size(aspectRatio, resolution)
-        return self._generate(prompt, negativePrompt, width, height, steps, guidance, seed)
+        return self._generate(prompt, width, height, steps, seed)
 
     @modal.method()
-    def edit_image(self, prompt: str, negativePrompt: str = "", aspectRatio: str = "",
-                   resolution: str = "", steps: int = 40, guidance: float = 1.0, seed: int = -1, refs=None):
+    def edit_image(self, prompt: str, aspectRatio: str = "",
+                   resolution: str = "", steps: int = 40, seed: int = -1, refs=None):
         from PIL import Image
 
         if not refs:
@@ -223,9 +239,10 @@ class QwenImage21:
             picture = Image.open(io.BytesIO(entry["data"]))
             picture.load()
             images.append(picture)
-        # 画幅留空 → 输出尺寸跟随参考图（不传 width/height）；显式给定画幅 → 按画幅 + 分辨率出图。
+        # 画幅留空 → 不传 width/height，由 output_resolution 按参考图比例推导（官方原生 2K 的画布面积）；
+        # 显式给定画幅 → 按画幅 + 分辨率出图。
         width, height = _size(aspectRatio, resolution) if str(aspectRatio or "").strip() else (None, None)
-        return self._generate(prompt, negativePrompt, width, height, steps, guidance, seed,
+        return self._generate(prompt, width, height, steps, seed,
                               image=images[0] if len(images) == 1 else images)
 
 

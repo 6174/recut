@@ -119,9 +119,6 @@
                 "modelScope": "Comfy-Org/Qwen-Image-2.1",
                 "revision": "main"
               },
-              "referenceImage": {
-                "maxEdge": 1024
-              },
               "localized": {
                 "zh": {
                   "name": "Qwen-Image-2.1 文生图/编辑"

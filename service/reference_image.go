@@ -1,8 +1,8 @@
 /*
  * [INPUT]: 依赖标准库 image/jpeg、image/png、image/gif（解码）与 image/draw；ctx.media.materialize 的 options
- * [OUTPUT]: 参考图归一层：把参考图等比缩到声明的单边上限、压成去 alpha 的 RGB JPEG；解析逻辑
- *           declaredReferenceImageSpec（manifest contributes.media.models[].referenceImage）
- * [POS]: service 的通用参考图处理层；只认像素与 manifest 声明，不认识任何具体 App/模型
+ * [OUTPUT]: 参考图归一层：把参考图等比缩到**全局**单边上限（1024）、压成去 alpha 的 RGB JPEG；
+ *           referenceImagePolicy 决定一次 materialize 是否归一（图片默认归一，{raw:true} 退出）
+ * [POS]: service 的通用参考图处理层；只认像素与全局上限，不认识任何具体 App/模型
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package main
@@ -17,9 +17,10 @@ import (
 	_ "image/png"
 )
 
-// defaultReferenceImageMaxEdge 是参考图的默认单边像素上限。参考图的意义是「参考」，不是把原始大图
-// 塞给模型：超过这个尺寸的参考图一律等比缩小（只缩不放），既省上传/显存，也避开大图触发的管线异常。
-const defaultReferenceImageMaxEdge = 1024
+// maxReferenceImageEdge 是平台对参考图的**全局统一**单边上限。参考图的意义是「参考」，不是把原始大图
+// 塞给模型：任何图片素材被 App 物化时一律等比缩小到该上限（只缩不放）。这是全局唯一口径——不随 App /
+// 模型变化，调用方不需要声明；需要原图的渲染/合成类消费方显式传 { raw: true } 退出。
+const maxReferenceImageEdge = 1024
 
 // referenceJPEGQuality 是归一后 JPEG 的质量。参考图会被模型再次下采样，92 足够且体积远小于 PNG。
 const referenceJPEGQuality = 92
@@ -113,59 +114,14 @@ func resizeBox(source *image.RGBA, width, height int) *image.RGBA {
 	return target
 }
 
-// referenceImagePolicy 判断一次 materialize 是否要把图片当参考图归一，并给出策略。
+// referenceImagePolicy 判断一次 materialize 是否把图片归一到全局单边上限。
 //
-// 只有调用方显式声明这是参考图才处理（options.reference / options.model / options.image 任一）：
-// 合成/渲染类素材（如 remotion 把 composition 素材物化去渲染）不带 options，必须保持原图不动。
-func referenceImagePolicy(manifest Manifest, asset MediaAsset, options map[string]any) (ReferenceImageSpec, bool) {
-	if asset.Kind != "image" {
-		return ReferenceImageSpec{}, false
+// 默认对图片一律归一：这是平台级口径，App / 模型都不需要声明，忘记声明的调用方照样拿到正常尺寸。
+// 只有确实要原图的消费方（如 remotion 导出把 composition 素材按原分辨交给渲染器）才传 { raw: true } 退出。
+// 非图片素材（视频/音频）永远不经过图片层。
+func referenceImagePolicy(asset MediaAsset, options map[string]any) (int, bool) {
+	if asset.Kind != "image" || boolValue(options["raw"]) {
+		return 0, false
 	}
-	if explicit, ok := options["image"].(map[string]any); ok {
-		return ReferenceImageSpec{MaxEdge: int(numericValue(explicit["maxEdge"]))}, true
-	}
-	model := stringValue(options["model"])
-	if model == "" && !boolValue(options["reference"]) {
-		return ReferenceImageSpec{}, false
-	}
-	return declaredReferenceImageSpec(manifest, model), true
-}
-
-// declaredReferenceImageSpec 取某个模型的参考图策略；模型没声明或名字对不上时回落默认单边上限。
-// MaxEdge <= 0 是「显式不限制」，故只有完全不声明才回落默认值；多处声明时取最严（最小正值）保证确定性。
-func declaredReferenceImageSpec(manifest Manifest, model string) ReferenceImageSpec {
-	declared := contributedReferenceImageSpecs(manifest)
-	if spec, ok := declared[model]; ok && model != "" {
-		return spec
-	}
-	strictest := 0
-	for _, spec := range declared {
-		if spec.MaxEdge <= 0 {
-			continue
-		}
-		if strictest == 0 || spec.MaxEdge < strictest {
-			strictest = spec.MaxEdge
-		}
-	}
-	if strictest > 0 {
-		return ReferenceImageSpec{MaxEdge: strictest}
-	}
-	return ReferenceImageSpec{MaxEdge: defaultReferenceImageMaxEdge}
-}
-
-// contributedReferenceImageSpecs 汇总 App manifest 里 contributes.media 各模型声明的参考图策略。
-func contributedReferenceImageSpecs(manifest Manifest) map[string]ReferenceImageSpec {
-	specs := map[string]ReferenceImageSpec{}
-	if manifest.Contributes == nil || manifest.Contributes.Media == nil {
-		return specs
-	}
-	for _, provider := range manifest.Contributes.Media.Providers {
-		for _, model := range provider.Models {
-			if model.ReferenceImage == nil {
-				continue
-			}
-			specs[model.ID] = *model.ReferenceImage
-		}
-	}
-	return specs
+	return maxReferenceImageEdge, true
 }

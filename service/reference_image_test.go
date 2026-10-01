@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 standard library 的 image/png、image/jpeg 与 testing
- * [OUTPUT]: 锁定参考图归一层的单边上限、去 alpha、无法解码时回退，以及 referenceImagePolicy 的 opt-in 语义
+ * [OUTPUT]: 锁定参考图归一层的单边上限、去 alpha、无法解码时回退，以及 referenceImagePolicy 的
+ *           「图片默认全局 1024、{raw:true} 退出」语义
  * [POS]: service 的参考图处理层单测；不依赖 AppHost/文件系统以外的宿主状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -108,32 +109,20 @@ func TestScaleToMaxEdgeNeverEnlarges(t *testing.T) {
 	}
 }
 
-func TestReferenceImagePolicyOptsIn(t *testing.T) {
+func TestReferenceImagePolicyIsGlobalAndOptOut(t *testing.T) {
 	imageAsset := MediaAsset{Kind: "image", MimeType: "image/png"}
 	videoAsset := MediaAsset{Kind: "video", MimeType: "video/mp4"}
 
-	// 未声明：保持原图（合成/渲染素材必须不受影响）。
-	if _, normalize := referenceImagePolicy(Manifest{}, imageAsset, nil); normalize {
-		t.Fatal("materialize without options must not normalize")
+	// 图片默认归一，上限是全局常量——App / 模型都不需要声明。
+	if maxEdge, normalize := referenceImagePolicy(imageAsset, nil); !normalize || maxEdge != maxReferenceImageEdge {
+		t.Fatalf("default image policy = (%d, %v), want (%d, true)", maxEdge, normalize, maxReferenceImageEdge)
 	}
-	// 视频参考不归图片层。
-	if _, normalize := referenceImagePolicy(Manifest{}, videoAsset, map[string]any{"reference": true}); normalize {
-		t.Fatal("video references must not go through the image layer")
+	// 非图片素材不经过图片层。
+	if _, normalize := referenceImagePolicy(videoAsset, nil); normalize {
+		t.Fatal("video assets must not go through the image layer")
 	}
-	// 声明为参考图：回落默认单边上限。
-	spec, normalize := referenceImagePolicy(Manifest{}, imageAsset, map[string]any{"reference": true})
-	if !normalize || spec.MaxEdge != defaultReferenceImageMaxEdge {
-		t.Fatalf("reference opt-in = (%+v, %v), want default cap %d", spec, normalize, defaultReferenceImageMaxEdge)
-	}
-	// 模型显式声明优先。
-	manifest := Manifest{Contributes: &ManifestContributes{Media: &MediaContribution{Providers: []ContributedMediaProvider{{
-		Models: []ContributedMediaModel{{ID: "qwen-image", ReferenceImage: &ReferenceImageSpec{MaxEdge: 512}}},
-	}}}}}
-	if spec, normalize := referenceImagePolicy(manifest, imageAsset, map[string]any{"model": "qwen-image"}); !normalize || spec.MaxEdge != 512 {
-		t.Fatalf("declared budget = (%+v, %v), want 512", spec, normalize)
-	}
-	// 调用方直接给策略。
-	if spec, normalize := referenceImagePolicy(manifest, imageAsset, map[string]any{"image": map[string]any{"maxEdge": float64(2048)}}); !normalize || spec.MaxEdge != 2048 {
-		t.Fatalf("explicit spec = (%+v, %v), want 2048", spec, normalize)
+	// 渲染/合成类消费方显式退出，拿回原图。
+	if _, normalize := referenceImagePolicy(imageAsset, map[string]any{"raw": true}); normalize {
+		t.Fatal("raw:true must opt out of normalization")
 	}
 }

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Catalog 的 manifest、Store 的目标命名空间与 App 全局状态、MediaService 与 goja JavaScript 运行时
- * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、受控项目封面设置、流式私有媒体导入、绑定生成资产的原地补全（completeAsset）与 ASR 转写 bundle（源声音 + SRT + JSON）导入、参考图物化前的统一归一（ctx.media.materialize 的可选 options → 按 manifest 预算缩到单边上限），以及按 surface 有序执行 App background.js/backgroundModules 的统一 operation handler
+ * [OUTPUT]: 对外提供 AppHost，按 Project/App-state 双 target 注入统一 ctx、受控项目封面设置、流式私有媒体导入、绑定生成资产的原地补全（completeAsset）与 ASR 转写 bundle（源声音 + SRT + JSON）导入、图片物化前的统一归一（ctx.media.materialize → 全局参考图单边上限，可 {raw:true} 退出），以及按 surface 有序执行 App background.js/backgroundModules 的统一 operation handler
  * [POS]: service 的 capability runtime；JS 没有宿主权限，只能调用 manifest 明示的 recut API；平台表一律不进入 ctx.sqlite / ctx.appState
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -562,16 +562,16 @@ func (h *AppHost) context(runtime *goja.Runtime, target Target, app App, locale 
 			if asset.Status != "completed" {
 				panic(runtime.NewGoError(errors.New("source media is not ready")))
 			}
-			// 可选 options：调用方声明这是「参考图」时，平台按 manifest 声明的预算把图片缩到单边上限
-			// （见 reference_image.go）。不带 options 的调用（如合成/渲染素材）保持原图不动。
+			// 可选 options：图片素材默认归一到全局单边上限（见 reference_image.go）；确实要原图的
+			// 渲染/合成类消费方传 { raw: true } 退出。
 			options := map[string]any{}
 			if !goja.IsUndefined(call.Argument(1)) && !goja.IsNull(call.Argument(1)) {
 				if err := runtime.ExportTo(call.Argument(1), &options); err != nil {
 					panic(runtime.NewTypeError(err.Error()))
 				}
 			}
-			spec, normalize := referenceImagePolicy(app.Manifest, asset, options)
-			path, mimeType, err := h.copyAssetToApp(primaryFiles, asset, spec, normalize)
+			maxEdge, normalize := referenceImagePolicy(asset, options)
+			path, mimeType, err := h.copyAssetToApp(primaryFiles, asset, maxEdge, normalize)
 			if err != nil {
 				panic(runtime.NewGoError(err))
 			}
@@ -1476,13 +1476,12 @@ func pythonRun(runtime *goja.Runtime, jobs *ShellJobManager, manager *PythonRunt
 	}
 }
 
-// copyAssetToApp copies a managed asset into the App sandbox. When the caller
-// declares the asset as a reference image (normalize=true) the bytes go through
-// the platform reference-image layer first (downscale to spec.MaxEdge, flatten
-// alpha, re-encode as JPEG); anything that cannot be decoded falls back to a
-// verbatim copy so the layer never blocks an existing path. Returns the sandbox
-// relative path and the content type actually written.
-func (h *AppHost) copyAssetToApp(root string, asset MediaAsset, spec ReferenceImageSpec, normalize bool) (string, string, error) {
+// copyAssetToApp copies a managed asset into the App sandbox. When normalize=true
+// the bytes go through the platform reference-image layer first (downscale to
+// maxEdge, flatten alpha, re-encode as JPEG); anything that cannot be decoded
+// falls back to a verbatim copy so the layer never blocks an existing path.
+// Returns the sandbox relative path and the content type actually written.
+func (h *AppHost) copyAssetToApp(root string, asset MediaAsset, maxEdge int, normalize bool) (string, string, error) {
 	path, _ := asset.Metadata["path"].(string)
 	if path == "" {
 		return "", "", errors.New("source media file is unavailable")
@@ -1499,7 +1498,7 @@ func (h *AppHost) copyAssetToApp(root string, asset MediaAsset, spec ReferenceIm
 	mimeType := asset.MimeType
 	if normalize {
 		if raw, readErr := os.ReadFile(path); readErr == nil {
-			if normalized, normalizedExt, ok := normalizeReferenceImage(raw, spec.MaxEdge); ok {
+			if normalized, normalizedExt, ok := normalizeReferenceImage(raw, maxEdge); ok {
 				extension = normalizedExt
 				mimeType = "image/jpeg"
 				relativeTarget := filepath.Join("inputs", asset.ID+extension)

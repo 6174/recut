@@ -5,7 +5,6 @@
     "en": "MiniMax-H3 Turbo (text/frames; reference = base)"
   },
   "capability": "video.generate",
-  "referenceImage": { "maxEdge": 1024 },
   "expose": {
     "model": "minimax-h3-turbo",
     "function": "reference-to-video"

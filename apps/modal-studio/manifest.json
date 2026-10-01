@@ -381,11 +381,6 @@
                   "type": "string"
                 },
                 {
-                  "name": "negativePrompt",
-                  "type": "string",
-                  "default": ""
-                },
-                {
                   "name": "aspectRatio",
                   "type": "string",
                   "enum": [
@@ -402,12 +397,12 @@
                   "name": "resolution",
                   "type": "string",
                   "enum": [
+                    "2752",
                     "2048",
                     "1536",
-                    "1024",
-                    "768"
+                    "1024"
                   ],
-                  "default": "1024"
+                  "default": "2752"
                 },
                 {
                   "name": "steps",
@@ -415,13 +410,6 @@
                   "default": 40,
                   "min": 1,
                   "max": 100
-                },
-                {
-                  "name": "guidance",
-                  "type": "number",
-                  "default": 1.0,
-                  "min": 0,
-                  "max": 20
                 },
                 {
                   "name": "seed",

@@ -23,7 +23,8 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 │  · 功能：顶部切换预设包/函数，  │  · 生成：图片/视频/音频预览 + 保存入库 │
 │    每个函数有自己的表单，       │  · 参数：完整回显全部参数 + 参考图     │
 │    可选 GPU 档位               │    （点击经素材预览全屏打开）          │
-│  · 记录：部署/下载/运行统一列表 │  · 日志：成功/失败都展示完整运行日志   │
+│  · 记录：部署/下载/运行统一列表 │  · 日志：成功/失败都展示完整日志、   │
+│                               │    生成中自动滚到最新（上滚时不打扰） │
 │                               │  · 部署/下载：实时日志 + 就绪度        │
 │                               │  · 顶部：Modal 账号连接状态           │
 └───────────────────────────────┴──────────────────────────────────────┘
@@ -111,7 +112,7 @@ modal.modalapp.remove { id }              # 删除用户预设包（内置不可
 | `minimax-h3` | video.generate | 文生视频 / 首尾帧生视频（带原生音频） | `MiniMaxAI/MiniMax-H3`（FL2VA，约 134GB，HF gated） | H200×4 / H100×4 / B200×4 / B200×8 |
 | `minimax-h3-one` | video.generate | 与上同（base 50 步） | 同上权重（共用 `recut-minimax-h3-models` 卷） | RTX PRO 6000 / H100 / H200 / B200 / B300（**单卡 + GPU 快照**） |
 | `minimax-h3-turbo` | video.generate | 文生视频 / 首尾帧生视频（larryvrh **Turbo 9 步**）+ 参考生视频（lightx2v **Turbo 8 步**），带原生音频；两份 LoRA 均由 bootstrap 离线合并 | 同上权重（共用卷）+ 两份 Turbo LoRA | RTX PRO 6000 / H200 / B200 / B300（**单卡 + GPU 快照 + 形状预热**） |
-| `qwen-image-2.1` | image.generate | 文生图 / 图像编辑（最多 10 张参考图） | `Qwen/Qwen-Image-2.1`（约 33GB，原生 2K） | L40S / A100 80GB / H100 / H200 |
+| `qwen-image-2.1` | image.generate | 文生图 / 图像编辑（最多 10 张参考图） | `Qwen/Qwen-Image-2.1`（约 33GB，原生 2K） | A100 80GB（默认）/ H100 / H200 / L40S |
 | `sd-turbo` | image.generate | 文生图 / 图生图 | `stabilityai/sd-turbo`（约 3GB） | T4 / A10G |
 
 > `minimax-h3` 用 SGLang 多卡服务：容器内按探测到的 GPU 选择官方已验证 recipe；需先 `modal.secret.set { name: "recut-hf-token", values: { HF_TOKEN } }` 并在 Hugging Face 申请 `MiniMaxAI/MiniMax-H3` 访问授权。详见 `modalapps/minimax-h3/README.md`。

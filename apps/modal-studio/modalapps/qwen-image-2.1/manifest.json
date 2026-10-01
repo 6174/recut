@@ -5,7 +5,6 @@
     "en": "Qwen-Image-2.1 t2i/edit"
   },
   "capability": "image.generate",
-  "referenceImage": { "maxEdge": 1024 },
   "expose": {
     "model": "qwen-image",
     "function": "image-edit",
@@ -35,22 +34,14 @@
       ]
     },
     "gpuTiers": {
-      "default": "L40S",
+      "default": "A100-80GB",
       "options": [
-        {
-          "id": "l40s",
-          "gpu": "L40S",
-          "label": {
-            "zh": "L40S ×1 · 48GB（省额度；2K 走 VAE 分块解码）",
-            "en": "L40S ×1 · 48GB (cheaper; 2K via tiled VAE decode)"
-          }
-        },
         {
           "id": "a100-80gb",
           "gpu": "A100-80GB",
           "label": {
-            "zh": "A100 80GB ×1（更稳）",
-            "en": "A100 80GB ×1 (safer)"
+            "zh": "A100 80GB ×1（推荐，默认档）",
+            "en": "A100 80GB ×1 (recommended, default)"
           }
         },
         {
@@ -67,6 +58,14 @@
           "label": {
             "zh": "H200 ×1（最快）",
             "en": "H200 ×1 (fastest)"
+          }
+        },
+        {
+          "id": "l40s",
+          "gpu": "L40S",
+          "label": {
+            "zh": "L40S ×1 · 48GB（仅在把分辨率降到 1024/768 时可用）",
+            "en": "L40S ×1 · 48GB (only usable if you drop resolution to 1024/768)"
           }
         }
       ]
@@ -148,19 +147,6 @@
           }
         },
         {
-          "key": "negativePrompt",
-          "type": "textarea",
-          "default": "",
-          "placeholder": {
-            "zh": "例如：模糊、多余的手指、水印",
-            "en": "e.g. blurry, extra fingers, watermark"
-          },
-          "label": {
-            "zh": "负向词（仅当引导强度 > 1 时生效）",
-            "en": "Negative prompt (only when guidance > 1)"
-          }
-        },
-        {
           "key": "aspectRatio",
           "type": "select",
           "options": [
@@ -182,19 +168,19 @@
           "key": "resolution",
           "type": "select",
           "options": [
+            "2752",
             "2048",
             "1536",
-            "1024",
-            "768"
+            "1024"
           ],
-          "default": "1024",
+          "default": "2752",
           "label": {
             "zh": "分辨率（最长边 px）",
             "en": "Resolution (longest edge px)"
           },
           "hint": {
-            "zh": "最长边像素，默认 1024，短边按画幅推导：只下调不超分。最长边 ≤1024 为整图 VAE 解码（与本地一致）；1536 / 2048 在 48GB 档上必须走分块解码，块边界可能有拼缝/色斑，画质有折损。",
-            "en": "Longest-edge pixels, default 1024; the short edge follows the aspect ratio. Only down-scaling. At or below 1024 the VAE decodes in one pass (same as local); 1536 / 2048 must tile on 48GB GPUs, which can leave seams and color blotches."
+            "zh": "默认 2752 即保持官方原生 2K 画幅（各画幅原生长边 2048–2752，取「不小于原生长边就保持原生」），直出就是官方效果；只在想更快/更省额度时才下调。",
+            "en": "The default 2752 keeps the official native 2K size (native long edge is 2048–2752; anything ≥ native stays native), so the default already matches the official recipe. Lower it only for speed."
           }
         },
         {
@@ -206,17 +192,6 @@
           "label": {
             "zh": "步数",
             "en": "Steps"
-          }
-        },
-        {
-          "key": "guidance",
-          "type": "number",
-          "default": 1.0,
-          "min": 0,
-          "max": 20,
-          "label": {
-            "zh": "引导强度",
-            "en": "Guidance"
           }
         },
         {
@@ -232,9 +207,8 @@
       ],
       "defaultParams": {
         "aspectRatio": "1:1",
-        "resolution": "1024",
-        "steps": 40,
-        "guidance": 1.0
+        "resolution": "2752",
+        "steps": 40
       }
     },
     {
@@ -281,19 +255,6 @@
           }
         },
         {
-          "key": "negativePrompt",
-          "type": "textarea",
-          "default": "",
-          "placeholder": {
-            "zh": "例如：模糊、多余的手指、水印",
-            "en": "e.g. blurry, extra fingers, watermark"
-          },
-          "label": {
-            "zh": "负向词（仅当引导强度 > 1 时生效）",
-            "en": "Negative prompt (only when guidance > 1)"
-          }
-        },
-        {
           "key": "aspectRatio",
           "type": "select",
           "options": [
@@ -322,19 +283,19 @@
           "key": "resolution",
           "type": "select",
           "options": [
+            "2752",
             "2048",
             "1536",
-            "1024",
-            "768"
+            "1024"
           ],
-          "default": "1024",
+          "default": "2752",
           "label": {
             "zh": "分辨率（最长边 px）",
             "en": "Resolution (longest edge px)"
           },
           "hint": {
-            "zh": "最长边像素，仅在指定画幅时生效；留空画幅时忽略。短边按画幅推导，只下调不超分。最长边 ≤1024 为整图 VAE 解码（与本地一致）；1536 / 2048 在 48GB 档上需分块解码，块边界可能有拼缝。",
-            "en": "Longest-edge pixels, only used when an aspect ratio is set (the short edge follows the ratio). Only down-scaling. At or below 1024 the VAE decodes in one pass (same as local); 1536 / 2048 must tile on 48GB GPUs and may leave seams."
+            "zh": "仅在指定画幅时生效（留空画幅＝按参考图比例出图）。默认 2752 即保持官方原生 2K 画幅，直出就是官方效果；只在想更快/更省额度时才下调。",
+            "en": "Only used when an aspect ratio is set (an empty ratio follows the reference). The default 2752 keeps the official native 2K size — the official recipe out of the box. Lower it only for speed."
           }
         },
         {
@@ -349,17 +310,6 @@
           }
         },
         {
-          "key": "guidance",
-          "type": "number",
-          "default": 1.0,
-          "min": 0,
-          "max": 20,
-          "label": {
-            "zh": "引导强度",
-            "en": "Guidance"
-          }
-        },
-        {
           "key": "seed",
           "type": "number",
           "default": -1,
@@ -371,8 +321,7 @@
         }
       ],
       "defaultParams": {
-        "steps": 40,
-        "guidance": 1.0
+        "steps": 40
       },
       "referenceBudgets": [
         {

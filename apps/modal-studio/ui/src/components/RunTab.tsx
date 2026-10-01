@@ -1,11 +1,11 @@
 /**
  * [INPUT]: 依赖 modal.catalog/overview 的预设包/函数清单/formSchema/output/gpuTiers/就绪度（就绪度可缺省＝尚未探测）、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调、AgentDefaultsDialog 与 useRunStore
- * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint；标记 `randomizable` 的数字字段如随机种子带「随机」按钮，一键填入区间内随机整数）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪（未部署 / 权重缺失 / **离线合并等产物缺失**）则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**就绪度按「逐产物」判定**（requires 声明每个函数所需产物、assets 是探测结果）——缺离线合并产物时基础权重卷仍是就绪的，只看 volumeReady 会误报「就绪」并放行一个注定在云端 crash-loop 的提交；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
+ * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint；标记 `randomizable` 的数字字段如随机种子带「随机」按钮，一键填入区间内随机整数）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填，注入 nonce 记在**模块作用域**、每次注入只生效一次——避免 RunTab 因就绪度门/Tab 切换卸载重建时把旧草稿重放到表单、点击运行后参数被悄悄改回）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪（未部署 / 权重缺失 / **离线合并等产物缺失**）则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**就绪度按「逐产物」判定**（requires 声明每个函数所需产物、assets 是探测结果）——缺离线合并产物时基础权重卷仍是就绪的，只看 volumeReady 会误报「就绪」并放行一个注定在云端 crash-loop 的提交；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
  * [POS]: Left「功能」Tab；部署、权重与运行都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { AlertTriangle, Check, Dices, Download, ImagePlus, Rocket, SlidersHorizontal, Wand2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
 import { mediaContentPath, mediaContentURL } from "../lib/media";
@@ -34,6 +34,12 @@ interface Props {
 }
 
 const DEFAULT_SOURCE = "huggingface";
+
+// 已消费的注入 nonce 记在**模块作用域**，而不是组件内的 ref：RunTab 会因条件渲染（就绪度门）或
+// Tab 切换被卸载再重建，组件 ref 会随之归零——那样旧的「重新调整参数 / 以此为参考图运行」注入会在
+// 重挂载时被当成新的一次、再次回填，把用户点击「运行」后的表单悄悄改回注入时的旧参数。
+// 放到模块作用域后，同一次会话里每个 nonce 只生效一次，重建组件也不会重放。
+let consumedInjectionNonce = 0;
 
 function labelText(value: LocalLabel | undefined, locale: Locale, fallback: string) {
   if (!value) return fallback;
@@ -140,7 +146,6 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   const [submitting, setSubmitting] = useState(false);
   const [working, setWorking] = useState(false);
   const [defaultsOpen, setDefaultsOpen] = useState(false);
-  const injectedNonceRef = useRef(0);
 
   const modalapp = useMemo(() => modalapps.find((candidate) => candidate.id === activeId) ?? modalapps[0], [modalapps, activeId]);
   const appKey = modalapp?.id ?? "";
@@ -179,8 +184,8 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   }, [appKey, fnKey]);
 
   useEffect(() => {
-    if (!injectedReference || injectedReference.nonce === injectedNonceRef.current) return;
-    injectedNonceRef.current = injectedReference.nonce;
+    if (!injectedReference || injectedReference.nonce === consumedInjectionNonce) return;
+    consumedInjectionNonce = injectedReference.nonce;
     if (injectedReference.error) {
       setHint(interpolate(t(locale, "run.edit-failed"), { error: injectedReference.error }));
       return;

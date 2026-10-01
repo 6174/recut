@@ -1,10 +1,10 @@
 /**
  * [INPUT]: 依赖选中任务详情（modal.task.get）、生成产物（modal.generation.complete）、运行参数（modal.task.params）、持久日志（modal.task.logs）、shadcn Badge/Button/Progress 与 recut.media.preview 全屏预览
- * [OUTPUT]: Right 面板：任务头（状态/取消）+ 生成预览（按 output.kind 渲染图片/视频/音频；图片可全屏预览并含「以此为参考图运行」「重新调整参数」入口）+ **常驻「运行参数」section（始终回显全部参数，参考图带尺寸标注、点击经 asset modal 全屏预览）** + **常驻「运行日志」section（成功任务同样展示完整日志，不再因成功而隐藏）**
+ * [OUTPUT]: Right 面板：任务头（状态/取消）+ 生成预览（按 output.kind 渲染图片/视频/音频；图片可全屏预览并含「以此为参考图运行」「重新调整参数」入口）+ **常驻「运行参数」section（始终回显全部参数，参考图带尺寸标注、点击经 asset modal 全屏预览）** + **常驻「运行日志」section（成功任务同样展示完整日志，不再因成功而隐藏；生成过程中新日志到达时自动贴底滚动，用户上滚查看时不打扰）**
  * [POS]: Right 的统一生产预览 / 参数 / 日志面；参数与日志各自独立成节、恒定可见
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Download, SlidersHorizontal, Wand2, X } from "lucide-react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
@@ -21,6 +21,8 @@ interface Props {
   generation: Generation | null;
   params: GenerationParams | null;
   logs: LogLine[];
+  /** 日志超过单次拉取上限、仍有更早的行未载入时为 true（避免"看着像完整日志"的静默截断）。 */
+  logsTruncated?: boolean;
   locale: Locale;
   onCancel: () => void;
   onSave: (generationId: string, kind: "image" | "video" | "audio") => void;
@@ -144,19 +146,44 @@ function ParamsPanel({ params, locale }: { params: GenerationParams | null; loca
   );
 }
 
-function LogsPanel({ logs, locale }: { logs: LogLine[]; locale: Locale }) {
+/**
+ * 运行日志面板：新日志到达时自动贴住底部（生成过程中始终能看到最新一行）。
+ *
+ * 只在「用户没有主动往上滚」时自动滚动——否则会一边看历史一边被拽回底部。
+ * 判断依据是滚动位置距底部的距离；切换任务时重置为「贴底」。
+ */
+function LogsPanel({ logs, locale, truncated, taskKey }: { logs: LogLine[]; locale: Locale; truncated?: boolean; taskKey?: string }) {
+  const preRef = useRef<HTMLPreElement | null>(null);
+  const stick = useRef(true);
+
+  const handleScroll = () => {
+    const el = preRef.current;
+    if (!el) return;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
+
+  // 切换任务 → 回到「贴底」（effects 按声明顺序执行，先重置再滚动）。
+  useEffect(() => { stick.current = true; }, [taskKey]);
+  useEffect(() => {
+    const el = preRef.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [logs, taskKey]);
+
   return (
     <div className="rounded-lg border bg-terminal p-3 font-mono text-[11px] leading-5 text-terminal-fg">
       {logs.length === 0 ? (
         <span className="text-muted-foreground">{t(locale, "preview.no-logs")}</span>
       ) : (
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap">
-          {logs.map((line, index) => (
-            <div key={index} className={line.level === "error" ? "text-destructive" : line.level === "ok" ? "text-success" : line.level === "warn" ? "text-warning" : ""}>
-              <span className="mr-2 text-muted-foreground">[{line.level}]</span>{line.message}
-            </div>
-          ))}
-        </pre>
+        <>
+          <pre ref={preRef} onScroll={handleScroll} className="max-h-[60vh] overflow-auto whitespace-pre-wrap">
+            {logs.map((line, index) => (
+              <div key={index} className={line.level === "error" ? "text-destructive" : line.level === "ok" ? "text-success" : line.level === "warn" ? "text-warning" : ""}>
+                <span className="mr-2 text-muted-foreground">[{line.level}]</span>{line.message}
+              </div>
+            ))}
+          </pre>
+          {truncated ? <p className="mt-1 text-warning">{interpolate(t(locale, "preview.logs-truncated"), { count: String(logs.length) })}</p> : null}
+        </>
       )}
     </div>
   );
@@ -192,7 +219,7 @@ function OutputPreview({ generation, locale, onEdit }: { generation: Generation;
   );
 }
 
-export function PreviewPane({ task, generation, params, logs, locale, onCancel, onSave, onEdit, onRemix }: Props) {
+export function PreviewPane({ task, generation, params, logs, logsTruncated, locale, onCancel, onSave, onEdit, onRemix }: Props) {
   const running = task?.state === "running";
   const now = useNow(running);
 
@@ -268,7 +295,7 @@ export function PreviewPane({ task, generation, params, logs, locale, onCancel, 
 
       {/* 日志节恒定存在：成功任务同样给出完整日志，与产物/参数并存。 */}
       <Section title={t(locale, "preview.logs")}>
-        <LogsPanel logs={logs} locale={locale} />
+        <LogsPanel logs={logs} locale={locale} truncated={logsTruncated} taskKey={task.id} />
       </Section>
     </div>
   );

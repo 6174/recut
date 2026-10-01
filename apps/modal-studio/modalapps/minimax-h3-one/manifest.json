@@ -5,7 +5,6 @@
     "en": "MiniMax-H3 single-GPU (text/frames/reference)"
   },
   "capability": "video.generate",
-  "referenceImage": { "maxEdge": 1024 },
   "expose": {
     "model": "minimax-h3-one",
     "function": "reference-to-video"

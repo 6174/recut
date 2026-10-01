@@ -1,7 +1,7 @@
 /*
  * [INPUT]: 依赖 ctx.sqlite 保存生成记录/任务账本/设置，ctx.files 读取 python/registry.json（由
- *          modalapps/*\/manifest.json 生成）与读写 token profile 镜像、ctx.media 复制参考素材（提交前按模型的
- *          referenceImage 预算缩到单边上限，见平台 reference_image 层）与导入产物，
+ *          modalapps/*\/manifest.json 生成）与读写 token profile 镜像、ctx.media 复制参考素材（平台统一缩到
+ *          参考图单边上限）与导入产物，
  *          ctx.python.run / ctx.shell.exec 执行可观察本地任务（modal_runner.py：status/catalog/deploy/bootstrap/
  *          invoke/cancel/teardown/secret）
  * [OUTPUT]: 注册首屏轻量负载（modal.overview：只读本机 registry/profiles/设置 + 上次就绪度快照，不拉起 Python）、
@@ -807,27 +807,32 @@ function readTaskLogs(ctx, input) {
   const rows = ctx.sqlite.query("select log_path, shell_job_id, state from modal_tasks where id = ?", [id]);
   if (!rows.length) return { logs: [], nextCursor: null };
   const limit = Math.min(Math.max(Number(input.limit) || 200, 1), 500);
-  const from = Number(input.cursor) || 0;
+  const shellEntries = () => {
+    let live = [];
+    try { live = ctx.shell.logs(rows[0].shell_job_id) || []; } catch (_) { live = []; }
+    return live.map((entry) => { const text = String(entry.text || "").trim(); return { index: entry.sequence || 0, ts: "", level: inferLogLevel(text), message: text }; });
+  };
+  let all;
   if (isActiveJob(rows[0].state) && rows[0].shell_job_id) {
-    let live = [];
-    try { live = ctx.shell.logs(rows[0].shell_job_id) || []; } catch (_) { live = []; }
-    const all = live.map((entry) => { const text = String(entry.text || "").trim(); return { index: entry.sequence || 0, ts: "", level: inferLogLevel(text), message: text }; });
-    return { logs: all.slice(-limit), nextCursor: null };
+    all = shellEntries();
+  } else {
+    const logPath = rows[0].log_path || taskLogPath(id);
+    let raw = "";
+    try { raw = ctx.files.readText(logPath); } catch (_) { raw = ""; }
+    all = raw.split("\n").map((line) => line.trim()).filter(Boolean).map((line, index) => {
+      try { const entry = JSON.parse(line); return { index, ts: entry.ts || "", level: entry.level || "info", message: entry.message || "" }; }
+      catch (_) { return { index, ts: "", level: "info", message: line }; }
+    });
+    if (!all.length && rows[0].shell_job_id) all = shellEntries();
   }
-  const logPath = rows[0].log_path || taskLogPath(id);
-  let raw = "";
-  try { raw = ctx.files.readText(logPath); } catch (_) { raw = ""; }
-  let all = raw.split("\n").map((line) => line.trim()).filter(Boolean).map((line, index) => {
-    try { const entry = JSON.parse(line); return { index, ts: entry.ts || "", level: entry.level || "info", message: entry.message || "" }; }
-    catch (_) { return { index, ts: "", level: "info", message: line }; }
-  });
-  if (!all.length && rows[0].shell_job_id) {
-    let live = [];
-    try { live = ctx.shell.logs(rows[0].shell_job_id) || []; } catch (_) { live = []; }
-    all = live.map((entry) => { const text = String(entry.text || "").trim(); return { index: entry.sequence || 0, ts: "", level: inferLogLevel(text), message: text }; });
-  }
-  const page = all.slice(from, from + limit);
-  return { logs: page, nextCursor: from + limit < all.length ? from + limit : null };
+  // 从**末尾**往回分页：日志面板先拿到最新的（也是真正关心的收尾与报错），`nextCursor` 是本次
+  // 返回页的起始偏移，传回来即可继续取更早的一页。之前是 `slice(from, from + limit)` 从头取，
+  // 长日志只能看到最旧的 limit 行——787 行的任务只显示了前 300 行，最新的一整段全被截掉。
+  const cursorInput = value(input, "cursor");
+  const hasCursor = cursorInput !== undefined && cursorInput !== null && cursorInput !== "";
+  const end = hasCursor ? Math.min(Math.max(Number(cursorInput) || 0, 0), all.length) : all.length;
+  const start = Math.max(0, end - limit);
+  return { logs: all.slice(start, end), nextCursor: start > 0 ? start : null };
 }
 
 function trackedJob(ctx) {
@@ -1325,7 +1330,7 @@ function generate(input, ctx) {
   const referenceIds = [];
   for (const item of collected) {
     try {
-      const materialized = ctx.media.materialize(item.assetId, { reference: true, model: (modalapp.expose && modalapp.expose.model) || modalapp.id });
+      const materialized = ctx.media.materialize(item.assetId);
       const ref = { path: materialized.path, name: materialized.name || item.assetId, mimeType: materialized.mimeType || "" };
       if (item.field) ref.field = item.field;
       refs.push(ref);
