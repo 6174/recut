@@ -106,7 +106,7 @@ modal.modalapp.remove { id }              # 删除用户预设包（内置不可
 | --- | --- | --- | --- | --- |
 | `minimax-h3` | video.generate | 文生视频 / 首尾帧生视频（带原生音频） | `MiniMaxAI/MiniMax-H3`（FL2VA，约 134GB，HF gated） | H200×4 / H100×4 / B200×4 / B200×8 |
 | `minimax-h3-one` | video.generate | 与上同（base 50 步） | 同上权重（共用 `recut-minimax-h3-models` 卷） | RTX PRO 6000 / H100 / H200 / B200 / B300（**单卡 + GPU 快照**） |
-| `minimax-h3-turbo` | video.generate | 文生视频 / 首尾帧生视频（**Turbo 9 步**，带原生音频；LoRA 由 bootstrap 离线合并）；参考生视频走 base 步数（**非 Turbo**） | 同上权重（共用卷）+ Turbo LoRA | RTX PRO 6000 / H200 / B200 / B300（**单卡 + GPU 快照 + 形状预热**） |
+| `minimax-h3-turbo` | video.generate | 文生视频 / 首尾帧生视频（larryvrh **Turbo 9 步**）+ 参考生视频（lightx2v **Turbo 8 步**），带原生音频；两份 LoRA 均由 bootstrap 离线合并 | 同上权重（共用卷）+ 两份 Turbo LoRA | RTX PRO 6000 / H200 / B200 / B300（**单卡 + GPU 快照 + 形状预热**） |
 | `qwen-image-2.1` | image.generate | 文生图 / 图像编辑（最多 10 张参考图） | `Qwen/Qwen-Image-2.1`（约 33GB，原生 2K） | L40S / A100 80GB / H100 / H200 |
 | `sd-turbo` | image.generate | 文生图 / 图生图 | `stabilityai/sd-turbo`（约 3GB） | T4 / A10G |
 

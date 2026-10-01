@@ -314,9 +314,9 @@
                 {
                   "name": "steps",
                   "type": "number",
-                  "default": 50,
-                  "min": 10,
-                  "max": 80
+                  "default": 9,
+                  "min": 5,
+                  "max": 12
                 },
                 {
                   "name": "seed",

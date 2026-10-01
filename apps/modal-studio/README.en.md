@@ -88,7 +88,7 @@ So editing manifests/docs/mocks no longer false-flags "redeploy required", and a
 | --- | --- | --- | --- | --- |
 | `minimax-h3` | video.generate | text-to-video / first-last-frame (native audio) | `MiniMaxAI/MiniMax-H3` (FL2VA, ~134GB, HF-gated) | H200×4 / H100×4 / B200×4 / B200×8 |
 | `minimax-h3-one` | video.generate | same (base 50-step) | same weights (shares the `recut-minimax-h3-models` volume) | RTX PRO 6000 / H100 / H200 / B200 / B300 (**single-GPU + GPU snapshot**) |
-| `minimax-h3-turbo` | video.generate | text-to-video / first-last-frame (**Turbo 9-step**, native audio; LoRA offline-merged in bootstrap); reference-to-video uses base steps (**not Turbo**) | same weights (shared volume) + Turbo LoRA | RTX PRO 6000 / H200 / B200 / B300 (**single-GPU + GPU snapshot + shape warmup**) |
+| `minimax-h3-turbo` | video.generate | text-to-video / first-last-frame (larryvrh **Turbo 9-step**) + reference-to-video (lightx2v **Turbo 8-step**), native audio; both LoRAs offline-merged in bootstrap | same weights (shared volume) + two Turbo LoRAs | RTX PRO 6000 / H200 / B200 / B300 (**single-GPU + GPU snapshot + shape warmup**) |
 | `qwen-image-2.1` | image.generate | text-to-image / image edit (up to 10 references) | `Qwen/Qwen-Image-2.1` (~33GB, native 2K) | L40S / A100 80GB / H100 / H200 |
 | `sd-turbo` | image.generate | text-to-image / image-to-image | `stabilityai/sd-turbo` (~3GB) | T4 / A10G |
 

@@ -8,11 +8,12 @@
           --lora-merge-mode auto 合并进常驻权重，DiT 在线 fp8（SM100+/SM120 映射 mxfp8）常驻、bf16 文本编码器按组件
           流式 offload；类开启 GPU memory snapshot（enable_memory_snapshot + enable_gpu_snapshot），
           @modal.enter(snap=True) 拉起 sglang 子进程后冻结整棵进程树（含子进程 CUDA 状态），冷启动从快照秒级恢复、
-          不再重读权重。H3TurboRef（--model-variant ref2va，服务多模态参考 ref2va）：**不用 FL2VA Turbo LoRA / 合并
-          transformer**（该 LoRA 只训练于 FL2VA 分区），跑官方 Ref2VA 分区 base 步数。generate_video 把表单参数 +
+          不再重读权重。H3TurboRef（--model-variant ref2va，服务多模态参考 ref2va）：走 **Ref2VA 专用的
+          lightx2v ref2v turbo 8 步 LoRA**（离线合并进 Ref2VA transformer；diffusers 命名 + q/k/v 交织，
+          与 FL2VA 那份 larryvrh LoRA 不同源、不可互换）。generate_video 把表单参数 +
           参考素材组装成 SGLang /v1/videos 请求（经 h3_contract，Turbo 默认 9 步，分辨率＝最长边 → 按画幅换算 `target.short_edge`）；
           bootstrap_weights 复用/补下
-          FL2VA+Ref2VA 权重，bootstrap_adapters 下 Turbo LoRA
+          FL2VA+Ref2VA 权重，bootstrap_adapters 下两份 Turbo LoRA（fl2va + ref2va）
 [POS]: minimax-h3 / minimax-h3-one 的「极速版」并列预设包（三选一）：复用同一权重卷，用少步 LoRA + 合成式 fp8 驻留 +
        快注意力（可选）+ GPU 快照，把「少算步、算得快、起得快」落到 Modal。契约与另外两者完全同构（同一 h3_contract），
        区别只在默认步数与 serve 配方
@@ -75,6 +76,23 @@ MERGED_SUBDIR = "transformer"  # 合并产物：/merged/transformer
 USE_TURBO = True
 # Turbo 请求步数＝sigma 网格点数＝去噪次数+1（作者建议 4–8 次去噪 → 网格 5–9）。
 DEFAULT_STEPS = 9 if USE_TURBO else 50
+
+# —— Ref2VA 少步（lightx2v）：纯 PEFT LoRA，可走同一套离线合并，但命名体系不同 ——
+# 与 FL2VA 用的 larryvrh（native 命名，按名直接匹配）不同，lightx2v 是 **diffusers 命名**且 q/k/v 分开：
+#   * 改写：token_refiner.refiner_blocks.*→token_refiner.blocks.*、transformer_blocks.*→blocks.*、
+#           attn.to_out.0→attn.out_proj、ff.net.0.proj→mlp.fc1、ff.net.2→mlp.fc2；
+#   * q/k/v 需按 head 交织融合进 native 的 attn.qkv_proj；
+#   * 缩放 scale = alpha/rank（该仓 alpha=8、rank=128 → 0.0625，**不是** 1.0）。
+# 映射与交织直接复用 SGLang 自带实现（build_minimax_h3_pdd_weights 的 _target_of/_interleave_qkv），
+# 避免自己重写 qkv 布局——那是只有交织顺序错了才会「静默产出坏权重」的地方。
+REF_LORA_REPO = "lightx2v/Minimax-h3-Turbo"
+REF_LORA_FILE = "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors"  # 8 NFE → 请求 9 步
+REF_LORA_DIRNAME = "Minimax-h3-Turbo"
+REF_BASE_TRANSFORMER_SUBDIR = "MiniMax-H3/Ref2VA/transformer"
+REF_MERGED_SUBDIR = "ref2va-transformer"
+REF_MERGED_MARKER = ".recut-merge-ref2va-complete"
+USE_REF_TURBO = True
+DEFAULT_REF_STEPS = 9 if USE_REF_TURBO else 50
 WARMUP_STEPS = 9  # 预热只求触达同一形状的 kernel/分配器，用较少步数即可（省快照构建时间）
 
 # —— 注意力后端 profile（server-wide，部署期固定）——
@@ -184,14 +202,18 @@ bootstrap_image = (
 
 
 def _turbo_flags(variant: str = MODEL_VARIANT) -> list[str]:
-    """Turbo 走**离线合并**后的 transformer（`--component-weights-paths.transformer`），不用运行期 LoRA。
+    """两个分区各自的**离线合并** transformer（`--component-weights-paths.transformer`），不用运行期 LoRA。
 
-    合并产物由 `bootstrap_merge` 写进 /merged/transformer（与 base 同分片布局、仅权重被改写）。
-    **只对 FL2VA 分区生效**：作者明示该 LoRA 训练于 FL2VA，故 ref2va 分区不套用（用官方 Ref2VA 权重）。
+    合并产物由 `bootstrap_merge` 写进 /merged（与 base 同分片布局、仅权重被改写）：
+      * FL2VA（larryvrh turbo 9 步）→ /merged/transformer；
+      * Ref2VA（lightx2v ref2v turbo 8 步）→ /merged/ref2va-transformer。
+    两者是不同的 LoRA、不同的 base 分区，故各合各的、互不通用。
     """
-    if not USE_TURBO or variant != MODEL_VARIANT:
-        return []
-    return ["--component-weights-paths.transformer", f"{MERGED_DIR}/{MERGED_SUBDIR}"]
+    if variant == MODEL_VARIANT:
+        return ["--component-weights-paths.transformer", f"{MERGED_DIR}/{MERGED_SUBDIR}"] if USE_TURBO else []
+    if variant == REF_VARIANT:
+        return ["--component-weights-paths.transformer", f"{MERGED_DIR}/{REF_MERGED_SUBDIR}"] if USE_REF_TURBO else []
+    return []
 
 
 def _server_flags(variant: str = MODEL_VARIANT) -> list[str]:
@@ -258,6 +280,19 @@ def _ensure_server(variant: str = MODEL_VARIANT) -> None:
             raise RuntimeError(
                 f"Turbo 合并权重未就绪：请先 modal.install（缺 {MERGED_DIR}/{MERGED_SUBDIR}）——"
                 "bootstrap 会先下 LoRA，再离线合并进 transformer。")
+        if variant == REF_VARIANT:
+            # 旧共享卷只下过 FL2VA，Ref2VA 分区可能残缺；SGLang 会在启动时报晦涩的
+            # "missing required component directories"，这里提前给出可执行的修复指引。
+            ref_dir = Path(MODELS_DIR) / MODEL_SUBDIR / "Ref2VA"
+            missing = [name for name in ("tokenizer", "video_vae", "transformer") if not (ref_dir / name).is_dir()]
+            if missing:
+                raise RuntimeError(
+                    f"Ref2VA 权重不完整（缺 {ref_dir} 下的 {', '.join(missing)}）：请先 modal.install —— "
+                    "bootstrap_weights 会补下 Ref2VA 分区（旧卷只含 FL2VA 时会缺这些目录）。")
+            if USE_REF_TURBO and not (Path(MERGED_DIR) / REF_MERGED_SUBDIR / "model.safetensors.index.json").is_file():
+                raise RuntimeError(
+                    f"Ref2VA 合并权重未就绪：请先 modal.install（缺 {MERGED_DIR}/{REF_MERGED_SUBDIR}）——"
+                    "bootstrap 会下 lightx2v Ref2VA turbo LoRA 并离线合并进 Ref2VA transformer。")
         command = ["sglang", "serve", *_server_flags(variant)]
         label = ("Turbo 少步配方（离线合并）" if USE_TURBO else "base 配方") if variant == MODEL_VARIANT else "Ref2VA 参考配方"
         print(f"[modal] 启动 SGLang 服务（{label}，variant={variant}）：" + " ".join(command), flush=True)
@@ -419,15 +454,15 @@ class H3Turbo:
 
 
 @app.cls(image=image, gpu="RTX-PRO-6000",
-         volumes={MODELS_DIR: models, OUT_DIR: outputs},
+         volumes={MODELS_DIR: models, MERGED_DIR: merged, OUT_DIR: outputs},
          timeout=3600, max_containers=1, memory=262144,
          enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})
 class H3TurboRef:
     """Ref2VA 分区：服务 ref2va（多模态参考生视频+音频），并要求至少一个参考素材。
 
-    **不套用 Turbo 少步 LoRA / 合并 transformer**：该 LoRA 只训练于 FL2VA 分区（作者明示），故此处走官方
-    Ref2VA 权重与 base 步数（默认 50）；只保留单卡 GPU 快照、fp8 DiT 驻留与形状预热这几项通用优化
-    （因此参考生视频没有 Turbo 的 5–6× 少步收益，属已知边界）。
+    走 **Ref2VA 专用的 lightx2v turbo 8 步 LoRA**（离线合并进 Ref2VA transformer → `/merged/ref2va-transformer`）。
+    它不是 FL2VA 那份 larryvrh LoRA——两者 base 分区与覆盖面都不同——且是 diffusers 命名、需把 q/k/v 交织进
+    `attn.qkv_proj`（见 `_merge_ref2va`）。合并后请求 9 步（8 NFE）。另保留单卡 GPU 快照、fp8 DiT 驻留与形状预热。
     """
 
     @modal.enter(snap=True)
@@ -448,7 +483,7 @@ class H3TurboRef:
 
     @modal.method()
     def generate_video(self, prompt: str, aspectRatio: str = "auto", durationSec: float = 5,
-                       steps: int = 50, seed: int = -1, resolution: str = "", refs=None):
+                       steps: int = DEFAULT_REF_STEPS, seed: int = -1, resolution: str = "", refs=None):
         if not (refs or []):
             raise ValueError("reference-to-video 需要至少一个参考素材（图像/视频/音频）")
         return _run_video(REF_VARIANT, prompt, aspectRatio, durationSec, steps, seed, refs, resolution)
@@ -492,72 +527,45 @@ def bootstrap_weights(source: str = "automatic", repo: str = MODEL_NAME, revisio
 
 @app.function(image=bootstrap_image, volumes={ADAPTERS_DIR: adapters}, timeout=1800)
 def bootstrap_adapters(repo: str = LORA_REPO, filename: str = LORA_FILE, revision: str = "main"):
-    """把 Turbo 少步 LoRA 下载进 /adapters 卷（几百 MB，公开仓库，无需 token）。
+    """把两份少步 LoRA 下载进 /adapters 卷（各约 1GB，公开仓库，无需 token）。
 
-    幂等：适配器文件已存在则直接短路。下游 `bootstrap_merge` 会把它离线合并进 transformer 权重。
+    - FL2VA：larryvrh turbo（native 命名）；
+    - Ref2VA：lightx2v ref2v turbo 8 步（diffusers 命名，见文件头注释）。
+    幂等：文件已存在则短路。下游 `bootstrap_merge` 会分别离线合并进对应分区的 transformer。
     """
     from huggingface_hub import hf_hub_download
 
-    target = Path(ADAPTERS_DIR) / LORA_DIRNAME
-    dest = target / filename
-    if dest.is_file() and dest.stat().st_size > 0:
-        print("[modal] Turbo LoRA 已存在，跳过下载。", flush=True)
-        return {"ready": True, "path": str(dest), "skipped": True}
-    target.mkdir(parents=True, exist_ok=True)
-    print(f"[modal] 下载 Turbo LoRA {repo}/{filename} → {target}…", flush=True)
-    hf_hub_download(repo_id=repo, filename=filename, revision=revision or None, local_dir=str(target))
+    downloaded = []
+    for each_repo, each_file in ((repo, filename), (REF_LORA_REPO, REF_LORA_FILE)):
+        target = Path(ADAPTERS_DIR) / each_repo.split("/")[-1]
+        dest = target / each_file
+        if dest.is_file() and dest.stat().st_size > 0:
+            print(f"[modal] LoRA 已存在，跳过下载：{each_repo}/{each_file}", flush=True)
+        else:
+            target.mkdir(parents=True, exist_ok=True)
+            print(f"[modal] 下载 LoRA {each_repo}/{each_file} → {target}…", flush=True)
+            hf_hub_download(repo_id=each_repo, filename=each_file, revision=revision or None, local_dir=str(target))
+        downloaded.append(str(dest))
     (Path(ADAPTERS_DIR) / ADAPTER_MARKER).write_text("ok", encoding="utf-8")
     adapters.commit()
-    print("[modal] Turbo LoRA 已就绪。", flush=True)
-    return {"ready": True, "path": str(dest)}
+    print("[modal] 两份少步 LoRA 已就绪。", flush=True)
+    return {"ready": True, "paths": downloaded}
 
 
-@app.function(image=image, volumes={MODELS_DIR: models, ADAPTERS_DIR: adapters, MERGED_DIR: merged},
-              timeout=7200, memory=65536)  # CPU 流式：逐分片处理，峰值 ≈ 一个输出分片 + LoRA delta
-def bootstrap_merge(repo: str = LORA_REPO, filename: str = LORA_FILE, revision: str = "main"):
-    """把 Turbo LoRA **离线合并**进 FL2VA transformer，写进 /merged（纯 CPU，无需 GPU）。
+def _copy_companions(base_dir: Path, out_dir: Path) -> None:
+    """原样复制 index 与 config，保证合并产物与 base 同结构。"""
+    for extra in sorted(base_dir.glob("*.json")):
+        (out_dir / extra.name).write_text(extra.read_text(encoding="utf-8"), encoding="utf-8")
 
-    W' = W + B@A（LoRA 仓库 README：alpha == rank，无额外缩放）。按 base 的 13 个分片逐张量处理：
-    命中 LoRA 的张量做合并、其余原样透传，故峰值内存只有「一个输出分片 + LoRA delta」。产物与 base 同布局
-    （分片 + model.safetensors.index.json + config.json），serve 用
-    `--component-weights-paths.transformer /merged/transformer`。
 
-    注意（作者取舍）：合并会把较小的 delta 折进 bf16 权重而损失一点精度（「运行期 LoRA 最锐、合并版
-    a bit softer」）。之所以走合并，是因为当前 sglang build 的运行期 LoRA 会让服务启动即崩（见文件头注释）。
-    """
+def _write_merged_shards(base_dir: Path, out_dir: Path, marker: Path, label: str, apply) -> int:
+    """按 base 的分片流式写出合并结果；`apply(name, weight)` 返回新张量，None 表示原样透传。"""
     import json
 
-    import torch
     from safetensors import safe_open
     from safetensors.torch import save_file
 
-    lora_path = Path(ADAPTERS_DIR) / LORA_DIRNAME / filename
-    base_dir = Path(MODELS_DIR) / BASE_TRANSFORMER_SUBDIR
-    out_dir = Path(MERGED_DIR) / MERGED_SUBDIR
-    marker = Path(MERGED_DIR) / MERGED_MARKER
     index_path = base_dir / "model.safetensors.index.json"
-    if marker.is_file() and (out_dir / "model.safetensors.index.json").is_file():
-        print("[modal] Turbo 合并权重已存在，跳过。", flush=True)
-        return {"ready": True, "path": str(out_dir), "skipped": True}
-    if not lora_path.is_file():
-        raise RuntimeError(f"缺 LoRA：{lora_path}（请先跑 bootstrap_adapters）")
-    if not index_path.is_file():
-        raise RuntimeError(f"缺 base transformer index：{index_path}")
-
-    # 1) LoRA -> {base_tensor_name: (A, B)}（标准命名：<name>.lora_A.weight / <name>.lora_B.weight）
-    deltas: dict = {}
-    with safe_open(str(lora_path), framework="pt", device="cpu") as handle:
-        names = sorted({key.rsplit(".lora_", 1)[0] for key in handle.keys() if ".lora_" in key})
-        for name in names:
-            try:
-                a = handle.get_tensor(name + ".lora_A.weight").to(torch.float32)
-                b = handle.get_tensor(name + ".lora_B.weight").to(torch.float32)
-            except Exception as error:  # noqa: BLE001
-                raise RuntimeError(f"LoRA 键不完整：{name}（{error}）") from error
-            deltas[name + ".weight"] = (a, b)
-    print(f"[modal] LoRA 覆盖 {len(deltas)} 个权重张量。", flush=True)
-
-    # 2) 按 base 分片流式处理，同布局写回 /merged。
     weight_map = json.loads(index_path.read_text(encoding="utf-8"))["weight_map"]
     by_file: dict = {}
     for tensor_name, file_name in weight_map.items():
@@ -569,26 +577,152 @@ def bootstrap_merge(repo: str = LORA_REPO, filename: str = LORA_FILE, revision: 
         with safe_open(str(base_dir / file_name), framework="pt", device="cpu") as handle:
             for tensor_name in by_file[file_name]:
                 weight = handle.get_tensor(tensor_name)
-                delta = deltas.get(tensor_name)
-                if delta is None:
-                    tensors[tensor_name] = weight
-                    continue
-                a, b = delta
-                tensors[tensor_name] = (weight.to(torch.float32) + b @ a).to(weight.dtype)
-                merged_count += 1
+                updated = apply(tensor_name, weight)
+                tensors[tensor_name] = weight if updated is None else updated
+                if updated is not None:
+                    merged_count += 1
         save_file(tensors, str(out_dir / file_name), metadata={"format": "pt"})
         merged.commit()
-        print(f"[modal] {file_name} 已写出。", flush=True)
-
-    # 3) 原样复制 index 与 config，保证与 base 同结构。
-    (out_dir / "model.safetensors.index.json").write_text(index_path.read_text(encoding="utf-8"), encoding="utf-8")
-    for extra in sorted(base_dir.glob("*.json")):
-        if extra.name != "model.safetensors.index.json":
-            (out_dir / extra.name).write_text(extra.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"[modal] {label} {file_name} 已写出。", flush=True)
+    _copy_companions(base_dir, out_dir)
     marker.write_text("ok", encoding="utf-8")
     merged.commit()
-    print(f"[modal] Turbo 合并完成：{merged_count} 个张量已合并 → {out_dir}", flush=True)
-    return {"ready": True, "path": str(out_dir), "merged": merged_count}
+    return merged_count
+
+
+def _merge_fl2va(filename: str) -> dict:
+    """FL2VA（larryvrh，native 命名）：`W' = W + B@A`（该仓 alpha == rank → 无额外缩放）。"""
+    import torch
+    from safetensors import safe_open
+
+    base_dir = Path(MODELS_DIR) / BASE_TRANSFORMER_SUBDIR
+    out_dir = Path(MERGED_DIR) / MERGED_SUBDIR
+    marker = Path(MERGED_DIR) / MERGED_MARKER
+    if marker.is_file() and (out_dir / "model.safetensors.index.json").is_file():
+        print("[modal] FL2VA 合并权重已存在，跳过。", flush=True)
+        return {"ready": True, "path": str(out_dir), "skipped": True}
+    lora_path = Path(ADAPTERS_DIR) / LORA_DIRNAME / filename
+    if not lora_path.is_file():
+        raise RuntimeError(f"缺 FL2VA LoRA：{lora_path}（请先跑 bootstrap_adapters）")
+
+    pairs: dict = {}  # base 张量名 -> (down, up)，延迟到逐分片时再乘（省内存）
+    with safe_open(str(lora_path), framework="pt", device="cpu") as handle:
+        names = sorted({key.rsplit(".lora_", 1)[0] for key in handle.keys() if ".lora_" in key})
+        for name in names:
+            try:
+                pairs[name + ".weight"] = (handle.get_tensor(name + ".lora_A.weight").to(torch.float32),
+                                           handle.get_tensor(name + ".lora_B.weight").to(torch.float32))
+            except Exception as error:  # noqa: BLE001
+                raise RuntimeError(f"LoRA 键不完整：{name}（{error}）") from error
+    print(f"[modal] FL2VA LoRA 覆盖 {len(pairs)} 个权重张量。", flush=True)
+
+    def apply(name: str, weight):
+        pair = pairs.get(name)
+        if pair is None:
+            return None
+        down, up = pair
+        return (weight.to(torch.float32) + up @ down).to(weight.dtype)
+
+    count = _write_merged_shards(base_dir, out_dir, marker, "FL2VA", apply)
+    if count != len(pairs):
+        raise RuntimeError(f"FL2VA 合并不完整：{count}/{len(pairs)} 个 delta 未命中 base，勿使用该产物")
+    print(f"[modal] FL2VA 合并完成：{count} 个张量 → {out_dir}", flush=True)
+    return {"ready": True, "path": str(out_dir), "merged": count}
+
+
+def _merge_ref2va() -> dict:
+    """Ref2VA（lightx2v，diffusers 命名）：映射改写 + q/k/v 交织进 `attn.qkv_proj`，`scale = alpha/rank`。
+
+    映射与交织复用 SGLang 自带实现（`build_minimax_h3_pdd_weights._target_of` / `_interleave_qkv`），
+    保证与官方 PDD 合并路径同一套语义；命中数不符即抛错（宁可失败也不要静默产出坏权重）。
+    """
+    import torch
+    from safetensors import safe_open
+
+    from sglang.multimodal_gen.tools.build_minimax_h3_pdd_weights import _interleave_qkv, _target_of
+
+    base_dir = Path(MODELS_DIR) / REF_BASE_TRANSFORMER_SUBDIR
+    out_dir = Path(MERGED_DIR) / REF_MERGED_SUBDIR
+    marker = Path(MERGED_DIR) / REF_MERGED_MARKER
+    if marker.is_file() and (out_dir / "model.safetensors.index.json").is_file():
+        print("[modal] Ref2VA 合并权重已存在，跳过。", flush=True)
+        return {"ready": True, "path": str(out_dir), "skipped": True}
+    lora_path = Path(ADAPTERS_DIR) / REF_LORA_DIRNAME / REF_LORA_FILE
+    if not lora_path.is_file():
+        raise RuntimeError(f"缺 Ref2VA LoRA：{lora_path}（请先跑 bootstrap_adapters）")
+
+    downs, ups, meta = {}, {}, {}
+    with safe_open(str(lora_path), framework="pt", device="cpu") as handle:
+        meta = handle.metadata() or {}
+        for key in handle.keys():
+            if key.endswith(".lora_A.default.weight"):
+                downs[key[: -len(".lora_A.default.weight")]] = handle.get_tensor(key).to(torch.float32)
+            elif key.endswith(".lora_B.default.weight"):
+                ups[key[: -len(".lora_B.default.weight")]] = handle.get_tensor(key).to(torch.float32)
+    if not downs:
+        raise RuntimeError(f"{lora_path} 不像 lightx2v LoRA（没有 .lora_A.default.weight 键）")
+    rank = int(next(iter(downs.values())).shape[0])  # 从形状取 rank，不依赖 metadata
+    alpha = float(meta.get("alpha", rank))
+    scale = alpha / rank
+    print(f"[modal] Ref2VA LoRA：{len(downs)} 个模块，rank={rank} alpha={alpha} scale={scale}", flush=True)
+
+    pairs, qkv = {}, {}
+    for module, down in downs.items():
+        up = ups.get(module)
+        if up is None:
+            raise RuntimeError(f"LoRA 键不完整：{module}")
+        target = _target_of(module)
+        if target is None:
+            raise RuntimeError(f"diffusers→native 无映射规则：{module}")
+        for role in ("to_q", "to_k", "to_v"):
+            if target.endswith(f".attn.{role}"):
+                qkv.setdefault(target[: -len(f".attn.{role}")], {})[role[-1]] = (down, up)
+                break
+        else:
+            pairs[target + ".weight"] = (down, up)
+    fused = {}
+    for prefix, parts in qkv.items():
+        if set(parts) != {"q", "k", "v"}:
+            raise RuntimeError(f"{prefix} 缺 q/k/v 之一：{sorted(parts)}")
+        fused[prefix + ".attn.qkv_proj.weight"] = parts
+    expected = len(pairs) + len(fused)
+    print(f"[modal] Ref2VA 映射：{len(pairs)} 直连 + {len(fused)} 组 qkv = {expected} 个 native 目标", flush=True)
+
+    def apply(name: str, weight):
+        pair = pairs.get(name)
+        if pair is not None:
+            down, up = pair
+            return (weight.to(torch.float32) + (up @ down) * scale).to(weight.dtype)
+        parts = fused.get(name)
+        if parts is None:
+            return None
+        q, k, v = (parts[role][1] @ parts[role][0] for role in ("q", "k", "v"))
+        return (weight.to(torch.float32) + _interleave_qkv(q, k, v) * scale).to(weight.dtype)
+
+    count = _write_merged_shards(base_dir, out_dir, marker, "Ref2VA", apply)
+    if count != expected:
+        raise RuntimeError(f"Ref2VA 合并不完整：{count}/{expected} 个 delta 未命中 base（映射有误，勿使用该产物）")
+    print(f"[modal] Ref2VA 合并完成：{count} 个张量 → {out_dir}", flush=True)
+    return {"ready": True, "path": str(out_dir), "merged": count}
+
+
+@app.function(image=image, volumes={MODELS_DIR: models, ADAPTERS_DIR: adapters, MERGED_DIR: merged},
+              timeout=7200, memory=65536)  # CPU 流式：逐分片处理，峰值 ≈ 一个输出分片 + LoRA delta
+def bootstrap_merge(repo: str = LORA_REPO, filename: str = LORA_FILE, revision: str = "main"):
+    """把两份少步 LoRA **离线合并**进各自分区的 transformer，写进 /merged（纯 CPU，无需 GPU）。
+
+    - FL2VA（larryvrh，native 命名）→ `/merged/transformer`；
+    - Ref2VA（lightx2v ref2v 8 步，diffusers 命名）→ `/merged/ref2va-transformer`。
+
+    各自按 base 分片逐张量流式处理（其余原样透传），产物与 base 同布局（分片 + index + config），
+    serve 用 `--component-weights-paths.transformer <dir>`；幂等（各有完成标记即跳过）。
+    合并会把较小的 delta 折进 bf16 而损失一点精度（运行期 LoRA 最锐、合并版 a bit softer）——
+    之所以走合并，是因为当前 sglang build 的运行期 LoRA 会让服务启动即崩（见文件头注释）。
+    """
+    result = {"fl2va": _merge_fl2va(filename)}
+    if USE_REF_TURBO:
+        result["ref2va"] = _merge_ref2va()
+    return {"ready": True, **result}
 
 
 def _matches(name: str, allow: list) -> bool:

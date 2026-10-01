@@ -381,8 +381,8 @@
     {
       "id": "reference-to-video",
       "name": {
-        "zh": "参考生视频（图像/视频/音频 · 非 Turbo，base 50 步）",
-        "en": "Reference to video (image/video/audio · not Turbo, base 50 steps)"
+        "zh": "参考生视频（图像/视频/音频 · Turbo 8 步）",
+        "en": "Reference to video (image/video/audio · Turbo 8-step)"
       },
       "entrypoint": "generate_video",
       "minReferences": 1,
@@ -494,16 +494,16 @@
         {
           "key": "steps",
           "type": "number",
-          "default": 50,
-          "min": 10,
-          "max": 80,
+          "default": 9,
+          "min": 5,
+          "max": 12,
           "label": {
-            "zh": "步数（非 Turbo：Ref2VA 无少步 LoRA，走 base 50 步）",
-            "en": "Steps (not Turbo: Ref2VA has no few-step LoRA, base 50)"
+            "zh": "步数（Ref2VA Turbo：lightx2v 8 步 → 请求 9）",
+            "en": "Steps (Ref2VA Turbo: lightx2v 8-step → request 9)"
           },
           "hint": {
-            "zh": "参考生视频用官方 Ref2VA 分区；Turbo 少步 LoRA 只训练于 FL2VA 分区，故此处没有少步加速，默认 50 步＝base 质量档（单卡 RTX PRO 6000 上约 8–12 分钟/片）。想更快可用文生视频/首尾帧函数（Turbo 9 步）。",
-            "en": "Reference-to-video runs the official Ref2VA partition; the Turbo few-step LoRA is FL2VA-only, so this function gets no few-step speedup. Default 50 = base quality (~8-12 min/clip on a single RTX PRO 6000). For speed, use text-to-video / first-last-frame (Turbo 9-step)."
+            "zh": "参考生视频走 Ref2VA 专用的 lightx2v turbo 8 步 LoRA（bootstrap 里离线合并进 Ref2VA transformer）。与 FL2VA 的 9 步同理：请求＝sigma 网格点数＝去噪次数+1，故默认 8 次去噪 → 9。改动会偏离蒸馏调度。",
+            "en": "Reference-to-video uses the Ref2VA-specific lightx2v turbo 8-step LoRA (offline-merged into the Ref2VA transformer at bootstrap). Same convention as FL2VA's 9: request = sigma grid points = denoise evals + 1, so 8 evals → 9. Changing it deviates from the distilled schedule."
           }
         },
         {
@@ -521,7 +521,7 @@
         "aspectRatio": "16:9",
         "resolution": "1536",
         "durationSec": 5,
-        "steps": 50
+        "steps": 9
       },
       "referenceBudgets": [
         {
