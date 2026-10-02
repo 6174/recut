@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖标准 HTTP 客户端、Atlas Cloud Bearer 凭据及已编码的媒体引用
- * [OUTPUT]: 对外提供 Seedance 2.0 Mini 与 Gemini Omni Flash 的视频预测提交和轮询、原生图片生成的提交与 prediction 输出回收
+ * [OUTPUT]: 对外提供 Seedance 2.0 Mini 与 Gemini Omni Flash 的视频预测提交和轮询、原生图片生成的提交与 prediction 输出回收，以及语音生成（xAI TTS / Seed Audio 两种请求形态）
  * [POS]: media/providers/atlas 的协议适配器；不访问 Recut 的 Store、任务或 Asset
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -24,6 +24,10 @@ const (
 	SeedanceMiniReferenceToVideo = "bytedance/seedance-2.0-mini/reference-to-video"
 	GeminiOmniReferenceToVideo   = "google/gemini-omni-flash/reference-to-video"
 	predictionPollInterval       = 2 * time.Second
+	// SpeechStyleSeedAudio selects the ByteDance Seed Audio request shape: the
+	// voice travels inside references[].speaker instead of a top-level voice_id,
+	// and output knobs are format/sample_rate/pitch_rate/speech_rate/loudness_rate.
+	SpeechStyleSeedAudio = "seed-audio"
 )
 
 type GenerateInput struct {
@@ -320,10 +324,14 @@ func SubmitSpeech(client *http.Client, baseURL, secret string, input SpeechInput
 	return prediction, nil
 }
 
-// BuildSpeechPayload assembles the /api/v1/model/generateAudio body, applying
-// the platform defaults (language auto, codec mp3, 24kHz/128kbps). Exported for
-// contract tests.
+// BuildSpeechPayload assembles the /api/v1/model/generateAudio body. Style picks
+// the per-model wire shape: empty keeps the xAI TTS defaults (language auto,
+// codec mp3, 24kHz/128kbps); SpeechStyleSeedAudio uses the Seed Audio shape.
+// Exported for contract tests.
 func BuildSpeechPayload(input SpeechInput) map[string]any {
+	if input.Style == SpeechStyleSeedAudio {
+		return seedAudioSpeechPayload(input)
+	}
 	payload := map[string]any{"model": input.Model, "text": input.Text, "language": input.Language, "codec": input.Codec, "sample_rate": input.SampleRate, "bit_rate": input.BitRate}
 	if text, _ := payload["language"].(string); strings.TrimSpace(text) == "" {
 		payload["language"] = "auto"
@@ -346,16 +354,47 @@ func BuildSpeechPayload(input SpeechInput) map[string]any {
 	return payload
 }
 
-// SpeechInput carries an Atlas speech generation request (xAI TTS v1 schema).
+// seedAudioSpeechPayload builds the ByteDance Seed Audio 1.0 body: the voice is
+// a preset speaker id submitted inside references[].speaker (omitted for
+// text-only generation), and the output knobs are format/sample_rate plus rate
+// offsets. There is no language/codec/bit_rate/voice_id field upstream.
+func seedAudioSpeechPayload(input SpeechInput) map[string]any {
+	format := strings.TrimSpace(input.Format)
+	if format == "" {
+		format = "mp3"
+	}
+	sampleRate := input.SampleRate
+	if sampleRate == 0 {
+		sampleRate = 24000
+	}
+	payload := map[string]any{
+		"model": input.Model, "text": input.Text,
+		"format": format, "sample_rate": sampleRate,
+		"pitch_rate": input.PitchRate, "speech_rate": input.SpeechRate, "loudness_rate": input.LoudnessRate,
+	}
+	if input.VoiceID != "" {
+		payload["references"] = []map[string]any{{"speaker": input.VoiceID}}
+	}
+	return payload
+}
+
+// SpeechInput carries an Atlas speech generation request. Style selects the
+// per-model wire shape (empty = xAI TTS v1, SpeechStyleSeedAudio = Seed Audio).
 type SpeechInput struct {
 	Model      string
 	Text       string
 	Language   string
 	VoiceID    string
 	Codec      string
+	Format     string
 	SampleRate int
 	BitRate    int
 	Speed      float64
+	Style      string
+	PitchRate  float64
+	SpeechRate float64
+	// LoudnessRate is the Seed Audio loudness offset (mapped from Output.volume).
+	LoudnessRate float64
 }
 
 // payloadFor builds the upstream video request from already-validated,

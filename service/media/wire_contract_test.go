@@ -230,6 +230,23 @@ func TestCatalogWireContract(t *testing.T) {
 			"language": "auto", "codec": "mp3", "sample_rate": 24000, "bit_rate": 128000,
 		})
 	})
+	t.Run("atlas seed-audio references payload", func(t *testing.T) {
+		body := atlas.BuildSpeechPayload(atlas.SpeechInput{
+			Model: "bytedance/seed-audio-1.0", Text: "你好", VoiceID: "zh_female_vv_uranus_bigtts",
+			Style: atlas.SpeechStyleSeedAudio, Format: "mp3", SampleRate: 24000, SpeechRate: 15,
+		})
+		assertBody(t, "atlas seed-audio", body, map[string]any{
+			"model": "bytedance/seed-audio-1.0", "text": "你好", "format": "mp3", "sample_rate": 24000,
+			"pitch_rate": float64(0), "speech_rate": float64(15), "loudness_rate": float64(0),
+			"references": []map[string]any{{"speaker": "zh_female_vv_uranus_bigtts"}},
+		})
+		// Seed Audio 不接受 xAI TTS 的顶层字段，混入即协议错误。
+		for _, absent := range []string{"voice_id", "codec", "language", "bit_rate", "speed"} {
+			if _, present := body[absent]; present {
+				t.Fatalf("seed-audio payload leaked %s: %#v", absent, body)
+			}
+		}
+	})
 	t.Run("minimax speech reserved keys", func(t *testing.T) {
 		for _, modelID := range []string{"minimax/speech-2.8-hd", "minimax/speech-2.8-turbo"} {
 			model := models[modelID]

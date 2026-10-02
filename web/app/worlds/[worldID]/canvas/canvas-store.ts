@@ -872,8 +872,25 @@ type WorldCanvasState = {
   // 正式实体产 revision，草稿不产。media 属性值 = {assetId, name?, kind?}
   saveEntityField: (
     entity: WorldEntity,
-    patch: { name?: string; intro?: string; detail?: string; attrKey?: string; attrLabel?: string; attrType?: EntityAttr["type"]; attrOptions?: string[]; value?: unknown },
+    patch: {
+      name?: string;
+      intro?: string;
+      detail?: string;
+      attrKey?: string;
+      attrLabel?: string;
+      attrType?: EntityAttr["type"];
+      attrOptions?: string[];
+      value?: unknown;
+      /** 字段行管理（按 attrKey 定位已有属性，缺失即忽略）：attrRename=改 label；attrRemove=删除；attrClear=清空值 */
+      attrRename?: string;
+      attrRemove?: boolean;
+      attrClear?: boolean;
+    },
   ) => Promise<void>;
+  /** 类型级字段重命名（entityTypes schema，作用于该类型所有设定，不产 revision） */
+  renameTypeField: (typeId: string, fieldKey: string, label: string) => Promise<void>;
+  /** 类型级字段删除（entityTypes schema，作用于该类型所有设定，不产 revision） */
+  removeTypeField: (typeId: string, fieldKey: string) => Promise<void>;
   // 确认设定（草稿 → 正式，产 revision）
   confirmEntity: (entityId: string) => Promise<void>;
   // 删除设定（影响范围确认后调用；后端软删除：归档子图 + 关系入墓碑，可 restoreEntity 撤销）
@@ -2384,8 +2401,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     let attrIndex = -1;
     if (patch.attrKey !== undefined) {
       attrIndex = attrs.findIndex((attr) => attr.key === patch.attrKey);
-      if (attrIndex >= 0) attrs[attrIndex] = { ...attrs[attrIndex], value: patch.value };
-      else attrs.push({ key: patch.attrKey, label: patch.attrLabel ?? patch.attrKey, type: patch.attrType ?? "text", ...(patch.attrOptions?.length ? { options: [...patch.attrOptions] } : {}), ...(patch.value !== undefined ? { value: patch.value as unknown } : {}) });
+      // 字段行管理（attrRename/attrRemove/attrClear）只作用于已存在的属性，缺失即忽略（不新建）
+      const managing = patch.attrRemove === true || patch.attrClear === true || patch.attrRename !== undefined;
+      if (attrIndex >= 0) {
+        if (patch.attrRemove) attrs.splice(attrIndex, 1);
+        else if (patch.attrRename !== undefined) attrs[attrIndex] = { ...attrs[attrIndex], label: patch.attrRename };
+        else if (patch.attrClear) attrs[attrIndex] = { ...attrs[attrIndex], value: undefined };
+        else attrs[attrIndex] = { ...attrs[attrIndex], value: patch.value };
+      } else if (!managing) attrs.push({ key: patch.attrKey, label: patch.attrLabel ?? patch.attrKey, type: patch.attrType ?? "text", ...(patch.attrOptions?.length ? { options: [...patch.attrOptions] } : {}), ...(patch.value !== undefined ? { value: patch.value as unknown } : {}) });
     }
     const name = patch.name !== undefined ? patch.name : entity.name;
     const intro = patch.intro !== undefined ? patch.intro : entity.intro;
@@ -2415,15 +2438,30 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         dataVersion: state.dataVersion + 1,
       }));
       // 语义撤销（T12）：单字段回写旧值；attr 新建撤销 = 旧值 undefined
-      const undoPatch: { name?: string; intro?: string; detail?: string; attrKey?: string; attrLabel?: string; attrType?: EntityAttr["type"]; value?: unknown } = {};
+      const undoPatch: { name?: string; intro?: string; detail?: string; attrKey?: string; attrLabel?: string; attrType?: EntityAttr["type"]; attrOptions?: string[]; value?: unknown; attrRename?: string; attrRemove?: boolean; attrClear?: boolean } = {};
       if (patch.name !== undefined) undoPatch.name = entity.name;
       if (patch.intro !== undefined) undoPatch.intro = entity.intro;
       if (patch.detail !== undefined) undoPatch.detail = entity.detail;
       if (patch.attrKey !== undefined) {
+        const before = entity.attrs?.find((attr) => attr.key === patch.attrKey);
         undoPatch.attrKey = patch.attrKey;
-        undoPatch.attrLabel = patch.attrLabel;
         undoPatch.attrType = patch.attrType;
-        undoPatch.value = attrIndex >= 0 ? entity.attrs?.[attrIndex]?.value : undefined;
+        if (patch.attrRename !== undefined) {
+          // 撤销改名 = 写回旧 label
+          undoPatch.attrRename = before?.label;
+        } else if (patch.attrRemove) {
+          // 撤销删除 = 按旧值重建该属性（saveEntityField 会从旧快照整包回写，label/type/value 原样）
+          undoPatch.attrLabel = before?.label ?? patch.attrLabel;
+          undoPatch.attrType = before?.type ?? patch.attrType;
+          undoPatch.attrOptions = before?.options;
+          undoPatch.value = before?.value;
+        } else if (patch.attrClear) {
+          // 撤销重置 = 恢复旧值
+          undoPatch.value = before?.value;
+        } else {
+          undoPatch.attrLabel = patch.attrLabel;
+          undoPatch.value = attrIndex >= 0 ? entity.attrs?.[attrIndex]?.value : undefined;
+        }
       }
       get().logChange(
         `修改「${name}」`,
@@ -2433,6 +2471,51 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           return current ? get().saveEntityField(current, patch) : undefined;
         },
       );
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
+  },
+
+  // 类型级字段管理（字段区「管理字段」icon）：改 entityTypes schema，作用于该类型所有设定。
+  // 与 AddFieldDialog 同一写路径（entityTypes.upsert + 全量 load），schema 写不产 revision。
+  renameTypeField: async (typeId, fieldKey, label) => {
+    const { apiBase, worldId } = get();
+    const type = get().entityTypes.find((item) => item.id === typeId);
+    const trimmed = label.trim();
+    if (!type || !trimmed) return;
+    try {
+      await createRecutWorldsClient(apiBase).entityTypes.upsert({
+        worldId,
+        id: type.id,
+        name: type.name,
+        icon: type.icon,
+        color: type.color,
+        baseKind: type.baseKind,
+        fields: type.fields.map((field) => (field.key === fieldKey ? { ...field, label: trimmed } : field)),
+      });
+      await get().load(true);
+      get().toast(`字段已重命名为「${trimmed}」`, "success");
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
+  },
+
+  removeTypeField: async (typeId, fieldKey) => {
+    const { apiBase, worldId } = get();
+    const type = get().entityTypes.find((item) => item.id === typeId);
+    if (!type) return;
+    try {
+      await createRecutWorldsClient(apiBase).entityTypes.upsert({
+        worldId,
+        id: type.id,
+        name: type.name,
+        icon: type.icon,
+        color: type.color,
+        baseKind: type.baseKind,
+        fields: type.fields.filter((field) => field.key !== fieldKey),
+      });
+      await get().load(true);
+      get().toast("字段已删除", "success");
     } catch (cause) {
       applyCanvasError(cause);
     }

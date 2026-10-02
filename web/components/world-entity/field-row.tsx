@@ -2,6 +2,7 @@
  * [INPUT]: 依赖 react、lucide-react、recut-worlds-client 类型、asset-preview-dialog、asset-reference-picker
  * [OUTPUT]: 共享实体编辑原语（RFC 统一 Entity 模型 P1，供画布 EntityPanel 与设定视图 EntitySettingsPanel 复用）：
  * FieldRow（单行/多行/开关字段就地编辑，blur 或 ⌘↵ 保存；展示态长文本 line-clamp-4 折叠 + 展开/收起；
+ * 行尾可选注入 manage（FieldManageMenu 字段管理入口）；
  * 编辑态多行限高 + 放大全屏编辑器 FullscreenTextEditor）、AssetFieldRow（type=media 素材字段：槽位 +
  * 全局素材选择浮层 + 点击已填素材走 AssetPreviewDialog，值统一存 {assetId,name,kind}）、
  * parseAssetValue / typeLabelOf / needsClamp（type 目录 name → 统一类型文案；needsClamp 亦供富文本字段复用）；FullscreenTextEditor 亦供画布就地编辑器复用
@@ -12,7 +13,7 @@
 "use client";
 
 import { Maximize2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
@@ -50,6 +51,7 @@ export function FieldRow({
   boolean,
   readOnly,
   hideLabel,
+  manage,
   onSave,
 }: {
   label: string;
@@ -60,6 +62,8 @@ export function FieldRow({
   readOnly?: boolean;
   /** 宿主已用分组标题表达字段名时隐藏行内 label（避免标题与字段名重复） */
   hideLabel?: boolean;
+  /** 字段管理入口（FieldManageMenu）；展示态渲染在行尾，编辑态不渲染 */
+  manage?: ReactNode;
   onSave: (value: string | boolean) => Promise<void> | void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -117,15 +121,18 @@ export function FieldRow({
     return (
       <div className="flex items-center justify-between gap-2">
         {hideLabel ? null : <p className="text-[11px] font-medium text-muted-foreground">{label}</p>}
-        <button
-          aria-label={`切换${label}`}
-          aria-pressed={on}
-          className={`relative h-5 w-9 rounded-full border transition-colors ${on ? "border-primary bg-primary" : "bg-muted"}`}
-          onClick={() => void onSave(!on)}
-          type="button"
-        >
-          <span className={`absolute top-0.5 size-3.5 rounded-full bg-background transition-transform ${on ? "translate-x-4.5" : "translate-x-0.5"}`} />
-        </button>
+        <span className="flex items-center gap-2">
+          {manage}
+          <button
+            aria-label={`切换${label}`}
+            aria-pressed={on}
+            className={`relative h-5 w-9 rounded-full border transition-colors ${on ? "border-primary bg-primary" : "bg-muted"}`}
+            onClick={() => void onSave(!on)}
+            type="button"
+          >
+            <span className={`absolute top-0.5 size-3.5 rounded-full bg-background transition-transform ${on ? "translate-x-4.5" : "translate-x-0.5"}`} />
+          </button>
+        </span>
       </div>
     );
   }
@@ -165,6 +172,7 @@ export function FieldRow({
         >
           ✎
         </button>
+        {manage}
       </span>
     );
     const valueClass = `break-words whitespace-pre-wrap rounded px-1 py-0.5 text-left text-sm leading-6 hover:bg-muted/60 ${value ? "" : "text-muted-foreground/60"} ${clamped ? "line-clamp-4" : `${expanded ? "max-h-[48vh] overflow-y-auto" : ""} block`}`;
@@ -308,6 +316,7 @@ export function AssetFieldRow({
   value,
   kinds,
   readOnly,
+  manage,
   onSave,
 }: {
   apiBase: string;
@@ -315,6 +324,8 @@ export function AssetFieldRow({
   value: unknown;
   kinds?: ("image" | "video" | "audio")[];
   readOnly?: boolean;
+  /** 字段管理入口（FieldManageMenu） */
+  manage?: ReactNode;
   onSave: (value: unknown) => Promise<void> | void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -348,12 +359,15 @@ export function AssetFieldRow({
     <div>
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-        {asset && !readOnly && (
-          <span className="flex gap-1">
-            <button className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setPickerOpen(true)} type="button">更换</button>
-            <button className="text-[10px] text-muted-foreground hover:text-destructive" onClick={() => void onSave(null)} type="button">清除</button>
-          </span>
-        )}
+        <span className="flex items-center gap-2">
+          {manage}
+          {asset && !readOnly && (
+            <span className="flex gap-1">
+              <button className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setPickerOpen(true)} type="button">更换</button>
+              <button className="text-[10px] text-muted-foreground hover:text-destructive" onClick={() => void onSave(null)} type="button">清除</button>
+            </span>
+          )}
+        </span>
       </div>
       {asset ? (
         <button className="group relative mt-1 block h-20 w-full overflow-hidden rounded-md border" onClick={openMedia} title={`${asset.name ?? label} · 点击查看详情`} type="button">

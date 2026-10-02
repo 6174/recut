@@ -100,6 +100,31 @@ func TestCatalogModelVoicesTagPerModel(t *testing.T) {
 	}
 }
 
+// TestSeedAudioIsVoiceTTSWhenVoicesPresent：Seed Audio 的名字不含 tts/speech，
+// 一旦目录/种子给出 per-model voices，isVoiceTTSModel 必须接纳它，否则它会从音频
+// 选择器中消失（回归：曾因命名启发式被误判为通用音频理解模型而被过滤）。
+func TestSeedAudioIsVoiceTTSWhenVoicesPresent(t *testing.T) {
+	model := MediaModel{
+		ID: "atlas-cloud/bytedance/seed-audio-1.0", Name: "Seed Audio 1.0",
+		APIModelID: "bytedance/seed-audio-1.0", Capability: SpeechGenerate, Available: true,
+		Voices: seedModelVoicesFor("atlas-cloud/bytedance/seed-audio-1.0"),
+	}
+	if len(model.Voices) == 0 {
+		t.Fatal("seed-audio voices missing from seed table")
+	}
+	if !isTextToSpeechModel(model) {
+		t.Fatal("seed-audio must not be filtered as non-TTS")
+	}
+	provider := MediaProvider{ID: "atlas-cloud", Name: "Atlas Cloud", Protocol: "atlas", Models: []MediaModel{model}}
+	if !isVoiceTTSModel(provider, model) {
+		t.Fatal("seed-audio with voices must be treated as a voice TTS model")
+	}
+	models := speechModelsFor(provider, SpeechGenerate)
+	if len(models) != 1 || models[0].ID != model.ID {
+		t.Fatalf("seed-audio dropped from speech models: %+v", models)
+	}
+}
+
 func mustModel(t *testing.T, id string) MediaModel {
 	t.Helper()
 	model, ok := modelByID(id)

@@ -52,14 +52,23 @@ func (m *MediaService) submitAtlasSpeech(job MediaJob, credential MediaCredentia
 	if err != nil {
 		return m.failSubmittedJob(job, err)
 	}
-	codec := outputString(job.Output, "codec", "mp3")
-	prediction, err := atlas.SubmitSpeech(mediaHTTPClient, apiBaseFor(credential), secret, atlas.SpeechInput{
+	input := atlas.SpeechInput{
 		Model: model.APIModelID, Text: job.Prompt, Language: outputString(job.Output, "language", "auto"),
-		VoiceID: speechVoiceID(job), Codec: codec,
+		VoiceID: speechVoiceID(job), Codec: outputString(job.Output, "codec", "mp3"),
 		SampleRate: int(outputNumber(job.Output, "sampleRate", 24000)),
 		BitRate:    int(outputNumber(job.Output, "bitRate", 128000)),
 		Speed:      outputNumber(job.Output, "speed", 0),
-	})
+		Style:      model.SpeechStyle,
+	}
+	// Seed Audio 走 references[].speaker + format/rate 形态：平台 reserved 键
+	// speed/pitch/volume 分别映射到 speech_rate/pitch_rate/loudness_rate。
+	if model.SpeechStyle == atlas.SpeechStyleSeedAudio {
+		input.Format = outputString(job.Output, "format", "mp3")
+		input.SpeechRate = outputNumber(job.Output, "speed", 0)
+		input.PitchRate = outputNumber(job.Output, "pitch", 0)
+		input.LoudnessRate = outputNumber(job.Output, "volume", 0)
+	}
+	prediction, err := atlas.SubmitSpeech(mediaHTTPClient, apiBaseFor(credential), secret, input)
 	if err != nil {
 		return m.failSubmittedJob(job, err)
 	}

@@ -49,9 +49,13 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
       readOnly={readOnly}
       relationTypes={store.relationTypes}
       relations={relations}
-      saveField={(patch) => store.saveEntityField(entity, patch)}
+      // 取当前 store 快照的实体（而非渲染期 prop）：连续字段编辑间 prop 可能仍指向旧快照，
+      // 全量 attrs 替换语义下会丢掉上一步的改动；字段管理（改名/删除/重置）同样依赖最新 attrs。
+      saveField={(patch) => store.saveEntityField(useWorldCanvasStore.getState().entities.find((item) => item.id === entity.id) ?? entity, patch)}
       typeLabel={typeLabelOf(entity, entityTypes)}
       onAddTypeField={() => store.setAddFieldFor(entity.typeId)}
+      onRenameTypeField={(fieldKey, label) => store.renameTypeField(entity.typeId, fieldKey, label)}
+      onRemoveTypeField={(fieldKey) => store.removeTypeField(entity.typeId, fieldKey)}
       onCreateRelation={async (toEntityId, relationType) => {
         await store.createRelation(entity.id, toEntityId, relationType);
       }}

@@ -5,7 +5,8 @@
  * （名称/简介/正文 FieldRow 即改即存）、字段区（type schema 字段 + schema 外属性直接续排同一渲染路径——媒体
  * 属性与普通属性同一条渲染路径，不再有独立「参考素材」网格 + ＋添加属性（文本/长文本/数字/开关/
  * 素材（图片/视频/音频），通用「素材」选项已移除，媒体拍平经 options 携 kind）+ ＋添加字段（宿主
- * 接类型级对话框））、关系区（双向列表 + 受控词表内联建立）；useEntityEditorSaver（统一保存器：
+ * 接类型级对话框）+ 字段行管理 icon（FieldManageMenu：重命名 / 重置内容 / 删除字段——实例属性作用于
+ * 当前实体，类型字段作用于整个类型且 locked 预设字段仅可重置内容））、关系区（双向列表 + 受控词表内联建立）；useEntityEditorSaver（统一保存器：
  * attrs 全量替换语义的局部 patch，revision 冲突 → 刷新 revision → 重试一次）
  * [POS]: web/components/world-entity 的统一编辑容器；不依赖 store，画布与设定视图注入各自的动作
  * （saveField/rename/createRelation 等宿主钩子）；实体媒体唯一表示 = media attrs（卡面图源 =
@@ -22,6 +23,7 @@ import { useLocaleStore } from "@/lib/i18n/locale-store";
 import { buildEntityContext } from "@/lib/world-entity/guided";
 import { PanelSection } from "@/components/panel-section";
 import { AssetFieldRow, FieldRow, parseAssetValue } from "./field-row";
+import { FieldManageMenu, type FieldManage } from "./field-manage-menu";
 import { GuidedAiSection } from "./guided-ai-section";
 import { RichFieldRow } from "./rich-field-row";
 
@@ -35,6 +37,10 @@ export type EntitySavePatch = {
   attrType?: EntityAttr["type"];
   attrOptions?: string[];
   value?: unknown;
+  /** 字段行管理（按 attrKey 定位已有属性；属性不存在则忽略）：attrRename=改 label；attrRemove=删除；attrClear=清空值 */
+  attrRename?: string;
+  attrRemove?: boolean;
+  attrClear?: boolean;
 };
 
 // 关系列表的统一投影：双向语义，out = 我指向对方；role = 观察端这一侧的语义 token
@@ -80,6 +86,8 @@ export function EntityEditor({
   guided,
   saveField,
   onAddTypeField,
+  onRenameTypeField,
+  onRemoveTypeField,
   onCreateRelation,
   tail,
 }: {
@@ -105,6 +113,10 @@ export function EntityEditor({
   saveField: (patch: EntitySavePatch) => Promise<void>;
   /** 类型级「添加字段」对话框（宿主实现；设定视图可不接） */
   onAddTypeField?: () => void;
+  /** 类型级字段重命名（作用于该类型所有设定，仅画布宿主注入） */
+  onRenameTypeField?: (fieldKey: string, label: string) => Promise<void> | void;
+  /** 类型级字段删除（作用于该类型所有设定，仅画布宿主注入） */
+  onRemoveTypeField?: (fieldKey: string) => Promise<void> | void;
   onCreateRelation?: (toEntityId: string, relationType: string) => Promise<void> | void;
   /** 宿主自定义的尾部区域（草稿徽标/子设定等置于编辑器之后） */
   tail?: ReactNode;
@@ -135,6 +147,33 @@ export function EntityEditor({
   const [pickRelationTarget, setPickRelationTarget] = useState(false);
   const [pendingTargetId, setPendingTargetId] = useState<string | null>(null);
   const [relationQuery, setRelationQuery] = useState("");
+
+  // 字段管理（FieldManageMenu 能力注入）：
+  // - 实例级属性（schema 外）：重命名 / 删除 / 重置内容都只作用于当前实体；
+  // - 类型 schema 字段：改名 / 删除作用于该类型所有设定（仅宿主注入类型级动作时开放），
+  //   locked 预设字段结构锁定，只可重置内容；
+  // - readOnly 世界不渲染管理入口。
+  const instanceManage = (attr: EntityAttr): FieldManage => ({
+    canRename: true,
+    canRemove: true,
+    onRename: (label) => saveField({ attrKey: attr.key, attrRename: label }),
+    onRemove: () => saveField({ attrKey: attr.key, attrRemove: true }),
+    onReset: () => saveField({ attrKey: attr.key, attrClear: true }),
+  });
+  const typeFieldManage = (field: EntityTypeField): FieldManage => {
+    const locked = field.locked === true;
+    const scopeHint = locked ? "预设字段：不可改名 / 删除" : onRenameTypeField || onRemoveTypeField ? `作用于所有「${typeLabel}」设定` : undefined;
+    return {
+      canRename: !locked && Boolean(onRenameTypeField),
+      canRemove: !locked && Boolean(onRemoveTypeField),
+      ...(scopeHint ? { scopeHint } : {}),
+      ...(!locked && onRemoveTypeField ? { removeHint: "各设定上已填的内容会保留为动态属性" } : {}),
+      onRename: (label) => onRenameTypeField?.(field.key, label),
+      onRemove: () => onRemoveTypeField?.(field.key),
+      onReset: () => saveField({ attrKey: field.key, attrClear: true }),
+    };
+  };
+  const manageNode = (label: string, manage: FieldManage) => (readOnly ? undefined : <FieldManageMenu label={label} manage={manage} />);
 
   return (
     <div className="space-y-4 text-sm">
@@ -170,6 +209,8 @@ export function EntityEditor({
         ) : undefined}
       >
         {fields.map((field) => {
+          const label = field.label ?? field.key;
+          const manage = manageNode(label, typeFieldManage(field));
           if (field.type === "media") {
             const kinds = (field.options ?? []).filter((option): option is "image" | "video" | "audio" => option === "image" || option === "video" || option === "audio");
             return (
@@ -177,8 +218,9 @@ export function EntityEditor({
                 apiBase={apiBase}
                 key={field.key}
                 kinds={kinds.length ? kinds : undefined}
-                label={field.label ?? field.key}
-                onSave={(value) => saveField({ attrKey: field.key, attrType: "media", value })}
+                label={label}
+                manage={manage}
+                onSave={(value) => saveField({ attrKey: field.key, attrLabel: label, attrType: "media", value })}
                 readOnly={readOnly}
                 value={entityAttrValueOf(entity, field.key)}
               />
@@ -189,9 +231,10 @@ export function EntityEditor({
               <FieldRow
                 boolean
                 key={field.key}
-                label={field.label ?? field.key}
+                label={label}
+                manage={manage}
                 readOnly={readOnly}
-                onSave={(value) => saveField({ attrKey: field.key, value: value === "true" })}
+                onSave={(value) => saveField({ attrKey: field.key, attrLabel: label, value: value === "true" })}
                 value={entityAttrValueOf(entity, field.key) === true ? "true" : "false"}
               />
             );
@@ -201,9 +244,10 @@ export function EntityEditor({
               <RichFieldRow
                 apiBase={apiBase}
                 key={field.key}
-                label={field.label ?? field.key}
+                label={label}
+                manage={manage}
                 minRows={2}
-                onSave={(value) => saveField({ attrKey: field.key, value })}
+                onSave={(value) => saveField({ attrKey: field.key, attrLabel: label, value })}
                 pinnedOptions={pinnedOptions}
                 placeholder={field.placeholder}
                 readOnly={readOnly}
@@ -214,21 +258,24 @@ export function EntityEditor({
           return (
             <FieldRow
               key={field.key}
-              label={field.label ?? field.key}
+              label={label}
+              manage={manage}
               placeholder={field.placeholder}
               readOnly={readOnly}
-              onSave={(value) => saveField({ attrKey: field.key, value: field.type === "number" && value !== "" && !Number.isNaN(Number(value)) ? Number(value) : value })}
+              onSave={(value) => saveField({ attrKey: field.key, attrLabel: label, value: field.type === "number" && value !== "" && !Number.isNaN(Number(value)) ? Number(value) : value })}
               value={entityAttrTextOf(entity, field.key)}
             />
           );
         })}
         {/* schema 外属性：无独立分区，直接续排在字段列表（属性同一真相，无需「其他」容器语义） */}
-        {extraAttrs.map((attr) =>
-          attr.type === "media" ? (
+        {extraAttrs.map((attr) => {
+          const manage = manageNode(attr.label ?? attr.key, instanceManage(attr));
+          return attr.type === "media" ? (
             <AssetFieldRow
               apiBase={apiBase}
               key={attr.key}
               label={attr.label ?? attr.key}
+              manage={manage}
               onSave={(value) => saveField({ attrKey: attr.key, attrType: "media", value })}
               readOnly={readOnly}
               value={entityAttrValueOf(entity, attr.key)}
@@ -238,6 +285,7 @@ export function EntityEditor({
               apiBase={apiBase}
               key={attr.key}
               label={attr.label ?? attr.key}
+              manage={manage}
               minRows={2}
               onSave={(value) => saveField({ attrKey: attr.key, value })}
               pinnedOptions={pinnedOptions}
@@ -248,12 +296,13 @@ export function EntityEditor({
             <FieldRow
               key={attr.key}
               label={attr.label ?? attr.key}
+              manage={manage}
               value={entityAttrTextOf(entity, attr.key)}
               readOnly={readOnly}
               onSave={(value) => saveField({ attrKey: attr.key, value: attr.type === "number" && typeof value === "string" && value !== "" && !Number.isNaN(Number(value)) ? Number(value) : value })}
             />
-          ),
-        )}
+          );
+        })}
         {!readOnly && <AddAttrRow disabled={!entity} onSave={saveField} />}
       </PanelSection>
 
@@ -348,8 +397,14 @@ export function useEntityEditorSaver(input: {
       const attrs: EntityAttr[] = (base?.attrs ?? []).map((attr) => ({ ...attr }));
       if (patch.attrKey !== undefined) {
         const index = attrs.findIndex((attr) => attr.key === patch.attrKey);
-        if (index >= 0) attrs[index] = { ...attrs[index], value: patch.value };
-        else
+        // 字段行管理（attrRename/attrRemove/attrClear）只作用于已存在的属性，缺失即忽略（不新建）
+        const managing = patch.attrRemove === true || patch.attrClear === true || patch.attrRename !== undefined;
+        if (index >= 0) {
+          if (patch.attrRemove) attrs.splice(index, 1);
+          else if (patch.attrRename !== undefined) attrs[index] = { ...attrs[index], label: patch.attrRename };
+          else if (patch.attrClear) attrs[index] = { ...attrs[index], value: undefined };
+          else attrs[index] = { ...attrs[index], value: patch.value };
+        } else if (!managing)
           attrs.push({
             key: patch.attrKey,
             label: patch.attrLabel ?? patch.attrKey,

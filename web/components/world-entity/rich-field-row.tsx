@@ -8,7 +8,7 @@
 "use client";
 
 import { Maximize2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
 import type { ContextOption } from "@/lib/context-catalog/types";
@@ -24,6 +24,7 @@ export function RichFieldRow({
   minRows,
   pinnedOptions,
   readOnly,
+  manage,
   apiBase,
   onSave,
 }: {
@@ -33,6 +34,8 @@ export function RichFieldRow({
   minRows?: number;
   pinnedOptions?: ContextOption[];
   readOnly?: boolean;
+  /** 字段管理入口（FieldManageMenu）；展示态渲染在行尾 */
+  manage?: ReactNode;
   apiBase: string;
   onSave: (value: string) => Promise<void> | void;
 }) {
@@ -109,6 +112,7 @@ export function RichFieldRow({
             >
               ✎
             </button>
+            {manage}
           </span>
         </div>
         <button

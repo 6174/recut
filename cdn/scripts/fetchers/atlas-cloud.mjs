@@ -8,6 +8,8 @@
  *                注意：GET /v1/models 是 LLM 列表，不含媒体模型，不再使用。
  *   transform —— catalog 条目按 type（image/video/audio，chat 排除）→ capability；
  *                pricing 归一化（image $x/张、video $x/秒含分辨率分档、token 价 $x/M）；
+ *                语音模型从 schema 提取 per-model 音色（voice/voice_id 或
+ *                references[].speaker 枚举）与请求形态 speechStyle（如 "seed-audio"）；
  *                sources/atlas-cloud.models.json 策展段优先（补 referenceBudgets）；
  *                sources/atlas-cloud.pricing.json 人工价格优先；overrides.json 修正面。
  *
@@ -139,32 +141,42 @@ function schemaSurface(schema) {
   return { parameters, referenceFields };
 }
 
+/** voice 参数（enum + x-enum-options）→ 音色清单；无枚举返回 null。 */
+function voicesFromVoiceParam(voiceParam) {
+  if (!Array.isArray(voiceParam?.enum) || !voiceParam.enum.length) return null;
+  const options = voiceParam["x-enum-options"] ?? {};
+  return voiceParam.enum
+    .filter((id) => typeof id === "string" && id)
+    .map((id) => {
+      const option = options[id] ?? {};
+      const voice = { id, name: option.name || id, category: option.language || "multilingual" };
+      if (option.example) voice.previewUrl = option.example;
+      return voice;
+    });
+}
+
+/** 定位承载音色的 schema 参数：顶层 voice/voice_id，或 references[].speaker（Seed Audio 形态）。 */
+function voiceParamFromSchema(schema) {
+  const properties = schema?.components?.schemas?.Input?.properties ?? {};
+  return properties.voice_id ?? properties.voice ?? properties.references?.items?.properties?.speaker;
+}
+
 /**
- * 从模型 schema（OpenAPI）提取 per-model 内置音色清单：voice/voice_id 参数的
- * enum + x-enum-options（name / example 试听 mp3 / language）。音色随模型走，
- * 不同 TTS 模型的音色集不通用；解析失败返回 null（模型照常上架，只是无 voices）。
+ * 从已解析的模型 schema（OpenAPI）提取 per-model 内置音色清单：voice/voice_id 或
+ * references[].speaker 的 enum + x-enum-options（name / example 试听 mp3 / language）。
+ * 音色随模型走，不同 TTS 模型的音色集不通用；解析失败返回 null（模型照常上架，只是无 voices）。
  */
-async function voicesFromSchema(schemaURL) {
-  if (!schemaURL) return null;
-  try {
-    const response = await fetch(schemaURL, { signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) return null;
-    const schema = await response.json();
-    const properties = schema?.components?.schemas?.Input?.properties ?? {};
-    const voiceParam = properties.voice_id ?? properties.voice;
-    if (!Array.isArray(voiceParam?.enum) || !voiceParam.enum.length) return null;
-    const options = voiceParam["x-enum-options"] ?? {};
-    return voiceParam.enum
-      .filter((id) => typeof id === "string" && id)
-      .map((id) => {
-        const option = options[id] ?? {};
-        const voice = { id, name: option.name || id, category: option.language || "multilingual" };
-        if (option.example) voice.previewUrl = option.example;
-        return voice;
-      });
-  } catch {
-    return null;
-  }
+function voicesFromSchemaObject(schema) {
+  return voicesFromVoiceParam(voiceParamFromSchema(schema));
+}
+
+/**
+ * 从 schema 推断语音请求形态：音色经 references[].speaker 提交的（Seed Audio）标记为
+ * "seed-audio"，其余留空走默认 xAI/tts 形状。纯 schema 判定，不硬编码模型 ID。
+ */
+function speechStyleFromSchema(schema) {
+  const properties = schema?.components?.schemas?.Input?.properties ?? {};
+  return properties.references?.items?.properties?.speaker ? "seed-audio" : "";
 }
 
 export default {
@@ -217,6 +229,9 @@ export default {
     }
     // 逐模型拉取上游 schema：参数面由 schema 驱动，新增模型零代码。
     const schemas = await mapLimit(upstream, 12, ({ entry }) => readSchema(entry.schema_url));
+    // 语音模型的音色/请求形态统一在下方按 platform 模型 ID 回查 schema：catalog 优先，
+    // /v1/models 的 enrichment schema 兜底（两者多为同一 URL）。
+    const schemaByPlatformID = new Map();
     for (let index = 0; index < upstream.length; index += 1) {
       const { entry, platformBase } = upstream[index];
       const kind = entry.media_type ?? entry.type;
@@ -240,6 +255,7 @@ export default {
       // 非语音：schema 抓到就落 parameters（即使为空数组 = 声明「无可调项」），
       // 让 applyModelSurfaces 能区分「已解析为空」与「没有 schema」。
       const schema = schemas[index];
+      if (schema) schemaByPlatformID.set(platformID, schema);
       const surface = capability === "speech.generate" || !schema ? null : schemaSurface(schema);
       const outputKey = capability === "image.generate" ? "image" : capability === "video.generate" ? "video" : "speech";
       models.set(platformID, {
@@ -266,13 +282,17 @@ export default {
       if (override.summary || override.docsUrl || override.tags) model.meta = { ...model.meta, summary: override.summary, docsUrl: override.docsUrl, tags: override.tags };
       if (override.status) model.status = override.status;
     }
-    // per-model 内置音色：语音模型从其 schema 的 voice 枚举提取（音色随模型走，
-    // 不同 TTS 模型的音色集不通用；缺 schema 或解析失败照常上架，不带 voices）。
+    // per-model 内置音色与请求形态：语音模型从其 schema 提取（音色随模型走，不同 TTS
+    // 模型的音色集不通用）。不再按模型名猜 TTS——ASR/音乐等没有音色枚举，自然为空；
+    // 缺 schema 或解析失败照常上架，只是不带 voices/speechStyle。
     for (const model of models.values()) {
-      if (model.capability !== "speech.generate" || !/tts|speech/i.test(model.apiModelId ?? model.id)) continue;
-      const schemaURL = enrich.get(model.apiModelId)?.schema;
-      const voices = await voicesFromSchema(schemaURL);
+      if (model.capability !== "speech.generate") continue;
+      const schema = (await readSchema(enrich.get(model.apiModelId)?.schema)) ?? schemaByPlatformID.get(model.id) ?? null;
+      if (!schema) continue;
+      const voices = voicesFromSchemaObject(schema);
       if (voices?.length) model.voices = voices;
+      const speechStyle = speechStyleFromSchema(schema);
+      if (speechStyle) model.speechStyle = speechStyle;
     }
     return {
       provider: { id: "atlas-cloud", name: "Atlas Cloud", protocol: "atlas", defaultApiBase: API_BASE },

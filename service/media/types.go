@@ -117,6 +117,10 @@ type MediaModel struct {
 	// Voices 是该模型自己的内置音色清单（如 Atlas 各 TTS 模型 schema 的 voice 枚举）。
 	// 空表示模型不声明 per-model 音色：调用方回退到 provider 级动态 voices 或扩展清单。
 	Voices []MediaVoice `json:"voices,omitempty"`
+	// SpeechStyle 选择 speech.generate 的上游请求形态：空 = 默认（xAI TTS 形状，
+	// 顶层 voice_id + codec/language/bit_rate）；"seed-audio" = 音色经
+	// references[].speaker 提交，并使用 format/sample_rate/speech_rate 等字段。
+	SpeechStyle string `json:"speechStyle,omitempty"`
 	// RequiresProposal extends the user-confirmation gate to this model's
 	// capability: generation must first land as a `proposed` asset and only
 	// spends provider cost after the user confirms. Video is gated by
