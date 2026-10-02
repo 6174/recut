@@ -373,7 +373,7 @@ function WorldDetailContent() {
       setRelationTypes(typeRelationsCache.get(`${apiBase}:${worldId}`) ?? []);
     }).catch(() => {});
   }
-  async function createVideoFromStory(storyID: string) {
+  async function createVideoFromStory(workID: string) {
     setNotice("");
     try {
       const apps = (await (
@@ -393,7 +393,7 @@ function WorldDetailContent() {
       const project = (await response.json()) as { id: string };
       await createRecutWorldsClient(apiBase).project.put(project.id, {
         worldId,
-        selection: { storyId: storyID, purpose: "video" },
+        selection: { workId: workID, purpose: "video" },
       });
       window.location.assign(`/projects/${project.id}`);
     } catch (cause) {

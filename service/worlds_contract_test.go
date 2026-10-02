@@ -21,6 +21,7 @@ import (
 var worldsReadTools = []string{
 	"recut.worlds.list", "recut.worlds.get", "recut.worlds.entities.list", "recut.worlds.entities.get",
 	"recut.worlds.entityTypes.list", "recut.worlds.doc", "recut.worlds.docs",
+	"recut.worlds.production",
 	"recut.worlds.revisions.list", "recut.worlds.export", "recut.worlds.proposals.list",
 }
 
@@ -31,6 +32,7 @@ var worldsSessionTools = []string{"recut.worlds.lock", "recut.worlds.unlock"}
 var worldsContentWriteTools = []string{
 	"recut.worlds.entity", "recut.worlds.relation", "recut.worlds.entityType",
 	"recut.worlds.doc.update", "recut.worlds.promote",
+	"recut.worlds.production.plan", "recut.worlds.production.apply",
 }
 
 // worldsLifecycleTools 是世界级生命周期/元数据工具（不是实体内容编辑）。
@@ -43,7 +45,7 @@ var worldsLifecycleTools = []string{
 var worldsBroadcastTools = []string{
 	"recut.worlds.create", "recut.worlds.update", "recut.worlds.doc.update", "recut.worlds.promote",
 	"recut.worlds.entity", "recut.worlds.relation", "recut.worlds.entityType", "recut.worlds.revert",
-	"recut.worlds.import",
+	"recut.worlds.import", "recut.worlds.production.plan", "recut.worlds.production.apply",
 }
 
 // retiredWorldsTools 是已从 MCP 面下线的工具（方案 A 收口）。

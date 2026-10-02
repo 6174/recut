@@ -992,7 +992,7 @@ type WorldBriefWorld struct {
 
 type WorldBriefFacts struct {
 	Characters []map[string]any `json:"characters"`
-	Stories    []map[string]any `json:"stories"`
+	Scripts    []map[string]any `json:"scripts"`
 	Locations  []map[string]any `json:"locations"`
 	Styles     []map[string]any `json:"styles"`
 }
@@ -1058,7 +1058,7 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 		},
 		Identity:   world.Identity,
 		Skill:      canonicalString(canonical, "skill"),
-		Facts:      WorldBriefFacts{Characters: []map[string]any{}, Stories: []map[string]any{}, Locations: []map[string]any{}, Styles: []map[string]any{}},
+		Facts:      WorldBriefFacts{Characters: []map[string]any{}, Scripts: []map[string]any{}, Locations: []map[string]any{}, Styles: []map[string]any{}},
 		Evidence:   []WorldEvidence{},
 		References: []WorldBriefReference{},
 		Missing:    []WorldBriefMissing{},
@@ -1071,8 +1071,8 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 	for _, id := range selection.EntityIDs {
 		selected[id] = true
 	}
-	if selection.StoryID != "" {
-		selected[selection.StoryID] = true
+	if selection.WorkID != "" {
+		selected[selection.WorkID] = true
 	}
 	includeAll := len(selected) == 0
 
@@ -1097,8 +1097,9 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 			switch baseKind {
 			case "character":
 				brief.Facts.Characters = append(brief.Facts.Characters, view)
-			case "story":
-				brief.Facts.Stories = append(brief.Facts.Stories, view)
+			case "script", "story":
+				// `story` is legacy (retired, merged into `script`).
+				brief.Facts.Scripts = append(brief.Facts.Scripts, view)
 			case "location":
 				brief.Facts.Locations = append(brief.Facts.Locations, view)
 			case "style":
@@ -1115,6 +1116,17 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 				}
 			}
 		}
+	}
+
+	// World-level attributes replace the retired `style`/`rule` entity types
+	// (生产层 RFC §5); merge them on top of any legacy entities.
+	if style := worldStyleView(world.Identity); style != nil {
+		brief.Facts.Styles = append([]map[string]any{style}, brief.Facts.Styles...)
+	}
+	if constraints := worldConstraintsFromIdentity(world.Identity); len(constraints.Always)+len(constraints.Never)+len(constraints.Prefer) > 0 {
+		brief.Constraints.Always = append(brief.Constraints.Always, constraints.Always...)
+		brief.Constraints.Never = append(brief.Constraints.Never, constraints.Never...)
+		brief.Constraints.Prefer = append(brief.Constraints.Prefer, constraints.Prefer...)
 	}
 
 	desiredRoles := map[string]bool{}

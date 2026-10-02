@@ -9,7 +9,7 @@
 export type WorldKind = "character_ip" | "creator_brand" | "brand" | "fiction_world" | "custom";
 // Entity type id: preset ids autocomplete, any custom id allowed (type 目录开放)。
 // The legacy "reference" preset is retired — media attrs cover it.
-export type EntityKind = "character" | "location" | "object" | "story" | "script" | "style" | "rule" | (string & {});
+export type EntityKind = "character" | "location" | "script" | (string & {});
 export type WorldPurpose = "chat" | "video" | "voice" | "image" | "cover" | "agent";
 export type Page<T> = { items: T[]; nextCursor?: string };
 
@@ -176,7 +176,7 @@ export type WorldEntity = WorldEntitySummary & {
 };
 
 export type WorldSelection = {
-  storyId?: string;
+  workId?: string;
   entityIds?: string[];
   assetRoles?: string[];
   purpose: WorldPurpose;
@@ -277,15 +277,12 @@ export const worldKindLabels: Record<WorldKind, string> = {
   custom: "自定义",
 };
 
-// 与服务端 type 目录 name 统一文案（T11：「角色」→「人物」；目录缺失时兜底）
+// 与服务端 type 目录 name 统一文案（T11：「角色」→「人物」；目录缺失时兜底）。
+// 默认集是精简可运行的核心（生产层 RFC §5）：谁 / 在哪 / 拍什么；其余类型由用户按需自建。
 export const entityKindLabels: Record<EntityKind, string> = {
   character: "人物",
   location: "场景",
-  object: "物件",
-  story: "故事",
   script: "视频脚本",
-  style: "风格",
-  rule: "规则",
 };
 
 export function entityKindLabel(typeId: string): string {

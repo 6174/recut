@@ -94,15 +94,19 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 	for _, item := range types {
 		byID[item.ID] = item
 	}
-	for _, id := range []string{"character", "location", "object", "story", "style", "rule"} {
+	// The default set is the minimal, runnable core (生产层 RFC §5).
+	for _, id := range []string{"character", "location", "script"} {
 		if _, ok := byID[id]; !ok {
 			t.Fatalf("preset type %q not seeded", id)
 		}
 	}
-	// The reference preset is retired (media attrs cover it): its unused
-	// builtin row must be archived out of the directory.
-	if _, ok := byID["reference"]; ok {
-		t.Fatal("retired reference preset must not appear in the type directory")
+	// Retired presets must not appear: `reference` (media attrs cover it),
+	// `rule`/`style` (world-level identity.constraints / identity.style now),
+	// `story` (merged into script), `object` (optional extension).
+	for _, id := range []string{"reference", "object", "story", "style", "rule"} {
+		if _, ok := byID[id]; ok {
+			t.Fatalf("retired preset %q must not appear in the type directory", id)
+		}
 	}
 	character := byID["character"]
 	if character.Scope != "builtin" || !character.Builtin {
@@ -148,7 +152,7 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 			}
 		}
 	}
-	for _, id := range []string{"location", "object", "story", "style"} {
+	for _, id := range []string{"location", "script"} {
 		hasBackground := false
 		for _, field := range byID[id].Fields {
 			if field.Key == "background" && field.Type == "media" && !field.Locked {

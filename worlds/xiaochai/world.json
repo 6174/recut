@@ -12,7 +12,20 @@
         "做心理/情绪/生活哲学类短视频的创作者",
         "深夜陪伴类内容创作者"
       ],
-      "tone": "安静、温润、认真、一点怀旧"
+      "tone": "安静、温润、认真、一点怀旧",
+      "constraints": {
+        "always": [
+          "主产出为 9:16 竖屏插画短片 30-60 秒，由关键帧 + 微动作生成视频；角色设定 / 表情集 1:1 九宫格（3x3）；场景关键帧 9:16；每张单独生成，不拼图。",
+          "每帧只有一个暖光源；光源必须参与叙事（被点燃 / 被打开 / 被调亮）；火柴人与物件受同一光源照射，光晕柔和渐隐入深褐暗部；四周 vignette 压暗。"
+        ],
+        "never": [
+          "不给火柴人加衣服、头发、手指细节、3D 体积感；背景不要二次元 / 厚涂 / 赛博感；不要冷色主光、不要白天强光场景；不要鸡汤励志大字。"
+        ],
+        "prefer": []
+      },
+      "style": {
+        "guidance": "整体深褐/焦糖/暗琥珀色域，画面四周压暗成 vignette；唯一暖光源居中偏下照亮小柴与手边物件，光晕柔和渐隐；小柴为黑色线稿（头内留底色），物件写实但手绘质感；一图一光源一情绪"
+      }
     }
   },
   "entityTypes": [
@@ -58,20 +71,6 @@
       "scope": null
     },
     {
-      "id": "r-03",
-      "type": "references",
-      "from": "example-candle-table",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-04",
-      "type": "references",
-      "from": "example-living-room",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
       "id": "r-05",
       "type": "located_in",
       "from": "xiaochai",
@@ -90,27 +89,6 @@
       "type": "located_in",
       "from": "example-living-room",
       "to": "scene-system",
-      "scope": null
-    },
-    {
-      "id": "r-08",
-      "type": "part_of",
-      "from": "rule-format",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-09",
-      "type": "part_of",
-      "from": "rule-light",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-10",
-      "type": "part_of",
-      "from": "rule-no-cute",
-      "to": "style-dna",
       "scope": null
     },
     {

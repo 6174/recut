@@ -12,7 +12,21 @@
         "写中文文章、方法论、工作流内容的创作者"
       ],
       "positioning": "中文知识型内容的正文配图体系",
-      "tone": "怪诞、克制、手绘、清爽"
+      "tone": "怪诞、克制、手绘、清爽",
+      "constraints": {
+        "always": [
+          "16:9 横版中文正文配图；每张单独生成，不把多张图拼在一张里。"
+        ],
+        "never": [
+          "不要商业插画、PPT 信息图、正式流程图、课程课件、可爱卡通海报、复杂架构图、科技感 UI、真实 App 截图；不要左上角写类型标题。"
+        ],
+        "prefer": [
+          "黑为主体线稿；橙只用于主路径 / 箭头，红只用于重点 / 问题 / 结果，蓝只用于补充说明 / 系统状态；宁可少不要多。"
+        ]
+      },
+      "style": {
+        "guidance": "纯白背景（无米色/纸纹/渐变/阴影）；细线轻微抖动；主体占 40%-60%，≥35% 留白；批注 5-8 处、每处 2-8 字；一图一核心结构"
+      }
     }
   },
   "entityTypes": [
@@ -172,30 +186,6 @@
       "type": "appears_in",
       "from": "xiaohei",
       "to": "example-14-trust-bridge"
-    },
-    {
-      "id": "f97fce5d58dd500dd2d1d150:r-29",
-      "type": "part_of",
-      "from": "rule-color",
-      "to": "style-dna"
-    },
-    {
-      "id": "f97fce5d58dd500dd2d1d150:r-30",
-      "type": "part_of",
-      "from": "rule-no-ppt",
-      "to": "style-dna"
-    },
-    {
-      "id": "f97fce5d58dd500dd2d1d150:r-31",
-      "type": "part_of",
-      "from": "rule-format",
-      "to": "style-dna"
-    },
-    {
-      "id": "229e8d848cbed5b4d521b656",
-      "type": "风格",
-      "from": "xiaohei",
-      "to": "style-dna"
     }
   ],
   "provenance": {

@@ -80,16 +80,27 @@ type readinessEvidenceSpec struct {
 	suggestion string
 }
 
+// readinessWorldAttrSpec declares a world-level attribute expectation: the
+// attributes that replaced the `style` / `rule` entity types (生产层 RFC §5).
+// key is an `identity` key: "style" | "constraints".
+type readinessWorldAttrSpec struct {
+	key        string
+	title      string
+	reason     string
+	suggestion string
+}
+
 // scenarioBlueprint is the declarative target shape of one start-point.
 type scenarioBlueprint struct {
 	id           string
 	entities     []readinessEntitySpec
+	worldAttrs   []readinessWorldAttrSpec
 	evidence     []readinessEvidenceSpec
 	requireSkill bool
 }
 
 var scenarioBlueprints = map[string]scenarioBlueprint{
-	// 小说/故事 → 故事世界：角色群、故事线、场景与世界观规则。
+	// 小说/故事 → 故事世界：角色群、作品（脚本）、场景。
 	ScenarioNovelAdaptation: {
 		entities: []readinessEntitySpec{
 			{kind: "character", title: "主角角色", count: 1, fields: []readinessFieldSpec{
@@ -97,50 +108,46 @@ var scenarioBlueprints = map[string]scenarioBlueprint{
 				{key: "personality", title: "性格与行为", reason: "没有性格依据，故事与对白会失真"},
 				{key: "voice", title: "声音与说话方式", reason: "配音与对白没有语气基准"},
 			}},
-			{kind: "story", title: "故事线", count: 1, fields: []readinessFieldSpec{
-				{key: "premise", title: "故事前提", reason: "AI 不知道这个世界想讲什么"},
+			{kind: "script", title: "作品（视频脚本）", count: 1, fields: []readinessFieldSpec{
+				{key: "logline", title: "一句话概括", reason: "AI 不知道这个世界想讲什么"},
 			}},
 			{kind: "location", title: "主要场景", count: 1, fields: []readinessFieldSpec{
 				{key: "description", title: "场景描述", reason: "画面没有可依赖的空间与氛围依据"},
 			}},
 		},
 	},
-	// IP/社媒账号 → 内容账号世界：人设、内容风格与代表作证据。
+	// IP/社媒账号 → 内容账号世界：人设、内容风格（世界属性）与代表作证据。
 	ScenarioIPAccount: {
 		entities: []readinessEntitySpec{
 			{kind: "character", title: "账号人设", count: 1, fields: []readinessFieldSpec{
 				{key: "personality", title: "人设与语气", reason: "没有语气基准，AI 写出的内容会不像这个账号"},
 				{key: "voice", title: "表达方式", reason: "句式与表达习惯缺少可执行描述"},
 			}},
-			{kind: "style", title: "内容风格", count: 1, fields: []readinessFieldSpec{
-				{key: "guidance", title: "内容风格规范", reason: "选题域与语言规范缺失，产出会漂移"},
-			}},
+		},
+		worldAttrs: []readinessWorldAttrSpec{
+			{key: "style", title: "内容风格", reason: "选题域与语言规范缺失，产出会漂移", suggestion: "在「世界风格」里写清视觉/语气规范"},
 		},
 		evidence: []readinessEvidenceSpec{
 			{purpose: "visual_style", modality: "image", count: 2, title: "代表作或视觉资产", suggestion: "上传头像/封面/代表作截图，或粘贴账号链接让 AI 收集"},
 		},
 		requireSkill: true,
 	},
-	// 风格表达 → 风格生产世界（小黑同款）：风格 DNA、规则集、示例证据与生产工作流。
+	// 风格表达 → 风格生产世界（小黑同款）：世界风格 + 约束 + 示例证据与工作流。
 	ScenarioStyleSystem: {
-		entities: []readinessEntitySpec{
-			{kind: "style", title: "风格 DNA", count: 1, fields: []readinessFieldSpec{
-				{key: "guidance", title: "风格 guidance", reason: "AI 生成时没有可执行的风格口径"},
-			}},
-			{kind: "rule", title: "创作规则", count: 1},
+		worldAttrs: []readinessWorldAttrSpec{
+			{key: "style", title: "风格 DNA", reason: "AI 生成时没有可执行的风格口径", suggestion: "在「世界风格」里写清视觉语言"},
+			{key: "constraints", title: "创作规则", reason: "没有硬约束，产出会越界", suggestion: "在「世界约束」里写 always / never"},
 		},
 		evidence: []readinessEvidenceSpec{
 			{purpose: "visual_style", modality: "image", count: 3, title: "风格示例图", suggestion: "上传示例图集，或让 AI 生成候选后挑选采纳"},
 		},
 		requireSkill: true,
 	},
-	// 品牌手册 → 品牌世界：视觉系统、规则与 VI 证据。
+	// 品牌手册 → 品牌世界：视觉系统（世界属性）、约束与 VI 证据。
 	ScenarioBrandGuide: {
-		entities: []readinessEntitySpec{
-			{kind: "style", title: "视觉系统", count: 1, fields: []readinessFieldSpec{
-				{key: "guidance", title: "视觉与文案规范", reason: "色板、字体与用法缺少可执行描述"},
-			}},
-			{kind: "rule", title: "品牌规则", count: 1},
+		worldAttrs: []readinessWorldAttrSpec{
+			{key: "style", title: "视觉系统", reason: "色板、字体与用法缺少可执行描述", suggestion: "在「世界风格」里写清视觉与文案规范"},
+			{key: "constraints", title: "品牌规则", reason: "没有硬约束，产出会不合规", suggestion: "在「世界约束」里写 always / never"},
 		},
 		evidence: []readinessEvidenceSpec{
 			{purpose: "visual_style", modality: "image", count: 1, title: "Logo 与 VI 资产", suggestion: "上传品牌手册或 logo 源文件"},
@@ -154,12 +161,11 @@ var scenarioBlueprints = map[string]scenarioBlueprint{
 
 // requiredFieldsByKind is the substance registry: which content fields make an
 // entity "real" for readiness purposes. Mirrors the web form field registry.
+// Only the default set (生产层 RFC §5) is listed; custom types fall back to the
+// generic "any non-empty string" rule in entitySubstantive.
 var requiredFieldsByKind = map[string][]string{
 	EntityTypeCharacter: {"appearance", "personality", "voice", "invariants"},
-	EntityTypeStory:     {"premise", "moment", "emotion"},
 	EntityTypeScript:    {"logline", "beats"},
-	EntityTypeStyle:     {"visual", "guidance", "avoid"},
-	EntityTypeRule:      {"text"},
 	EntityTypeLocation:  {"description", "atmosphere"},
 }
 
@@ -323,6 +329,20 @@ func computeReadiness(snapshot readinessSnapshot, scenarioID string) WorldReadin
 		}
 	}
 
+	// 3b. World-level attributes (identity.style / identity.constraints): the
+	// attributes that replaced the `style` / `rule` entity types (生产层 RFC §5).
+	for _, spec := range blueprint.worldAttrs {
+		if !identityAttrPresent(snapshot.Identity, spec.key) {
+			missing = append(missing, MissingItem{
+				ID:         fmt.Sprintf("worldattr.%s", spec.key),
+				Kind:       "entity",
+				Title:      spec.title,
+				Reason:     spec.reason,
+				Suggestion: spec.suggestion,
+			})
+		}
+	}
+
 	// 4. World skill (world.md): the production workflow dimension.
 	if blueprint.requireSkill && strings.TrimSpace(snapshot.SkillMd) == "" {
 		missing = append(missing, MissingItem{
@@ -387,6 +407,26 @@ func computeReadiness(snapshot readinessSnapshot, scenarioID string) WorldReadin
 		missing = []MissingItem{}
 	}
 	return WorldReadiness{ScenarioID: scenario, Level: level, Score: score, Missing: missing}
+}
+
+// identityAttrPresent reports whether a world-level attribute carries content.
+// Handles the JSON-unmarshalled shapes: string, []any, map[string]any.
+func identityAttrPresent(identity map[string]any, key string) bool {
+	value, ok := identity[key]
+	if !ok || value == nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []any:
+		return len(typed) > 0
+	case map[string]any:
+		return len(typed) > 0
+	case bool:
+		return typed
+	}
+	return false
 }
 
 func missingRank(item MissingItem) int {

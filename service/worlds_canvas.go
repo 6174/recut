@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -91,18 +92,22 @@ func ListWorldRelationTypes() []map[string]any {
 // an entity is its instance. Custom types live per-world; presets are copied in
 // as builtin rows and can be overridden in place (RFC §5.4).
 type WorldEntityType struct {
-	ID        string            `json:"id"`
-	WorldID   string            `json:"worldId"`
-	Scope     string            `json:"scope"` // preset | builtin | custom
-	Name      string            `json:"name"`
-	Icon      string            `json:"icon,omitempty"`
-	Color     string            `json:"color,omitempty"`
-	BaseKind  string            `json:"baseKind,omitempty"`
-	Fields    []EntityTypeField `json:"fields"`
-	ExtendsID string            `json:"extendsId,omitempty"`
-	Builtin   bool              `json:"builtin"`
-	CreatedAt string            `json:"createdAt"`
-	UpdatedAt string            `json:"updatedAt"`
+	ID       string            `json:"id"`
+	WorldID  string            `json:"worldId"`
+	Scope    string            `json:"scope"` // preset | builtin | custom
+	Name     string            `json:"name"`
+	Icon     string            `json:"icon,omitempty"`
+	Color    string            `json:"color,omitempty"`
+	BaseKind string            `json:"baseKind,omitempty"`
+	Fields   []EntityTypeField `json:"fields"`
+	// ChildTypes declares (advisory) which child types a node of this type may
+	// contain — the machine-readable production shape (作品→场次→镜头). Empty
+	// means "no declaration"; containment truth stays `parentId`.
+	ChildTypes []string `json:"childTypes,omitempty"`
+	ExtendsID  string   `json:"extendsId,omitempty"`
+	Builtin    bool     `json:"builtin"`
+	CreatedAt  string   `json:"createdAt"`
+	UpdatedAt  string   `json:"updatedAt"`
 }
 
 // EntityTypeField is one field schema entry inside a type's fields_json.
@@ -124,16 +129,17 @@ type EntityTypeField struct {
 // locked (structure pinned) except the explicit background field, which every
 // preset carries unlocked: when set it overrides the entity card's default
 // media-attrs carousel background (RFC 统一 Entity 模型 §背景).
-// The reference preset is intentionally gone: media attrs cover it.
+//
+// The default set is deliberately minimal, accurate and runnable (生产层 RFC §5):
+// 谁(character) / 在哪(location) / 拍什么(script). Everything else is the user's
+// to add:
+//   - `reference` retired earlier (media attrs cover it);
+//   - `rule` → world-level `identity.constraints` (always/never/prefer);
+//   - `style` → world-level `identity.style` (one world = one STYLE LOCK);
+//   - `story` → merged into `script` (script is the superset: logline + beats
+//     already carry the narrative core, plus the producible spec);
+//   - `object` → not seeded (key props are a common but optional extension).
 var presetEntityTypeFields = map[string][]EntityTypeField{
-	"object": {
-		{Key: "description", Label: "描述", Type: "textarea", Locked: true},
-		{Key: "material", Label: "材质", Type: "text", Locked: true},
-		{Key: "origin", Label: "来历", Type: "textarea", Locked: true},
-		{Key: "usage", Label: "用途", Type: "textarea", Locked: true},
-		{Key: "moment", Label: "重要时刻", Type: "textarea", Locked: true},
-		{Key: "background", Label: "背景", Type: "media"},
-	},
 	"character": {
 		{Key: "appearance", Label: "外貌与标志", Type: "textarea", Locked: true},
 		{Key: "personality", Label: "性格", Type: "textarea", Locked: true},
@@ -147,12 +153,6 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 		{Key: "atmosphere", Label: "氛围", Type: "textarea", Locked: true},
 		{Key: "background", Label: "背景", Type: "media"},
 	},
-	"story": {
-		{Key: "premise", Label: "前提", Type: "textarea", Locked: true},
-		{Key: "moment", Label: "关键时刻", Type: "textarea", Locked: true},
-		{Key: "emotion", Label: "情绪", Type: "textarea", Locked: true},
-		{Key: "background", Label: "背景", Type: "media"},
-	},
 	"script": {
 		{Key: "logline", Label: "一句话概括", Type: "text", Locked: true},
 		{Key: "beats", Label: "节拍 / 叙事结构", Type: "textarea", Locked: true},
@@ -163,24 +163,79 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 		{Key: "storyboard", Label: "分镜表", Type: "media", Locked: true},
 		{Key: "background", Label: "背景", Type: "media"},
 	},
-	"style": {
-		{Key: "visual", Label: "视觉", Type: "textarea", Locked: true},
-		{Key: "guidance", Label: "guidance", Type: "textarea", Locked: true},
-		{Key: "avoid", Label: "避免", Type: "textarea", Locked: true},
-		{Key: "background", Label: "背景", Type: "media"},
-	},
-	"rule": {
-		{Key: "text", Label: "规则文本", Type: "textarea", Locked: true},
-	},
 }
 
 // presetEntityTypeOrder is the seed order for the preset directory.
-var presetEntityTypeOrder = []string{"character", "location", "object", "story", "script", "style", "rule"}
+var presetEntityTypeOrder = []string{"character", "location", "script"}
 
 // presetEntityTypeNames maps a preset id to its zh display name.
 var presetEntityTypeNames = map[string]string{
-	"character": "人物", "location": "场景", "object": "物件", "story": "故事",
-	"script": "视频脚本", "style": "风格", "rule": "规则",
+	"character": "人物", "location": "场景", "script": "视频脚本",
+}
+
+// retiredPresetEntityTypes are preset ids that used to be seeded but are no
+// longer part of the default set. Their unused builtin rows are archived; a
+// world that still holds entities of the type keeps the row readable.
+var retiredPresetEntityTypes = []string{"reference", "object", "story", "style", "rule"}
+
+// productionEntityTypeFields defines the structured objects of the PRODUCTION
+// layer (生产层 RFC §6): 场次(scene) → 镜头(shot) → 每镜产物. They are
+// deliberately NOT part of the default preset directory (D6): a fresh world's
+// create menu stays the minimal three. They are seeded on FIRST USE, so the
+// production structure hangs under a work without inflating the presets.
+//
+// 谁/在哪/拍什么 are world facts (entities); 场次/镜头 are the production
+// structure built on top of them. Their base_kind stays empty on purpose: the
+// CreationContext buckets are world anchors, and production objects must not
+// leak into `facts`.
+var productionEntityTypeFields = map[string][]EntityTypeField{
+	"scene": {
+		{Key: "summary", Label: "一句话概括", Type: "text", Locked: true},
+		{Key: "beats", Label: "节拍", Type: "textarea", Locked: true},
+		{Key: "emotion", Label: "情绪", Type: "textarea", Locked: true},
+		{Key: "durationSec", Label: "目标时长（秒）", Type: "number", Locked: true},
+		{Key: "background", Label: "背景", Type: "media"},
+	},
+	"shot": {
+		{Key: "no", Label: "镜号", Type: "text", Locked: true},
+		{Key: "shotSize", Label: "景别 / 角度 / 焦段", Type: "text", Locked: true},
+		{Key: "durationSec", Label: "时长（秒）", Type: "number", Locked: true},
+		{Key: "camera", Label: "镜头运动", Type: "text", Locked: true},
+		{Key: "dialogue", Label: "台词 / 旁白", Type: "textarea", Locked: true},
+		{Key: "background", Label: "背景", Type: "media"},
+		// NOTE: 产物（关键帧 / 首帧 / 尾帧 / 片段 / 配音）**不设固定槽位**。
+		// 镜头不是「首尾帧模式」——生成关系至少有三类（参考驱动 / 首尾帧 / 文生），
+		// 实测绝大多数镜头是参考驱动（liblib：90 镜里 89 个 mixed2video）。
+		// 所以产物是**按需添加的普通 media 属性**，用 label 标角色；生成方式记在
+		// 产物资产自己的 metadata.proposal（model/modeType/params/references）。
+	},
+}
+
+// productionEntityTypeNames maps a production type id to its zh display name.
+var productionEntityTypeNames = map[string]string{"scene": "场次", "shot": "镜头"}
+
+// entityTypeChildTypes declares, per type, the child types a node may contain —
+// the machine-readable shape of the production hierarchy (生产层 RFC §6):
+// 作品(script) → 场次(scene) → 镜头(shot). Agents read it straight from
+// entityTypes.list, so the tree shape never has to live only in skill prose.
+//
+// It is ADVISORY, not a gate: containment truth is still `parentId`, and any
+// entity may still be a container (递归世界画布 RFC「没有容器类型」). A script
+// may also hold a shot directly (one-scene pieces), so the list is permissive.
+// Kept as a code constant exactly like the controlled relation vocabulary.
+var entityTypeChildTypes = map[string][]string{
+	"script": {"scene", "shot"},
+	"scene":  {"shot"},
+	"shot":   {},
+}
+
+// childTypesFor returns a type's declared child types (advisory; empty = none
+// declared, e.g. custom types and leaf types).
+func childTypesFor(typeID string) []string {
+	if types, ok := entityTypeChildTypes[typeID]; ok {
+		return types
+	}
+	return nil
 }
 
 // ensurePresetEntityTypesInTx lazily seeds the preset directory rows into a
@@ -250,11 +305,15 @@ func ensurePresetEntityTypesInTx(tx *sql.Tx, worldID string) error {
 			return err
 		}
 	}
-	// The reference preset is retired (media attrs cover it): archive unused
-	// builtin rows; worlds that still hold reference entities keep the row.
-	if _, err := tx.Exec("update world_entity_types set archived_at = ?, updated_at = ? where world_id = ? and id = 'reference' and scope = 'builtin' and archived_at is null and not exists (select 1 from world_entities where world_id = ? and (kind = 'reference' or type_id = 'reference') and archived_at is null)",
-		now, now, worldID, worldID); err != nil {
-		return err
+	// Retired presets are archived when unused: `reference` (media attrs cover
+	// it), `rule`/`style` (moved to world-level `identity.constraints` /
+	// `identity.style`), `story` (merged into `script`), `object` (optional).
+	// A world that still holds entities of a retired type keeps the row readable.
+	for _, retired := range retiredPresetEntityTypes {
+		if _, err := tx.Exec("update world_entity_types set archived_at = ?, updated_at = ? where world_id = ? and id = ? and scope = 'builtin' and archived_at is null and not exists (select 1 from world_entities where world_id = ? and (kind = ? or type_id = ?) and archived_at is null)",
+			now, now, worldID, retired, worldID, retired, retired); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -312,6 +371,20 @@ func ensureEntityTypeInTx(tx *sql.Tx, worldID, typeID string) error {
 		return err
 	}
 	now := isoTimeNow()
+	// Production objects (场次 / 镜头) are structured but not presets: seed their
+	// real field schema on first use so they never appear in a fresh world's
+	// create menu (D6), yet still carry 镜号/景别/首尾帧/片段/配音 fields.
+	if fields, ok := productionEntityTypeFields[typeID]; ok {
+		encoded, err := json.Marshal(fields)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec("insert into world_entity_types (id, world_id, scope, name, icon, color, base_kind, fields_json, builtin, created_at, updated_at) values (?, ?, 'builtin', ?, '', '', '', ?, 0, ?, ?)",
+			typeID, worldID, productionEntityTypeNames[typeID], string(encoded), now, now); err != nil {
+			return err
+		}
+		return nil
+	}
 	fields, _ := json.Marshal([]EntityTypeField{{Key: "description", Label: "描述", Type: "textarea"}})
 	if _, err := tx.Exec("insert into world_entity_types (id, world_id, scope, name, icon, color, base_kind, fields_json, created_at, updated_at) values (?, ?, 'custom', ?, '', '', '', ?, ?, ?)",
 		typeID, worldID, typeID, string(fields), now, now); err != nil {
@@ -429,6 +502,7 @@ func (w *WorldStore) ListEntityTypes(worldID string) ([]WorldEntityType, error) 
 		if err != nil {
 			return nil, err
 		}
+		item.ChildTypes = childTypesFor(item.ID)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -436,7 +510,12 @@ func (w *WorldStore) ListEntityTypes(worldID string) ([]WorldEntityType, error) 
 
 func (w *WorldStore) getEntityType(db *sql.DB, worldID, typeID string) (WorldEntityType, error) {
 	row := db.QueryRow("select id, world_id, scope, name, icon, color, base_kind, fields_json, extends_id, builtin, created_at, updated_at from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, typeID)
-	return scanEntityType(row)
+	item, err := scanEntityType(row)
+	if err != nil {
+		return WorldEntityType{}, err
+	}
+	item.ChildTypes = childTypesFor(item.ID)
+	return item, nil
 }
 
 type rowScanner interface {
@@ -540,7 +619,9 @@ func (w *WorldStore) syncAttrElementValue(worldID, entityID string, props map[st
 	if err != nil {
 		return err
 	}
-	if existing, ok := attrValueMap(entity.Attrs)[field]; ok && existing == value {
+	// Values can be objects now (media attrs are {assetId,...}), and `==` panics
+	// on uncomparable types like maps — compare deeply instead.
+	if existing, ok := attrValueMap(entity.Attrs)[field]; ok && reflect.DeepEqual(existing, value) {
 		return nil
 	}
 	_, err = w.UpsertEntity(UpsertEntityInput{

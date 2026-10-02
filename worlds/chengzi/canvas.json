@@ -119,101 +119,6 @@
           "layer": "0"
         },
         {
-          "id": "shape:story-arc",
-          "kind": "entity",
-          "refKind": "entity",
-          "refId": "story-arc",
-          "name": "成长一小步",
-          "props": {
-            "collapsed": false
-          },
-          "geometry": {
-            "x": 40,
-            "y": 1008,
-            "width": 264,
-            "height": 328,
-            "zIndex": 1
-          },
-          "style": {},
-          "layer": "0"
-        },
-        {
-          "id": "shape:style-dna",
-          "kind": "entity",
-          "refKind": "entity",
-          "refId": "style-dna",
-          "name": "风格 DNA（2.5D）",
-          "props": {
-            "collapsed": false
-          },
-          "geometry": {
-            "x": 40,
-            "y": 1492,
-            "width": 264,
-            "height": 328,
-            "zIndex": 1
-          },
-          "style": {},
-          "layer": "0"
-        },
-        {
-          "id": "shape:rule-frame",
-          "kind": "entity",
-          "refKind": "entity",
-          "refId": "rule-frame",
-          "name": "画面与镜头纪律",
-          "props": {
-            "collapsed": false
-          },
-          "geometry": {
-            "x": 40,
-            "y": 1976,
-            "width": 264,
-            "height": 328,
-            "zIndex": 1
-          },
-          "style": {},
-          "layer": "0"
-        },
-        {
-          "id": "shape:rule-no-cute",
-          "kind": "entity",
-          "refKind": "entity",
-          "refId": "rule-no-cute",
-          "name": "禁止写实化与说教",
-          "props": {
-            "collapsed": false
-          },
-          "geometry": {
-            "x": 360,
-            "y": 1976,
-            "width": 264,
-            "height": 328,
-            "zIndex": 1
-          },
-          "style": {},
-          "layer": "0"
-        },
-        {
-          "id": "shape:rule-reference",
-          "kind": "entity",
-          "refKind": "entity",
-          "refId": "rule-reference",
-          "name": "参考图纪律",
-          "props": {
-            "collapsed": false
-          },
-          "geometry": {
-            "x": 680,
-            "y": 1976,
-            "width": 264,
-            "height": 328,
-            "zIndex": 1
-          },
-          "style": {},
-          "layer": "0"
-        },
-        {
           "id": "shape:example-car",
           "kind": "entity",
           "refKind": "entity",
@@ -224,7 +129,7 @@
           },
           "geometry": {
             "x": 40,
-            "y": 2460,
+            "y": 1008,
             "width": 264,
             "height": 328,
             "zIndex": 1
@@ -243,7 +148,7 @@
           },
           "geometry": {
             "x": 360,
-            "y": 2460,
+            "y": 1008,
             "width": 264,
             "height": 328,
             "zIndex": 1
@@ -262,7 +167,7 @@
           },
           "geometry": {
             "x": 680,
-            "y": 2460,
+            "y": 1008,
             "width": 264,
             "height": 328,
             "zIndex": 1
@@ -281,7 +186,7 @@
           },
           "geometry": {
             "x": 1000,
-            "y": 2460,
+            "y": 1008,
             "width": 264,
             "height": 328,
             "zIndex": 1
@@ -300,7 +205,26 @@
           },
           "geometry": {
             "x": 40,
-            "y": 2848,
+            "y": 1396,
+            "width": 264,
+            "height": 328,
+            "zIndex": 1
+          },
+          "style": {},
+          "layer": "0"
+        },
+        {
+          "id": "shape:story-arc",
+          "kind": "entity",
+          "refKind": "entity",
+          "refId": "story-arc",
+          "name": "成长一小步",
+          "props": {
+            "collapsed": false
+          },
+          "geometry": {
+            "x": 40,
+            "y": 1880,
             "width": 264,
             "height": 328,
             "zIndex": 1

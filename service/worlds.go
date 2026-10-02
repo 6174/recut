@@ -91,8 +91,9 @@ var evidenceModalities = map[string]bool{
 
 // WorldSelection is the explicit selection a consumer passes to resolve or
 // binding. It never implies a global active World; worldId always accompanies it.
+// WorkID anchors the selected work entity (a `script`, the production entry).
 type WorldSelection struct {
-	StoryID    string   `json:"storyId,omitempty"`
+	WorkID     string   `json:"workId,omitempty"`
 	EntityIDs  []string `json:"entityIds,omitempty"`
 	AssetRoles []string `json:"assetRoles,omitempty"`
 	Purpose    string   `json:"purpose"`
@@ -247,11 +248,11 @@ const (
 )
 
 type WorldEntityRelation struct {
-	ID           string `json:"id"`
-	FromRole     string `json:"fromRole"`
-	ToRole       string `json:"toRole,omitempty"`
-	FromEntityID string `json:"fromEntityId"`
-	ToEntityID   string `json:"toEntityId"`
+	ID            string `json:"id"`
+	FromRole      string `json:"fromRole"`
+	ToRole        string `json:"toRole,omitempty"`
+	FromEntityID  string `json:"fromEntityId"`
+	ToEntityID    string `json:"toEntityId"`
 	ScopeEntityID string `json:"scopeEntityId,omitempty"`
 	// Direction is a read projection (out | in | scope) from the touched
 	// entity's point of view; only ListRelations fills it.
@@ -317,13 +318,18 @@ type WorldConstraints struct {
 	Prefer []string `json:"prefer,omitempty"`
 }
 
+// ResolvedWorldEntities is the CreationContext entity projection, grouped by
+// base kind. `script` is the production entry (the old `story` type was merged
+// into it). `style` and `rule` are world-level attributes now
+// (`identity.style` / `identity.constraints`); legacy entities of those kinds
+// still surface here so worlds written before the consolidation keep resolving.
 type ResolvedWorldEntities struct {
 	Characters []map[string]any `json:"characters,omitempty"`
 	Locations  []map[string]any `json:"locations,omitempty"`
-	Stories    []map[string]any `json:"stories,omitempty"`
+	Scripts    []map[string]any `json:"scripts,omitempty"`
 	Styles     []map[string]any `json:"styles,omitempty"`
 	Rules      []map[string]any `json:"rules,omitempty"`
-	Story      map[string]any   `json:"story,omitempty"`
+	Work       map[string]any   `json:"work,omitempty"`
 }
 
 type CreationContext struct {
@@ -709,18 +715,19 @@ func entityMediaAnchors(attrsJSON string) []WorldEntityMedia {
 
 // availableEntityKinds returns the preset type ids a World type surfaces first
 // in its UI; the directory itself stays open (custom types always allowed).
+// The default set is the minimal, runnable core (生产层 RFC §5): 谁 / 在哪 / 拍什么.
 func availableEntityKinds(kind WorldKind) []string {
 	switch kind {
 	case WorldCharacterIP:
-		return []string{EntityTypeCharacter, EntityTypeStory, EntityTypeScript, EntityTypeStyle, EntityTypeRule, EntityTypeLocation, EntityTypeObject}
+		return []string{EntityTypeCharacter, EntityTypeScript, EntityTypeLocation}
 	case WorldCreatorBrand:
-		return []string{EntityTypeStyle, EntityTypeStory, EntityTypeScript, EntityTypeRule, EntityTypeCharacter, EntityTypeObject}
+		return []string{EntityTypeScript, EntityTypeCharacter, EntityTypeLocation}
 	case WorldBrand:
-		return []string{EntityTypeStyle, EntityTypeRule, EntityTypeStory, EntityTypeScript, EntityTypeCharacter, EntityTypeObject}
+		return []string{EntityTypeScript, EntityTypeCharacter, EntityTypeLocation}
 	case WorldFiction:
-		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeStory, EntityTypeScript, EntityTypeStyle, EntityTypeRule, EntityTypeObject}
+		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeScript}
 	default:
-		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeStory, EntityTypeScript, EntityTypeStyle, EntityTypeRule, EntityTypeObject}
+		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeScript}
 	}
 }
 
@@ -1320,8 +1327,11 @@ func attrValueMap(attrs []EntityAttr) map[string]any {
 	return result
 }
 
-// patchEntityAttr returns a copy of attrs with one attr's value set, creating
-// a plain text attr when the key is new (canvas-side creation path).
+// patchEntityAttr returns a copy of attrs with one attr's value set, creating a
+// new attr when the key is not present yet (canvas-side creation path). The new
+// attr's type is inferred from the value: canvas-side keys are often on-demand
+// (shot products are ordinary media attrs, not locked schema slots), so a media
+// object must not be stored as text.
 func patchEntityAttr(attrs []EntityAttr, key string, value any) []EntityAttr {
 	result := make([]EntityAttr, 0, len(attrs)+1)
 	found := false
@@ -1333,9 +1343,30 @@ func patchEntityAttr(attrs []EntityAttr, key string, value any) []EntityAttr {
 		result = append(result, attr)
 	}
 	if !found {
-		result = append(result, EntityAttr{Key: key, Label: key, Type: "text", Value: value})
+		result = append(result, EntityAttr{Key: key, Label: key, Type: inferAttrType(value), Value: value})
 	}
 	return result
+}
+
+// inferAttrType guesses an attr type from a raw canvas-side value: media values
+// are objects ({assetId|url,...}); the rest are the JSON scalars.
+func inferAttrType(value any) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		if _, ok := typed["assetId"]; ok {
+			return "media"
+		}
+		if _, ok := typed["url"]; ok {
+			return "media"
+		}
+		return "text"
+	case bool:
+		return "boolean"
+	case float64:
+		return "number"
+	default:
+		return "text"
+	}
 }
 
 type DeleteEntityInput struct {
@@ -2253,8 +2284,8 @@ func validateSelectionCanonical(canonical map[string]any, selection WorldSelecti
 		}
 	}
 	candidates := append([]string{}, selection.EntityIDs...)
-	if selection.StoryID != "" {
-		candidates = append(candidates, selection.StoryID)
+	if selection.WorkID != "" {
+		candidates = append(candidates, selection.WorkID)
 	}
 	for _, entityID := range candidates {
 		if !entityIDs[entityID] {
@@ -2281,8 +2312,8 @@ func validateSelectionCanonical(canonical map[string]any, selection WorldSelecti
 // consumer can never pull entities across World boundaries.
 func (w *WorldStore) validateSelection(db *sql.DB, worldID string, selection WorldSelection) (WorldSelection, error) {
 	candidates := append([]string{}, selection.EntityIDs...)
-	if selection.StoryID != "" {
-		candidates = append(candidates, selection.StoryID)
+	if selection.WorkID != "" {
+		candidates = append(candidates, selection.WorkID)
 	}
 	for _, entityID := range candidates {
 		var count int
@@ -2309,6 +2340,93 @@ func (w *WorldStore) validateSelection(db *sql.DB, worldID string, selection Wor
 	return selection, nil
 }
 
+// worldStyleLock returns the world-level STYLE LOCK from `identity.style`, the
+// attribute that replaced the retired `style` entity type (生产层 RFC §5): one
+// world has one visual identity, so it is a field, not a collection of entities.
+// Accepts a plain string or { visual, guidance, avoid }.
+func worldStyleLock(identity map[string]any) string {
+	raw, ok := identity["style"]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch typed := raw.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case map[string]any:
+		parts := []string{}
+		for _, key := range []string{"visual", "guidance"} {
+			if value, ok := typed[key].(string); ok && strings.TrimSpace(value) != "" {
+				parts = append(parts, strings.TrimSpace(value))
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return ""
+}
+
+// worldStyleView projects `identity.style` into the entity-view shape consumers
+// already read for styles, so the retirement is transparent downstream.
+func worldStyleView(identity map[string]any) map[string]any {
+	raw, ok := identity["style"]
+	if !ok || raw == nil {
+		return nil
+	}
+	view := map[string]any{"id": "world.style", "name": "世界风格", "source": "world"}
+	if text, ok := raw.(string); ok {
+		if strings.TrimSpace(text) != "" {
+			view["visual"] = strings.TrimSpace(text)
+		}
+		return view
+	}
+	fields, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	found := false
+	for _, key := range []string{"visual", "guidance", "avoid"} {
+		if value, ok := fields[key].(string); ok && strings.TrimSpace(value) != "" {
+			view[key] = strings.TrimSpace(value)
+			found = true
+		}
+	}
+	if !found {
+		return nil
+	}
+	return view
+}
+
+// worldConstraintsFromIdentity reads `identity.constraints = { always, never,
+// prefer }`, the world-level attribute that replaced the retired `rule` entity
+// type (生产层 RFC §5). Rules are a list of constraints, not a set of objects.
+func worldConstraintsFromIdentity(identity map[string]any) WorldConstraints {
+	out := WorldConstraints{}
+	raw, ok := identity["constraints"].(map[string]any)
+	if !ok {
+		return out
+	}
+	pick := func(key string) []string {
+		switch typed := raw[key].(type) {
+		case string:
+			if strings.TrimSpace(typed) != "" {
+				return []string{strings.TrimSpace(typed)}
+			}
+		case []any:
+			values := make([]string, 0, len(typed))
+			for _, item := range typed {
+				if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+					values = append(values, strings.TrimSpace(text))
+				}
+			}
+			return values
+		}
+		return nil
+	}
+	out.Always = pick("always")
+	out.Never = pick("never")
+	out.Prefer = pick("prefer")
+	return out
+}
+
 func (w *WorldStore) projectContext(world WorldDetail, canonical map[string]any, revisionID, canonicalHash string, selection WorldSelection) CreationContext {
 	context := CreationContext{
 		World: WorldContextIdentity{
@@ -2328,8 +2446,8 @@ func (w *WorldStore) projectContext(world WorldDetail, canonical map[string]any,
 	for _, id := range selection.EntityIDs {
 		selected[id] = true
 	}
-	if selection.StoryID != "" {
-		selected[selection.StoryID] = true
+	if selection.WorkID != "" {
+		selected[selection.WorkID] = true
 	}
 	includeAll := len(selected) == 0
 
@@ -2352,16 +2470,22 @@ func (w *WorldStore) projectContext(world WorldDetail, canonical map[string]any,
 				context.Entities.Characters = append(context.Entities.Characters, w.entityView(record, "name"))
 			case "location":
 				context.Entities.Locations = append(context.Entities.Locations, w.entityView(record, "name"))
-			case "story":
+			case "script", "story":
+				// `story` is legacy (retired, merged into `script`): its
+				// entities still read as works so older worlds keep resolving.
 				view := w.entityView(record, "name")
-				if selection.StoryID != "" && id == selection.StoryID {
-					context.Entities.Story = view
+				if selection.WorkID != "" && id == selection.WorkID {
+					context.Entities.Work = view
 				} else {
-					context.Entities.Stories = append(context.Entities.Stories, view)
+					context.Entities.Scripts = append(context.Entities.Scripts, view)
 				}
 			case "style":
+				// Legacy style entities: world-level `identity.style` is the
+				// preferred source now, but keep reading them for old worlds.
 				context.Entities.Styles = append(context.Entities.Styles, w.entityView(record, "name"))
 			case "rule":
+				// Legacy rule entities: world-level `identity.constraints` is
+				// the preferred source now, but keep folding for old worlds.
 				view := w.entityView(record, "title")
 				context.Entities.Rules = append(context.Entities.Rules, view)
 				text := ruleText(record)
@@ -2375,6 +2499,17 @@ func (w *WorldStore) projectContext(world WorldDetail, canonical map[string]any,
 				}
 			}
 		}
+	}
+	// World-level attributes (生产层 RFC §5): `rule`/`style` are no longer entity
+	// types — they are `identity.constraints` / `identity.style` — so merge them
+	// in on top of any legacy entities.
+	if style := worldStyleView(world.Identity); style != nil {
+		context.Entities.Styles = append([]map[string]any{style}, context.Entities.Styles...)
+	}
+	if constraints := worldConstraintsFromIdentity(world.Identity); len(constraints.Always)+len(constraints.Never)+len(constraints.Prefer) > 0 {
+		context.Constraints.Always = append(context.Constraints.Always, constraints.Always...)
+		context.Constraints.Never = append(context.Constraints.Never, constraints.Never...)
+		context.Constraints.Prefer = append(context.Constraints.Prefer, constraints.Prefer...)
 	}
 	desiredRoles := map[string]bool{}
 	for _, role := range selection.AssetRoles {

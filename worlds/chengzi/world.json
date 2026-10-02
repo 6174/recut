@@ -12,7 +12,20 @@
         "有 3-10 岁孩子的家长",
         "做家庭教育/亲子内容的创作者"
       ],
-      "tone": "温暖、真实、不说教、带一点家庭幽默"
+      "tone": "温暖、真实、不说教、带一点家庭幽默",
+      "constraints": {
+        "always": [
+          "9:16 竖屏为主；角色保持贴纸感、背景保持摄影感；每帧一个信息点；台词口语化、每集最多一句点题放结尾卡；音频预留（角色暂不配音）。",
+          "多人同框只传 assets/family-sheet-grid-v2.png 一张参考图（四角色设定页 2x2 合拼）；单角色戏传对应设定页一张；提示词开头声明「角色必须 1:1 复制参考图设定（禁止改动发型 / 服装 / 配色）」；禁止用四张散图作参考（会平均化角色）。"
+        ],
+        "never": [
+          "不要把角色写实照片化 / 3D 化，不要把背景卡通化；不要说教大字、口号横幅、品牌 logo；不要给爸爸加眼镜；不要把柚子画成婴儿（稀疏胎毛 / 奶瓶 / 口水兜）。"
+        ],
+        "prefer": []
+      },
+      "style": {
+        "guidance": "手绘赛璐璐角色+粗黑描边+细白贴纸外描边；背景写实摄影质感；角色服装色恒定；亮度与背景匹配；禁止角色写实化/背景卡通化；柚子不是婴儿；爸爸无眼镜"
+      }
     }
   },
   "entityTypes": [
@@ -128,41 +141,6 @@
       "scope": null
     },
     {
-      "id": "r-13",
-      "type": "references",
-      "from": "example-classroom",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-14",
-      "type": "references",
-      "from": "example-market",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-15",
-      "type": "references",
-      "from": "example-mall",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-16",
-      "type": "references",
-      "from": "example-car",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-17",
-      "type": "references",
-      "from": "example-family-sofa",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
       "id": "r-18",
       "type": "located_in",
       "from": "example-family-sofa",
@@ -223,27 +201,6 @@
       "type": "located_in",
       "from": "youzi",
       "to": "home",
-      "scope": null
-    },
-    {
-      "id": "r-27",
-      "type": "part_of",
-      "from": "rule-frame",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-28",
-      "type": "part_of",
-      "from": "rule-no-cute",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-29",
-      "type": "part_of",
-      "from": "rule-reference",
-      "to": "style-dna",
       "scope": null
     },
     {

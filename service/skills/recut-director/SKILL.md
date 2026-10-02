@@ -2,7 +2,7 @@
 name: recut-director
 appId: recut.platform
 description: 回答「这次创作走什么链、按什么顺序」的唯一导演入口；加载后再按 references/<子技能>/SKILL.md 深读
-references: references/story/SKILL.md, references/hooks/SKILL.md, references/shot/SKILL.md, references/motion/SKILL.md, references/a-roll/SKILL.md, references/b-roll/SKILL.md, references/editing/SKILL.md, references/captions/SKILL.md, references/sound/SKILL.md, references/platform/SKILL.md, references/remix/SKILL.md, references/short-drama/SKILL.md, references/generation-prompt/SKILL.md, references/qc/SKILL.md, references/director-router-origin.md
+references: references/story/SKILL.md, references/hooks/SKILL.md, references/assets/SKILL.md, references/plan/SKILL.md, references/shot/SKILL.md, references/motion/SKILL.md, references/a-roll/SKILL.md, references/b-roll/SKILL.md, references/editing/SKILL.md, references/captions/SKILL.md, references/sound/SKILL.md, references/platform/SKILL.md, references/remix/SKILL.md, references/short-drama/SKILL.md, references/generation-prompt/SKILL.md, references/qc/SKILL.md, references/director-router-origin.md
 ---
 
 # Recut 导演技能（recut-director）
@@ -26,8 +26,8 @@ references: references/story/SKILL.md, references/hooks/SKILL.md, references/sho
 |---|---|---|
 | **口播 / 访谈** | `a-roll → b-roll → editing → captions` | 有说话人实拍或访谈素材，核心是“该留哪句话” |
 | **知识解说** | `story → motion → editing → captions` | 以知识/概念/人物思想解释为主，需动画承载 |
-| **剧情 / 短剧** | `story → script → short-drama → shot` | 有人物、世界观、对白与戏剧冲突，需分镜与连续性 |
-| **故事视频 / 分镜驱动** | `story → script → shot → generation-prompt` | 以视频故事与脚本为核心，先出一图 N 宫格分镜表作 `storyboard` 参考（默认直用，按需逐格展开） |
+| **剧情 / 短剧** | `story → script → short-drama → assets → plan → shot` | 有人物、世界观、对白与戏剧冲突，需分镜与连续性 |
+| **故事视频 / 分镜驱动** | `story → script → assets → plan → shot → generation-prompt` | 以视频故事与脚本为核心，先出一图 N 宫格分镜表作 `storyboard` 参考（默认直用，按需逐格展开） |
 | **爆款仿拍 / 长转短** | `remix → hooks → editing` | 输入是已有视频或爆款链接，目标是仿拍或长转短 |
 | **种草 / 带货** | `hooks → story → b-roll → platform` | 以转化与种草为目标，需强钩子与平台合规 |
 
@@ -41,6 +41,8 @@ references: references/story/SKILL.md, references/hooks/SKILL.md, references/sho
 |---|---|---|---|---|
 | `story` | `references/story/SKILL.md` | 讲什么、怎么编排故事与结构 | 故事前提、结构节拍表、桥段顺序 | 链中出现 story |
 | `short-drama` | `references/short-drama/SKILL.md` | 剧情如何可控生产、节拍与资产如何合同化 | 节拍/资产库/调度/布光/动作合同 | 链中出现 short-drama |
+| `assets` | `references/assets/SKILL.md` | 生成要用的参考锚点怎么备齐 | 人物卡/场景图/色卡/声线/分镜表锚点 | 链中出现 assets，或排产/生成前发现缺锚点 |
+| `plan` | `references/plan/SKILL.md` | 这部片子怎么排产 | 场次→镜头 计划（用料/参数/成本） | 链中出现 plan |
 | `shot` | `references/shot/SKILL.md` | 一个镜头/一场怎么拍、镜头如何承接连续性 | 分镜表、首尾帧、连续性圣经 | 链中出现 shot |
 | `motion` | `references/motion/SKILL.md` | 元素怎么动、呼吸与落定如何 | 动效嗓音与落定清单 | 链中出现 motion |
 | `a-roll` | `references/a-roll/SKILL.md` | 说话留哪句、删哪口癖与停顿 | 可编辑文稿与留删清单 | 链中出现 a-roll |

@@ -68,9 +68,9 @@ func TestReadinessProgressesToDraftThenReady(t *testing.T) {
 	if readiness.Score <= 0 || readiness.Score >= 100 {
 		t.Fatalf("draft score = %d, want in (0,100)", readiness.Score)
 	}
-	// Story + location complete the entity expectations.
+	// Work (script) + location complete the entity expectations.
 	if _, err := worlds.UpsertEntity(UpsertEntityInput{
-		WorldID: world.ID, TypeID: EntityTypeStory, Name: "红岸", Attrs: []EntityAttr{{Key: "premise", Type: "textarea", Value: "红岸基地的来信"}},
+		WorldID: world.ID, TypeID: EntityTypeScript, Name: "红岸", Attrs: []EntityAttr{{Key: "logline", Type: "text", Value: "红岸基地的来信"}},
 	}); err != nil {
 		t.Fatal(err)
 	}

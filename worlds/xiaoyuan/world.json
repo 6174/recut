@@ -12,7 +12,20 @@
         "做职场/生活观察类短视频的创作者",
         "深夜情绪陪伴类内容创作者"
       ],
-      "tone": "反差、幽默、真实感、微丧"
+      "tone": "反差、幽默、真实感、微丧",
+      "constraints": {
+        "always": [
+          "背景必须摄影写实、小圆必须极简扁平，两者反差不可调和；小圆不受背景透视影响但受光源方向影响（轮廓可带一点点同色 rim light）；每帧只有小圆一个卡通元素。",
+          "主产出为 9:16 竖屏情绪短片 15-45 秒，由关键帧 + 微动作生成视频；角色设定 / 表情集 1:1 九宫格（3x3）；场景关键帧 9:16；每张单独生成，不拼图。"
+        ],
+        "never": [
+          "背景不要插画化 / 卡通化 / 二次元化；不要给小圆加头发、鼻子、腮红、衣服褶皱；不要厚涂或渐变光效；字幕不要超过一行。"
+        ],
+        "prefer": []
+      },
+      "style": {
+        "guidance": "背景必须是写实照片质感：真实房间/地铁/便利店/办公室，暖光或冷调暗部、浅景深、胶片颗粒；小圆以扁平矢量贴纸感立在画面中下 1/3 居中，与背景光影形成违和但可信的合成；字幕大写无衬线白字置顶"
+      }
     }
   },
   "entityTypes": [
@@ -58,20 +71,6 @@
       "scope": null
     },
     {
-      "id": "r-03",
-      "type": "references",
-      "from": "example-bedroom",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-04",
-      "type": "references",
-      "from": "example-office",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
       "id": "r-05",
       "type": "located_in",
       "from": "xiaoyuan",
@@ -90,27 +89,6 @@
       "type": "located_in",
       "from": "example-office",
       "to": "scene-system",
-      "scope": null
-    },
-    {
-      "id": "r-08",
-      "type": "part_of",
-      "from": "rule-composite",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-09",
-      "type": "part_of",
-      "from": "rule-format",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-10",
-      "type": "part_of",
-      "from": "rule-no-manga",
-      "to": "style-dna",
       "scope": null
     },
     {

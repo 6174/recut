@@ -12,7 +12,22 @@
         "做思考、情绪、认知类中文内容的创作者",
         "内耗、敏感、深夜想太多的都市年轻人"
       ],
-      "tone": "安静、丧而温柔、自嘲、克制"
+      "tone": "安静、丧而温柔、自嘲、克制",
+      "constraints": {
+        "always": [
+          "单幅情绪漫画 3:4 竖版；角色 / 表情 / 姿态参考集 1:1 九宫格（3x3、不画面板边框）；公寓全景 16:9；每张单独生成，不把多张内容图拼在一张里。",
+          "内心活动必须画在思想泡泡里；乱线团 = 情绪噪音 / 内耗；从乱到清的解线过程 = 认知转变；去掉思想泡泡后画面若失去内心戏即不合格。"
+        ],
+        "never": [
+          "不要可爱吉祥物海报、儿童卡通、日系动漫画风、商业插画、毛绒质感、精致阴影渐变、鸡汤励志大字、表情包式夸张五官；不要给小灰哥加头发。"
+        ],
+        "prefer": [
+          "整图灰阶；唯一允许的彩色是一处微小暖色（灯泡光、远处一扇亮窗、一点烛光），只用于洞见 / 希望 / 温度的时刻；宁可不用也不用多。"
+        ]
+      },
+      "style": {
+        "guidance": "扁平纯灰背景（无纸纹/渐变/阴影）；黑色粗线轻微抖动；角色扁平灰阶填充；一图一情绪/一认知动作；唯一亮色只给洞见/希望；禁止毛绒质感与精致动漫画"
+      }
     }
   },
   "entityTypes": [
@@ -114,69 +129,6 @@
       "scope": null
     },
     {
-      "id": "r-11",
-      "type": "references",
-      "from": "example-overthinking-scribble",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-12",
-      "type": "references",
-      "from": "example-clarity-bulb",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-13",
-      "type": "references",
-      "from": "example-street-night",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-14",
-      "type": "references",
-      "from": "example-scene-subway-caption",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-15",
-      "type": "references",
-      "from": "example-scene-insomnia",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-16",
-      "type": "references",
-      "from": "example-scene-sunday-evening",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-17",
-      "type": "references",
-      "from": "example-scene-fridge-midnight",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-18",
-      "type": "references",
-      "from": "example-scene-fear-of-starting",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-19",
-      "type": "references",
-      "from": "example-scene-corgi-company",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
       "id": "r-20",
       "type": "located_in",
       "from": "example-scene-corgi-company",
@@ -223,34 +175,6 @@
       "type": "located_in",
       "from": "xiaonuan",
       "to": "apartment",
-      "scope": null
-    },
-    {
-      "id": "r-27",
-      "type": "part_of",
-      "from": "rule-color",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-28",
-      "type": "part_of",
-      "from": "rule-format",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-29",
-      "type": "part_of",
-      "from": "rule-inner-voice",
-      "to": "style-dna",
-      "scope": null
-    },
-    {
-      "id": "r-30",
-      "type": "part_of",
-      "from": "rule-no-cute",
-      "to": "style-dna",
       "scope": null
     },
     {

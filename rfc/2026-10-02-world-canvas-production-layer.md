@@ -16,7 +16,7 @@
 
 # World Canvas 生产层（Production Layer）
 
-- 状态：草案（Draft）
+- 状态：**M0 / M1 / M3 已实施（2026-10-02）**；M2 / M4 / M5 草案（Draft）
 - 日期：2026-10-02
 - 关联：[递归世界画布](./2026-09-07-recursive-world-canvas.md)、[统一 Entity 模型](./2026-09-09-unified-entity-model.md)、[媒体生成提案](./2026-09-16-media-generation-proposal.md)、[生成参考引用协议](./2026-09-15-generation-reference-protocol.md)、[视频脚本与一图分镜表](./2026-09-20-video-script-storyboard-sheet.md)、[World 唯一写入面](./2026-09-15-world-canvas-sole-write-surface.md)、`docs/world-canvas-prd-v2.md`
 - 证据来源：[`docs/analyze-libtv/`](../docs/analyze-libtv/README.md)（对 liblib.tv《阿猫阿雀》真实制作画布的反推）
@@ -143,6 +143,16 @@
 
 判断一个类型该不该留，只用一把尺子：**它是"世界里的一个对象"，还是"世界的一条属性"？** 是属性，就不做实体。
 
+按这把尺子，世界内容分成**三层**（不是两层）——关键澄清：`scene`/`shot` **是实体**，只是"不是世界锚点"的实体：
+
+| 层 | 是什么 | 进 `facts`？ | 进 preset 目录？ | 例 |
+| --- | --- | --- | --- | --- |
+| **锚点实体** | 世界的"谁/在哪/拍什么"，驱动生成参考 | ✅ | ✅（默认 3 个） | `character` / `location` / `script` |
+| **生产实体** | 有身份的生产结构：可排序、可挂产物、可作容器/关系端点；`base_kind` 为空 | ❌（刻意） | ❌（用到即建，见 §5.4 / §6.1） | `scene` / `shot` |
+| **属性** | 不是对象，只是字段：世界级属性，或实体上的 media 对象 | — | — | `identity.style` / `identity.constraints` / 镜头产物 |
+
+判据是**"需不需要自己的身份"**：需要 → 实体（有 id、能当关系端点、能当容器、能挂自己的媒体属性）；不需要 → 属性。`scene`/`shot` 有镜号、要排序（`followed_by`/`precedes`）、要挂多个产物、要接时间线，所以**是实体**；镜头产物只是"这个镜头的一个素材"，所以**是属性**。
+
 ### 5.1 默认规则集（是世界级属性，不是实体）
 
 ```text
@@ -196,20 +206,25 @@ world.identity.constraints: { always: [], never: [], prefer: [] }
 
 ## 6. 生产层到底新增什么
 
-### 5.1 对象与落点（谁放在哪）
+### 6.1 对象与落点（谁放在哪）
 
 | 概念 | 落点 | 是否新增 | 说明 |
 | --- | --- | --- | --- |
-| **场次 scene** | 实体（作品容器内的结构化对象，**不进 preset 目录**，见 §5.4） | 新增对象 | 一场戏；镜头的分组框也来自它 |
-| **镜头 shot** | 实体（同上，`parentId` = 所属场次 / 作品） | 新增对象 | **生成的最小单位**；有身份、可排序、可复用 |
+| **场次 scene** | **实体**（作品容器内的结构化对象，**不进 preset 目录**，`base_kind` 空；见 §5 / §5.4） | 新增实体（非 preset） | 一场戏；镜头的分组容器也来自它 |
+| **镜头 shot** | **实体**（同上，`parentId` = 所属场次 / 作品） | 新增实体（非 preset） | **生成的最小单位**；有身份、可排序、可复用 |
 | **分镜表 sheet** | 已有 `script.storyboard` 媒体属性 | 复用 | 一图 N 宫格分镜表（已有协议） |
 | **关键帧 / 片段 / 配音** | 镜头实体的 **media 属性**（唯一素材通道） | 复用，新用法 | 一次生成 = 一个媒体资产；资产的 `metadata.proposal` 就是配方 |
+| **场成片 / 作品成片** | 场次 / 作品的 **media 属性**（同一条通道） | 复用 | **上层产物 = 下层产物的聚合**（拼接/合成）；这正是 liblib 图外的 `finalOutput` 所在的位置 |
 | **引用（用料）** | 产物资产自己的 `references[{id,kind,role}]`（`id` = `assetId`） | 复用 | 引用的底层都是 asset；画布上是否需要连线只是它的**可选可视化**，不是数据要求 |
 | **镜头顺序** | 关系 `followed_by` / `precedes` | 复用已有词表 | 时间线顺序，不用新机制 |
 | **镜头/场的文字描述** | `entity.intro` / `entity.detail` | 复用 | 镜头意图、画面说明写在正文里 |
 | **生成状态** | 计算得出，不落库 | 新增（派生） | 由"资产生命周期 + 上游版本"推导，避免状态写脏 |
 
-### 5.2 为什么这么放（判断依据）
+**产物挂在"层级"上，不是平铺。** 这是同一套机制的水平延展：**任何生产节点都能挂产物** —— 镜头挂 关键帧/片段/配音，场次挂 **场成片**，作品挂 **成片**。上层产物是下层产物的**聚合**（把该场的镜头片段拼起来、把所有场拼成片）。于是链条闭合、结构完整：**料 → 镜头的活 → 场的活 → 作品的活**。这也顺手把 liblib 那个"图外的 `finalOutput`"收进模型——成片就是作品的**一条 media 属性**，不是新表。
+
+**状态自底向上 rollup**：节点的状态 = 自身产物 ∪ 子级状态（`failed > generating > ready > planned`，单调）。所以 `recut.worlds.production` 从 **作品 → 场次 → 镜头** 给出一棵树，根节点直接回答"整部作品好了没"。它只回答"已挂上的产物都好了没"；"这个节点该有几个产物"是计划（plan）的事。
+
+### 6.2 为什么这么放（判断依据）
 
 - **镜头应该是"实体"，不是普通的画布卡片。** 因为镜头需要：有身份（能引用）、能排序、能跨集复用、能进版本。这些正是实体的能力；做成纯画布元素就会变成一个"查无此人"的临时方块。
 - **产物应该是"媒体的属性"，不是新表。** 因为项目已有铁律：素材只有一条通道——media 属性（`unified-entity-model`）。生成出来的图/视频/音频本来就该是媒体资产，带 `proposal` 配方。
@@ -218,7 +233,7 @@ world.identity.constraints: { always: [], never: [], prefer: [] }
 
 > 结论：**零新增写入面**，完全落在"World 即画布"（`world-canvas-sole-write-surface`）之上。
 
-### 5.3 镜头（shot）的默认字段
+### 6.3 镜头（shot）的默认字段：只有描述性字段，产物按需
 
 沿用 `entityTypes` 的字段 schema 机制（`text/textarea/number/boolean/select/media`）：
 
@@ -228,14 +243,17 @@ world.identity.constraints: { always: [], never: [], prefer: [] }
 | 景别 / 角度 / 焦段 | text | 来自 `recut-director/references/shot` 的镜头语法 |
 | 时长（秒） | number | 生成与拼接的预算 |
 | 镜头运动 | text | 一镜只给一种主导运动（导演规则） |
-| 画面描述 | textarea（落到 `detail`） | 可执行的分镜正文 |
 | 台词 / 旁白 | textarea | 与声线参考配合 |
-| 首帧 / 尾帧 | media（image） | 首尾帧合同，用于连续性校验 |
-| 片段 | media（video） | 生成的成片片段 |
-| 配音 | media（audio） | 与 `voice_reference` 声线一致 |
-| 引用（用料） | 由资产 `references[]` 提供（不设字段） | 角色/场景/风格/声线/分镜的 asset（`assetId`） |
+| 画面描述 | textarea（落到 `detail`） | 可执行的分镜正文 |
+| 背景 | media | 卡片背景（通用字段） |
 
-场的默认字段：一句话概括、节拍、情绪、目标时长、画幅（对齐已有 `script` 的字段风格）。
+**产物不设固定槽位**（关键修正）：镜头**不是首尾帧模式**——生成关系至少三类（参考驱动 / 首尾帧 / 文生），实测绝大多数是参考驱动（liblib 90 镜里 89 个 `mixed2video`）。所以：
+
+- 产物 = **镜头上的按需 media 属性**，用 `label` 标角色（关键帧 / 首帧 / 尾帧 / 片段 / 配音）；
+- 生成方式与"用了哪些料、什么 role"记在**产物资产自身**的 `metadata.proposal`（`model/modeType/params/references`），不是镜头字段；
+- 术语上：镜头**是实体**（有身份、可排序、可挂产物、能当容器），产物**是属性**（§5 的三层）。生成状态由产物资产生命周期**派生**（planned/generating/ready/failed），不落库。
+
+场的默认字段：一句话概括、节拍、情绪、目标时长（对齐已有 `script` 的字段风格）。
 
 ---
 
@@ -250,6 +268,55 @@ world.identity.constraints: { always: [], never: [], prefer: [] }
 - **语义缩放（LOD）**：缩小看"场 + 进度"，放大看关键帧与配方。解决他们"必须缩到 10% 才能看全图"的可读性问题。
 
 与设定视图**共用同一份世界数据**，只是投影不同——所以同一个角色，在设定视图是"设定卡"，在生产视图是"所有镜头都在引用它的锚点"。
+
+### 7.1 富属性怎么上画布：块只吃原语，对象在投影层塌平
+
+实体属性现在有两类：**标量**（`text/textarea/number/boolean/select`，如镜号/景别/台词）与**对象**（media `{assetId|url, name?, kind?, segment?}`，如角色外貌图、镜头产物）。画布要承载它们，但**不是靠给块加"通用文本区域"**——那会把对象形状泄漏进渲染层，且越加越胖。四条规则：
+
+1. **块只吃原语，永不收对象。** 投影层负责把 attr 解包成块需要的扁平字段：`{label, text?, mediaSrc?, attrMedia?, status?, name?, duration?}`。"属性变成对象"这件事**在投影边界就被吸收**：今天 `mediaSrc`（URL）+ `attrMedia`（模态）已经是这么来的（`canvas-pomelo.tsx` → `resolveMediaSrc` / `mediaSource`，`free-element-block-v.ts` 只认这两个字符串）。要补的是**多传几个已解包的原语**（状态/名称/时长/segment 文案），**不是把对象传下去**。对象形状再演进（加 recipe/status），块零改动。
+2. **对象值的语义是"一个素材引用"，不是一段结构化文本。** 所以画布上任何富媒体属性的呈现都是**有类型的**：图 → 真封面；视频 → 首帧 + 悬浮播放；音频 → 播放器；再加**状态角标**（生成中/失败）。**不需要文本区**。将来若真出现"结构化非 media"值（如片段区间 `{startSec,endSec}`、裁剪框 `{x,y,w,h}`），由投影层**格式化成字符串**（`00:12–00:18`）再走文本态——**块永远看不到对象**。
+3. **丰富属性首先丰富"实体卡"，而不是逼人外化。** 现状 `entity-card` 只画「封面(图) + 相册(图) + 名称 + intro」——它**表达不了 shot**（镜号/景别/台词 + 图/视频/音频产物 + 状态）。所以：
+   - **主承载 = 升级 `entity-card`**：卡片投影归一化为「名称 + intro + 类型化字段行(N) + 混合媒体条(图 / 视频首帧 / 音频，带状态) + 子项计数」。这是"实体略读投影"的本分，不是新块。
+   - **补充承载 = 外化属性卡**（`free-element` + `elementKind:"attr"` + `attrMedia`）：保持"一个属性"语义不变，只用于把**某一个**属性单独摆到画布叙事位。
+4. **细粒度信息不上卡**：`segment`、`recipe(proposal)` 只进详情面板 / 属性卡展开，不上卡片（卡片只略读，这是既定纪律）。
+
+**命名收敛（顺手做）**：画布现有两套写法并存——`kind="attr"` + `props.media` 与 `kind="media"` + `props.assetId`。建议统一为：**属于某实体的属性 = `attr` 元素**（`elementKind="attr"` + `attrMedia`）；**不属于任何实体的游离素材 = `media` 元素**。同一个东西不要两种 id。
+
+**不重复呈现（重要）**：同一个属性在**同一张画布上只呈现一次**。当 `script` 与 `shot` 同屏时，镜头产物**已经在镜头卡上**（封面/媒体条），就**不要再为它另放一张独立的属性卡**——否则 `shot` + `shot 的关键帧卡` + `script` 会三重表达同一件事。规则：
+
+- **默认：产物留在实体卡上**（卡是实体的略读投影）；外化为独立属性卡是**例外**，只用于"需要在空间上单独摆位/强调某一个属性"（如作品的分镜表、场成片）。
+- **投影层去重**：某 attr 已被一张独立属性卡呈现（有属性边指向它）时，卡片投影**从卡上剔除**该 attr，不重复渲染。判定在投影层（§7.1 第 1 条），不需要新数据、不需要块改动。
+- **Agent 行为约定**：建图时**不要**为每个产物都外化一张卡；产物默认不画布化（它在实体卡里）。
+
+> 一句话：**对象不画布化，引用才画布化。** 属性对象的作用是指向一个 asset；画布呈现的是那个 asset（有类型、有状态），不是那个对象。
+
+> **本期暂缓**：第 3 条「升级 `entity-card` 承载富属性（字段行 + 混合媒体条 + 状态）」**暂不做**（决定 2026-10-02）。因此当前镜头/作品的富属性在画布上**还看不到完整呈现**（卡片仍只有 封面图 + 名称 + intro）——数据层（§6）已就绪，渲染层待排期。第 1/2/4 条与去重规则不依赖它。
+
+### 7.2 交互：上下文即容器，`childTypes` 决定"默认建什么 / 要不要归属"
+
+`parentId` 与 `childTypes` 一旦有声明，**交互就必须随"你在哪一层"变化**——否则它只是文档里的死数据。
+
+**上下文 = 容器**：画布的 `contextId` 就是容器（`""` = 根，非空 = 该实体的内层画布）。所以"在当前层建卡"天然知道容器是谁。
+
+`childTypes` 决定两件事，都按 advisory **降级、不禁止**：
+
+1. **默认建什么**（双击空白 / `+` 菜单置顶）：
+   - 根画布 → 人物 / 场景 / 视频脚本；
+   - 在**作品(script)** 的内层 → 默认「场次」，菜单里 `场次 / 镜头` 置顶；
+   - 在**场次(scene)** 的内层 → 默认「镜头」；
+   - 在没声明 `childTypes` 的容器里 → "最近使用 + 通用菜单"。
+2. **要不要自动归属**（这条更关键）：
+   - 建的类型**在该容器的 `childTypes` 里** → 自动 `parentId = 容器` + `contextId = 容器`（**归属 + 落卡**）= 真正的子结构；
+   - 建的类型**不在 `childTypes` 里** → 只给 `contextId = 容器`（**落卡但不归属**）= 摆在这一层的参考/素材，不是子结构。
+   - 于是 `childTypes` 顺便区分了**"结构 vs 装饰"**：场次/镜头是作品的结构，其他卡只是摆在这层。
+
+**从实体卡拖出（`+` 手柄）**：若该类型声明了 `childTypes`，手柄菜单直接给「新建场次 / 新建镜头」（"从 script 拖出来直接建 scene"就是它），与"建关系 / 加属性"并列；没声明则走通用菜单。
+
+**仍然是 advisory**：不在 `childTypes` 里**不是"不能建"**，只是不置顶、不自动归属——用户/Agent 仍可显式建（并显式给 `parentId`），只是菜单把它收进"更多类型"。这也回答了"有些场景能双击建某种类型、有些不行"：**不是能不能，而是默认与归属不同**。
+
+> 注意与 §7.1 的去重规则叠加：内层画布上，**归属型节点默认以自己的卡呈现**（场次/镜头就是卡本身），只有"要单独摆位的属性"才外化成属性卡。
+
+> **最后阶段要补（外层看不到内层）**：`parentId` 把画布变成**树**，但**外层卡现在看不见内层信息**——一张作品/场次卡上不知道"里面有几个子项、什么状态"。外层只需**外露必要的聚合信息**（子项计数 + 子树 rollup 状态，如「2 场 · 6 镜 · 3 ready」），细节留在内层。数据**已经算好了**（§6 的 rollup 与 `production.Counts`），只差投影与卡片；与 §7.1 的 `entity-card` 升级在**最后阶段**一起做。
 
 ---
 
@@ -278,9 +345,9 @@ Skill 是引导 Agent 的核心手段。真实案例（§1）反过来验证了�
 
 ### 9.1 随默认集收口（§5）必改的文案
 
-- `recut-worlds`：预设枚举改成 `人物 / 场景 / 视频脚本`；删掉"风格/规则是实体"的用法，改为"**风格是世界级属性**（`identity.style`）、**规则是世界级约束**（`identity.constraints`）"；"故事"相关表述改为"作品 = `script`"。
-- `recut-director` 的 Mode 表：把 `story` 从链里去掉（`story → script → shot → generation-prompt` 改为 `script → shot → generation-prompt`）；`short-drama` 里对 `story` 的引用改为 `script`。
-- guided actions：`story.*` 合并进 `script.*`；`rule.*` / `style.*` 的动作挪到 **World 面板**（作用于世界属性，而不是实体）。
+- `recut-worlds`（**已落地**）：预设枚举改成 `人物 / 场景 / 视频脚本`；删掉"风格/规则是实体"的用法，改为"**风格是世界级属性**（`identity.style`）、**规则是世界级约束**（`identity.constraints`）"；"故事"表述改为"作品 = `script`"；`facts` 明示为"角色 / 场景 / 作品 / 风格"。
+- `recut-director`：**Mode 链不用改**——链里的 `story` / `script` / `shot` 是**子技能名**（叙事编排 / 作品脚本 / 分镜），与「实体类型」是两回事（已核对：director 的子技能里没有把 `story`/`style`/`rule` 当实体类型用）。只需保证 Mode 文档不出现"建 story/style/rule 实体"这类措辞。
+- guided actions：`story.*` 动作随类型退役自然失效（`script.*` 已覆盖其能力）；`style.*` / `rule.*` 的新动作应挂到 **World 面板**（作用于世界属性），而不是实体面板——待随 §9.2 的资产/计划环节一起做。
 - world.md 模板与既有 world.md：「规则」段改为"世界约束（always/never/prefer）+ 正文"，视觉语言段改为"世界风格属性"。
 
 ### 9.2 补两个"链"里缺的环节（最值钱的调整）
@@ -325,19 +392,46 @@ Skill 是引导 Agent 的核心手段。真实案例（§1）反过来验证了�
 | 里程碑 | 内容 | 验收 |
 | --- | --- | --- |
 | **M0 世界模型收口（默认集）** | 见 §5：目录只 seed `character`/`location`/`script` + 世界级 `constraints`；`rule`/`style` 降级为世界属性（`identity.constraints` / `identity.style`）；`story` 并入 `script`；修 `object`/`script` 在 `ResolvedWorldEntities`/`projectContext`/`brief` 的丢失（含 `base_kind` 兜底）；guided actions 收敛，demo `KINDS` 对齐；**同步 `recut-worlds` / `recut-director` 文案（§9.1）** | 新建世界只看到 3 个实体 + 约束属性；`world.get`/`brief`/`resolve` 都能看到 `script`；rule/style 作为世界属性在提示词里生效 |
-| **M1 数据与对象** | 新增 `scene` / `shot` 结构化对象（作品容器内，**不进 preset 目录**，见 §5.4）；镜头 media 属性（首尾帧/片段/配音）；产物资产携带 `references[]`（记录本次生成用了哪些 asset、什么 role）；状态派生函数 | 能用 Agent（或手工）建出「场 → 镜头」骨架，产物落媒体属性并带资产引用 |
-| **M2 生产视图** | 镜头卡 + 场分组框 + 状态点 + 引用关系可视化（可选，读数即可）+ 语义缩放；与设定视图切换 | 打开《测试短片》能看到一张可读的生产图，缩小看场、放大看关键帧 |
-| **M3 Agent plan / apply** | `plan`（派生生产计划、成本预估、落草稿）+ `apply`（确认后提交，图/声直排、视频待确认）；**补 skill 环节 `assets`（参考资产开发）与 `plan`（生产计划），以及"配音表演稿"写法（§9.2 / §9.3）** | 给一段剧本，Agent 一次产出整场镜头计划；用户确认后开始生成 |
+| **M1 数据与对象** | `scene` / `shot` 结构化对象（作品容器内**实体**，**不进 preset 目录**，用到即建）；**产物 = 按需 media 属性（无固定槽位，label 标角色），且可挂在任一层**（镜头 / 场成片 / 作品成片）；`recut.worlds.production` 返回 **作品→场次→镜头** 树 + 自底向上**派生状态** | 建出「作品→场次→镜头」，产物落媒体属性并带资产引用；`production` 读回树与状态 |
+| **M2 生产视图** | 生产视图（场分组框 + 状态点 + 引用可视化（可选）+ 语义缩放）；**节点的富属性呈现待设计**——`entity-card` 升级**本期暂缓**（§7.1），呈现须以"不重复"为前提（§7.1 去重规则） | 打开《测试短片》能看到一张可读的生产图；同一属性不重复呈现 |
+| **M3 Agent plan / apply** | ✅ **已实施**：`recut.worlds.production.plan`（按类型 schema 的 `childTypes` 批量派生「作品→场次→镜头」**草稿**，零花费、不产 revision；`placeCards` 落卡）+ `.apply`（用户确认后**一次转正**，产 1 条 revision）；新增 `childTypes` 类型声明（advisory，走 `entityTypes.list` 暴露）；新增 skill 环节 `references/assets`（参考资产开发）与 `references/plan`（生产计划），并接进 director Mode 链与 `recut-worlds` 工具图。**待补**：配音表演稿写法（§9.3） | 给一段剧本，Agent 一次产出整场镜头计划（草稿）；用户确认后转正；逐镜生成仍走媒体工具 |
 | **M4 过期与重跑** | 上游版本变化 → 下游标脏 → 一键重跑整场；**加"上游变了下游重跑"的技能纪律（§9.4）** | 换掉角色主参考图，用到它的镜头全部变"过期"，可一键重生成 |
 | **M5 接线成片** | 生产层 → remotion-studio 时间线，按镜头顺序组装 | 一部短片从镜头图直接排到时间线并导出 |
 
 M0–M3 是最小可用闭环（模型收口 → 能看图 → 能确认 → 能开始生成）。
 
+**M0 实施记录（2026-10-02，已落地并验证）**
+
+- 服务端：预设目录收窄为 `character`/`location`/`script`（`retiredPresetEntityTypes` 归档 `reference/object/story/style/rule` 的未用 builtin 行）；`ResolvedWorldEntities` 的 `Story`/`Stories` → `Work`/`Scripts`；`WorldSelection.StoryID` → `WorkID`；`projectContext` / `brief` 新增 `script` 桶与 `base_kind` 兜底，并合并 `identity.constraints` / `identity.style`（旧 `rule`/`style`/`story` 实体仍可读）；readiness 蓝图把 `story` 换成 `script`、`style`/`rule` 改为世界属性度量（`identityAttrPresent`）；`availableEntityKinds` 收窄。
+- Web：`entityKindLabels` 与 `EntityKind` 收窄；`WorldSelection.storyId` → `workId`（client + world-detail-client）；demo `KINDS` 对齐。
+- Skill：`recut-worlds` 预设枚举/属性口径/`facts` 文案更新；核对 `recut-director` 的 Mode 链里的 `story` 是**子技能名**、与实体类型无关，**无需改动**。
+- 内容迁移：新增 `scripts/worlds-consolidate-defaults.mjs`（幂等，`--check` 可用），8 个世界全部收口（31 rule → constraints、9 style → identity.style、9 story → script）；`worlds-migrate-v2 --canvas` 重排、`worlds-inspect --all` 与 `worlds-publish --check` 通过。
+- 验证：`go build`/`go vet` 通过；`go test` 全绿（仅 6 个缺内置 App 归档的**既有**环境失败，与本改动无关）；web `tsc`（app/lib/components 零错）+ 36 个单测通过。
+
+**M1 实施记录（2026-10-02，已落地并验证）**
+
+- **场次/镜头 = 用到即建的结构化对象**：新增 `productionEntityTypeFields` / `productionEntityTypeNames`，在 `ensureEntityTypeInTx` 里按需播种——**不进默认 preset 目录**（D6），但一建就带真实 schema（镜头：镜号/景别/时长/运镜/台词 + `background`）。
+- **产物不设固定槽位**（关键修正）：镜头**不是首尾帧模式**——生成关系至少三类（参考驱动 / 首尾帧 / 文生），实测绝大多数是参考驱动（liblib 90 镜里 89 个 `mixed2video`）。因此产物是**按需的普通 media 属性**，用 `label` 标角色；生成方式与"用了哪些料/什么 role"记在产物资产自身的 `metadata.proposal`（`model/modeType/params/references`），**不是镜头字段**。
+- **状态派生**（`service/worlds_production.go`，纯函数、不落库）：**作品(script) → 场次(scene) → 镜头(shot)** 三层树；**产物可挂在任一层**（镜头产物 / 场成片 / 作品成片——liblib 图外的 `finalOutput` 在此归位）；节点状态 = 自身产物 ∪ 子级状态，自底向上 rollup（`failed > generating > ready > planned`）。只回答"已挂上的产物都好了没"，"该有几个产物"留给计划（M3）。新增只读工具 `recut.worlds.production`（已登记进 tool inventory 合约测试）。
+- **不重复呈现**（设计规则，见 §7.1）：同一属性同屏只呈现一次；产物默认留在实体卡上，外化为独立属性卡是例外，投影层对"已被外化"的 attr 从卡上剔除。**`entity-card` 富属性升级本期暂缓**——数据层已就绪，渲染层待排期。
+- **修两个对象值引出的真 bug**：① `syncAttrElementValue` 用 `==` 比较属性旧值，属性变对象后 Go 比较 map 会 **panic** → 改 `reflect.DeepEqual`；② 画布回写按需 key 时 `patchEntityAttr` 一律当成 `text`，media 对象校验必失败 → 新增 `inferAttrType`（`{assetId|url}` → media，bool → boolean，number → float64，否则 text）。
+- 验证：`go build` / `go vet` 通过；`go test` 全绿（同样只余既有环境失败）。
+
+**M3 实施记录（2026-10-02，已落地并验证）**
+
+- **`childTypes`（类型 schema 的树形声明）**：`entityTypeChildTypes` 常量（`script→[scene,shot]`、`scene→[shot]`、`shot→[]`），经 `entityTypes.list` / `entityTypes.get` 暴露。**advisory 不是硬门**（归属真相仍是 `parentId`，任何实体都能当容器）；按 `worldRelationTypes` 的先例做成常量，零迁移。
+- **`production.plan`**：按 `scenes:[{name,shots:[…]}]` 一次派生整棵树，全部 `isProvisional`——**零花费、不产 revision**（测试断言）；`placeCards` 在作品内层画布落卡。**只建结构、不生成素材**；树只写 `parentId`，**不写关系箭头**。
+- **`production.apply`**：把 `workId` 子树（或全库）的草稿在**一条事务**里转正，**产 1 条 revision**；`expectedRevisionId` 走乐观并发。
+- **交互含义（§7.2）**：`contextId` 即容器 → 在作品内层默认建「场次」、在场次内层默认建「镜头」；**在 `childTypes` 里 → 自动 `parentId`（归属），不在 → 只落卡（装饰）**。
+- **Skill**：新增 `recut-director/references/{assets,plan}/SKILL.md`，并把两个环节接进 Mode 链（`… → assets → plan → shot …`）；`recut-worlds` 工具图补三个生产工具与"生产层"说明。
+- **合约**：新工具登记进 tool inventory 与 `worldMutatingTools`（广播 `world.changed`）。
+- 验证：`go build` / `go vet` 通过；`go test` 全绿（只余 6 个既有环境失败 + 2 个已知 flaky 的临时目录清理用例，单独跑均通过）。
+
 ---
 
 ## 12. 验收标准
 
-- 能在一个世界里建出「场 → 镜头」结构，镜头带首尾帧/片段/配音等媒体产物。
+- 能在一个世界里建出「场 → 镜头」结构；镜头带**按需的媒体产物**（关键帧 / 片段 / 配音…，用 label 标角色），并能通过 `recut.worlds.production` 读回派生状态。
 - **每一次引用都能追到具体的 asset 与一次生成的配方**（提示词、参考 asset 及 role、模型、参数）；画布是否画连线不影响这一点。
 - 改上游（角色/风格/声线）后，用到它的镜头**自动标记过期**，并可一键重跑。
 - Agent 能从剧本一次派生出整场镜头计划，**计划阶段零花费**；用户确认后才提交。

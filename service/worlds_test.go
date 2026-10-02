@@ -312,7 +312,7 @@ func TestProjectBindingFreezesRevisionAndRejectsReplaceWithoutFlag(t *testing.T)
 		t.Fatal(err)
 	}
 	frozenRevision := world.CurrentRevisionID
-	binding, err := worlds.BindProject(BindProjectInput{ProjectID: project.ID, WorldID: world.ID, Selection: WorldSelection{StoryID: story.ID, Purpose: "video"}})
+	binding, err := worlds.BindProject(BindProjectInput{ProjectID: project.ID, WorldID: world.ID, Selection: WorldSelection{WorkID: story.ID, Purpose: "video"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestProjectBindingFreezesRevisionAndRejectsReplaceWithoutFlag(t *testing.T)
 			t.Fatalf("frozen context leaked a later edit: %#v", context.Entities.Characters)
 		}
 	}
-	replaced, err := worlds.BindProject(BindProjectInput{ProjectID: project.ID, WorldID: world.ID, Selection: WorldSelection{StoryID: story.ID, Purpose: "video"}, Replace: true})
+	replaced, err := worlds.BindProject(BindProjectInput{ProjectID: project.ID, WorldID: world.ID, Selection: WorldSelection{WorkID: story.ID, Purpose: "video"}, Replace: true})
 	if err != nil {
 		t.Fatalf("replace = %v", err)
 	}
