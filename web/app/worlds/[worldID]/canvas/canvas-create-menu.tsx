@@ -15,7 +15,7 @@
 import { useState } from "react";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { WorldEntityType } from "@/lib/recut-worlds-client";
-import { createRecutWorldsClient, entityKindLabels } from "@/lib/recut-worlds-client";
+import { createRecutWorldsClient, entityKindLabels, isProductionEntityKind, isRetiredEntityKind, productionKindIcons, productionKindLabels } from "@/lib/recut-worlds-client";
 import { CreatePanel, type CreateGroup, type CreateItem } from "./canvas-create-panel";
 import { readRecentCustomTypes, useWorldCanvasStore } from "./canvas-store";
 
@@ -45,8 +45,10 @@ function cursorWorld(at: { screenX: number; screenY: number } | null): { x: numb
 }
 
 const KIND_ICONS: Record<string, string> = {
+  work: "📽",
   character: "👤",
   location: "📍",
+  prop: "🧰",
   object: "📦",
   story: "📖",
   script: "🎬",
@@ -64,6 +66,8 @@ export function CreateMenu() {
   const creating = useWorldCanvasStore((state) => state.creating);
   const creatingAt = useWorldCanvasStore((state) => state.creatingAt);
   const entityTypes = useWorldCanvasStore((state) => state.entityTypes);
+  const entities = useWorldCanvasStore((state) => state.entities);
+  const context = useWorldCanvasStore((state) => state.context);
   const setCreating = useWorldCanvasStore((state) => state.setCreating);
   const [newTypeOpen, setNewTypeOpen] = useState(false);
 
@@ -73,7 +77,38 @@ export function CreateMenu() {
   const customTypes = entityTypes.filter((type) => type.scope === "custom");
   const recentTypes = customTypes.filter((type) => recentIds.includes(type.id));
   const otherCustomTypes = customTypes.filter((type) => !recentIds.includes(type.id));
-  const presetTypes = entityTypes.filter((type) => type.scope !== "custom");
+  // 预设组只列**默认集**：退役预设（object/story/style/rule/reference）可能仍在类型目录里
+  // （旧世界有对应实体时类型行会保留），但不再作为"新建"提供；生产类型（场次/镜头）另走容器子类型组。
+  const presetTypes = entityTypes.filter(
+    (type) => type.scope !== "custom" && !isRetiredEntityKind(type.id) && !isProductionEntityKind(type.id),
+  );
+
+  // §7.2：容器内可新建什么，由**当前容器类型的 childTypes** 声明（advisory）。
+  // scene/shot 不是预设（用到即建，目录里可能还没有行），所以直接按声明的 id 提供入口——
+  // 建出来的节点由 createEntity 自动挂 parentId = 当前容器，归属 + 落卡一并完成。
+  const contextEntity = context?.entityId ? entities.find((entity) => entity.id === context.entityId) : undefined;
+  const contextType = contextEntity ? entityTypes.find((type) => type.id === contextEntity.typeId) : undefined;
+  const childTypeIds = (contextType?.childTypes ?? []).filter(
+    (id) => !presetTypes.some((type) => type.id === id) && !customTypes.some((type) => type.id === id),
+  );
+  const childTypeItems: CreateItem[] = childTypeIds.map((id) => {
+    const declared = entityTypes.find((type) => type.id === id);
+    const icon = declared?.icon || productionKindIcons[id] || "◍";
+    const name = declared?.name || productionKindLabels[id] || id;
+    return {
+      key: `child:${id}`,
+      label: name,
+      icon,
+      hint: "此容器可容纳",
+      preview: {
+        icon,
+        title: name,
+        subtitle: `新建于「${contextType?.name ?? ""}」`,
+        body: `在「${context?.title ?? ""}」内新建一张${name}卡；它同时归属该容器（parentId）并落在其内层画布。`,
+      },
+      run: () => create(id),
+    };
+  });
 
   const close = () => {
     setCreating(false);
@@ -168,8 +203,10 @@ export function CreateMenu() {
     },
   ];
 
-  // 画布元素（便签/文本/媒体）比设定类型更常用：排在分组最前，打开即可直接落元素
+  // 画布元素（便签/文本/媒体）比设定类型更常用：排在分组最前，打开即可直接落元素。
+  // 但在容器内，**容器容许的子类型**（如作品内的「场次」）才是最该置顶的入口（§7.2）。
   const groups: CreateGroup[] = [
+    { key: "child", title: "此容器可容纳", items: childTypeItems },
     { key: "element", title: "画布元素", items: elementItems },
     { key: "recent", title: "最近使用", items: recentTypes.map(typeItem) },
     { key: "preset", title: "设定", items: presetTypes.map(typeItem) },

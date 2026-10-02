@@ -24,7 +24,7 @@ import { syncDocFromStore, worldNodeBlock } from "./doc-sync";
 import { DetailPanel } from "./detail-panel";
 import { Toolbar } from "./toolbar";
 
-const KINDS = ["character", "location", "script"];
+const KINDS = ["work", "character", "location", "prop", "script"];
 
 export default function PomeloWorldCanvasDemo() {
   const containerRef = useRef<HTMLDivElement>(null);

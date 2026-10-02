@@ -78,6 +78,9 @@ type WorldManifestRelation struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Scope    string `json:"scope,omitempty"`
+	// IsProvisional marks a production draft link (生产层 RFC D8); carried so
+	// export/fork round-trips keep the draft chain out of the Canon.
+	IsProvisional bool `json:"isProvisional,omitempty"`
 }
 
 // relationFromRole resolves the source-end role across the new fromRole field
@@ -705,8 +708,8 @@ func insertManifestV2Tx(tx *sql.Tx, worldID string, manifest *WorldManifestV2, n
 		if strings.TrimSpace(relation.Scope) != "" {
 			scope = storedID(relation.Scope)
 		}
-		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, ?, '{}', ?, ?)",
-			storedID(relation.ID), worldID, storedID(relation.From), storedID(relation.To), relation.relationFromRole(), strings.TrimSpace(relation.ToRole), scope, now); err != nil {
+		if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at) values (?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)",
+			storedID(relation.ID), worldID, storedID(relation.From), storedID(relation.To), relation.relationFromRole(), strings.TrimSpace(relation.ToRole), scope, provisional(relation.IsProvisional), now); err != nil {
 			return err
 		}
 	}
@@ -994,6 +997,7 @@ type WorldBriefFacts struct {
 	Characters []map[string]any `json:"characters"`
 	Scripts    []map[string]any `json:"scripts"`
 	Locations  []map[string]any `json:"locations"`
+	Props      []map[string]any `json:"props"`
 	Styles     []map[string]any `json:"styles"`
 }
 
@@ -1058,7 +1062,7 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 		},
 		Identity:   world.Identity,
 		Skill:      canonicalString(canonical, "skill"),
-		Facts:      WorldBriefFacts{Characters: []map[string]any{}, Scripts: []map[string]any{}, Locations: []map[string]any{}, Styles: []map[string]any{}},
+		Facts:      WorldBriefFacts{Characters: []map[string]any{}, Scripts: []map[string]any{}, Locations: []map[string]any{}, Props: []map[string]any{}, Styles: []map[string]any{}},
 		Evidence:   []WorldEvidence{},
 		References: []WorldBriefReference{},
 		Missing:    []WorldBriefMissing{},
@@ -1102,6 +1106,8 @@ func (w *WorldStore) Brief(input BriefInput) (WorldBrief, error) {
 				brief.Facts.Scripts = append(brief.Facts.Scripts, view)
 			case "location":
 				brief.Facts.Locations = append(brief.Facts.Locations, view)
+			case "prop":
+				brief.Facts.Props = append(brief.Facts.Props, view)
 			case "style":
 				brief.Facts.Styles = append(brief.Facts.Styles, view)
 			case "rule":
@@ -1321,6 +1327,7 @@ var declaredMediaFieldRoles = map[string]string{
 	"voice_reference":     "voice",
 	"character_reference": "character",
 	"location_reference":  "environment",
+	"prop_reference":      "prop",
 	"style_reference":     "style-ref",
 	"storyboard":          "storyboard",
 }
@@ -1382,7 +1389,7 @@ func inferMediaAttrRole(kind, label, key, baseKind string) string {
 			return "style-ref"
 		case "location":
 			return "environment"
-		case "object":
+		case "object", "prop":
 			return "prop"
 		}
 		return "style-ref"
@@ -1590,14 +1597,15 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 			return WorldDetail{}, err
 		}
 	}
-	relationRows, err := tx.Query("select relation_type, to_role, from_entity_id, to_entity_id, metadata_json, scope_entity_id, created_at from world_relations where world_id = ?", input.WorldID)
+	relationRows, err := tx.Query("select relation_type, to_role, from_entity_id, to_entity_id, metadata_json, scope_entity_id, is_provisional, created_at from world_relations where world_id = ?", input.WorldID)
 	if err != nil {
 		return WorldDetail{}, err
 	}
 	for relationRows.Next() {
 		var relationType, toRole, fromID, toID, metadataJSON, scopeID, createdAt string
 		var scopeNull sql.NullString
-		if err := relationRows.Scan(&relationType, &toRole, &fromID, &toID, &metadataJSON, &scopeNull, &createdAt); err != nil {
+		var relationProvisional int
+		if err := relationRows.Scan(&relationType, &toRole, &fromID, &toID, &metadataJSON, &scopeNull, &relationProvisional, &createdAt); err != nil {
 			relationRows.Close()
 			return WorldDetail{}, err
 		}
@@ -1613,8 +1621,8 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 				if remapped, ok := idMap[scopeID]; ok {
 					newScope = remapped
 				}
-				if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-					newRelationID, newWorldID, newFrom, newTo, relationType, toRole, metadataJSON, nullIfEmpty(newScope), createdAt); err != nil {
+				if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					newRelationID, newWorldID, newFrom, newTo, relationType, toRole, metadataJSON, nullIfEmpty(newScope), relationProvisional, createdAt); err != nil {
 					relationRows.Close()
 					return WorldDetail{}, err
 				}

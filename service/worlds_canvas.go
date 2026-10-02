@@ -67,11 +67,69 @@ var worldRelationTypes = map[string]WorldRelationSpec{
 	"references":   {LabelZh: "引用", Group: "story"},
 	"depends_on":   {LabelZh: "依赖", Group: "story"},
 	"part_of":      {LabelZh: "属于一部分", Group: "story"},
+	// 生产层结构链（生产层 RFC D8）：父→子。作品的 tree 由这条 link 单源表达，
+	// parentId 只是通用归属（文件夹），不参与建树；环由解析端处理。
+	"has_script": {LabelZh: "包含脚本", Group: "production", ToLabelZh: "属于作品"},
+	"has_scene":  {LabelZh: "包含场次", Group: "production", ToLabelZh: "属于脚本"},
+	"has_shot":   {LabelZh: "包含镜头", Group: "production", ToLabelZh: "属于场次"},
+}
+
+// productionRelationRoles are the structural link roles of the production chain
+// (作品→视频脚本→场次→镜头), stored as normal entity→entity relations. They are
+// the single source of truth for the production tree; `parentId` is only a
+// generic location (folder), never gated by type.
+var productionRelationRoles = map[string]bool{"has_script": true, "has_scene": true, "has_shot": true}
+
+// productionLinkRoleFor maps a production child type to the structural role a
+// parent→child link carries (script→has_script / scene→has_scene / shot→has_shot).
+// Non-production types return "".
+func productionLinkRoleFor(childTypeID string) string {
+	switch childTypeID {
+	case "script":
+		return "has_script"
+	case "scene":
+		return "has_scene"
+	case "shot":
+		return "has_shot"
+	}
+	return ""
+}
+
+// materializeProductionLinkTx records the structural link of the production
+// chain (作品→视频脚本→场次→镜头) when a production entity is created under
+// another production entity. That link — not `parentId` — is the single source
+// of truth for the production tree (生产层 RFC D8); `parentId` stays only a
+// generic location (folder). Idempotent via unique(world_id, from, to, type);
+// provisional mirrors the entity so a plan draft link stays out of the Canon
+// and produces no revision.
+func materializeProductionLinkTx(tx *sql.Tx, worldID, parentID, childEntityID, childTypeID string, provisional bool) error {
+	role := productionLinkRoleFor(childTypeID)
+	if role == "" || strings.TrimSpace(parentID) == "" || strings.TrimSpace(childEntityID) == "" {
+		return nil
+	}
+	var parentType string
+	if err := tx.QueryRow("select coalesce(nullif(type_id, ''), kind) from world_entities where id = ? and world_id = ? and archived_at is null", parentID, worldID).Scan(&parentType); err != nil {
+		return err
+	}
+	if !productionNodeTypes[parentType] {
+		return nil
+	}
+	relationID, err := newID()
+	if err != nil {
+		return err
+	}
+	flag := 0
+	if provisional {
+		flag = 1
+	}
+	_, err = tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, is_provisional, created_at) values (?, ?, ?, ?, ?, '', '{}', ?, ?)",
+		relationID, worldID, parentID, childEntityID, role, flag, isoTimeNow())
+	return err
 }
 
 // ListWorldRelationTypes returns the controlled vocabulary as a stable list.
 func ListWorldRelationTypes() []map[string]any {
-	groups := []string{"people", "world", "video", "story"}
+	groups := []string{"people", "world", "video", "story", "production"}
 	items := make([]map[string]any, 0, len(worldRelationTypes))
 	for _, group := range groups {
 		for id, spec := range worldRelationTypes {
@@ -140,6 +198,11 @@ type EntityTypeField struct {
 //     already carry the narrative core, plus the producible spec);
 //   - `object` → not seeded (key props are a common but optional extension).
 var presetEntityTypeFields = map[string][]EntityTypeField{
+	// 作品 = 交付单位：只承载**成片**（按需 media 属性，label「成片」）+ 子节点聚合；
+	// 交付规格（平台/画幅/时长）留在脚本上（决定 2026-10-02）。
+	"work": {
+		{Key: "background", Label: "背景", Type: "media"},
+	},
 	"character": {
 		{Key: "appearance", Label: "外貌与标志", Type: "textarea", Locked: true},
 		{Key: "personality", Label: "性格", Type: "textarea", Locked: true},
@@ -151,6 +214,14 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 	"location": {
 		{Key: "description", Label: "描述", Type: "textarea", Locked: true},
 		{Key: "atmosphere", Label: "氛围", Type: "textarea", Locked: true},
+		{Key: "background", Label: "背景", Type: "media"},
+	},
+	// 道具 = 现实制作里必备的锚点实体（关键道具跨镜一致）：描述 + 外观标志
+	// （颜色/材质/边角特征，连续性关键）+ 道具参考图（declared role=prop）。
+	"prop": {
+		{Key: "description", Label: "描述", Type: "textarea", Locked: true},
+		{Key: "appearance", Label: "外观与标志", Type: "textarea", Locked: true},
+		{Key: "prop_reference", Label: "道具参考图", Type: "media", Options: []string{"image"}, Locked: true},
 		{Key: "background", Label: "背景", Type: "media"},
 	},
 	"script": {
@@ -166,11 +237,13 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 }
 
 // presetEntityTypeOrder is the seed order for the preset directory.
-var presetEntityTypeOrder = []string{"character", "location", "script"}
+var presetEntityTypeOrder = []string{"work", "character", "location", "prop", "script"}
 
-// presetEntityTypeNames maps a preset id to its zh display name.
+// presetEntityTypeNames maps a preset id to its zh display name. `character`
+// reads as 角色 (not 人物) so it covers animals / creatures too; `prop` (道具) is
+// the anchor a real production needs for cross-shot object consistency.
 var presetEntityTypeNames = map[string]string{
-	"character": "人物", "location": "场景", "script": "视频脚本",
+	"work": "作品", "character": "角色", "location": "场景", "prop": "道具", "script": "视频脚本",
 }
 
 // retiredPresetEntityTypes are preset ids that used to be seeded but are no
@@ -215,15 +288,17 @@ var productionEntityTypeFields = map[string][]EntityTypeField{
 var productionEntityTypeNames = map[string]string{"scene": "场次", "shot": "镜头"}
 
 // entityTypeChildTypes declares, per type, the child types a node may contain —
-// the machine-readable shape of the production hierarchy (生产层 RFC §6):
-// 作品(script) → 场次(scene) → 镜头(shot). Agents read it straight from
-// entityTypes.list, so the tree shape never has to live only in skill prose.
+// the machine-readable shape of the production hierarchy (生产层 RFC §5/§6):
+// 作品(work) → 视频脚本(script) → 场次(scene) → 镜头(shot). Agents read it
+// straight from entityTypes.list, so the tree shape never has to live only in
+// skill prose.
 //
 // It is ADVISORY, not a gate: containment truth is still `parentId`, and any
 // entity may still be a container (递归世界画布 RFC「没有容器类型」). A script
 // may also hold a shot directly (one-scene pieces), so the list is permissive.
 // Kept as a code constant exactly like the controlled relation vocabulary.
 var entityTypeChildTypes = map[string][]string{
+	"work":   {"script"},
 	"script": {"scene", "shot"},
 	"scene":  {"shot"},
 	"shot":   {},
@@ -1027,6 +1102,10 @@ type CreateRelationInput struct {
 	ToRole             string
 	ScopeEntityID      string
 	Metadata           map[string]any
+	// IsProvisional creates an exploration draft link (production plan chain,
+	// 生产层 RFC D8): no revision is produced and it stays out of the Canon
+	// until ApplyProduction confirms it.
+	IsProvisional      bool
 	ExpectedRevisionID string
 	CreatedBy          string
 }
@@ -1088,18 +1167,25 @@ func (w *WorldStore) CreateRelation(input CreateRelationInput) (WorldEntityRelat
 		return WorldEntityRelation{}, err
 	}
 	now := isoTimeNow()
-	if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		relationID, input.WorldID, input.FromEntityID, input.ToEntityID, input.FromRole, input.ToRole, string(metadataJSON), nullIfEmpty(input.ScopeEntityID), now); err != nil {
+	provisional := 0
+	if input.IsProvisional {
+		provisional = 1
+	}
+	if _, err := tx.Exec("insert into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		relationID, input.WorldID, input.FromEntityID, input.ToEntityID, input.FromRole, input.ToRole, string(metadataJSON), nullIfEmpty(input.ScopeEntityID), provisional, now); err != nil {
 		return WorldEntityRelation{}, err
 	}
-	if _, err := w.commitRevision(tx, input.WorldID, "relation.created", input.CreatedBy); err != nil {
-		return WorldEntityRelation{}, err
+	// Exploration draft links are not facts: only canonical writes produce a revision.
+	if !input.IsProvisional {
+		if _, err := w.commitRevision(tx, input.WorldID, "relation.created", input.CreatedBy); err != nil {
+			return WorldEntityRelation{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return WorldEntityRelation{}, err
 	}
 	logWorldEvent("world.relation.created", map[string]string{"worldId": input.WorldID, "relationId": relationID})
-	return WorldEntityRelation{ID: relationID, FromRole: input.FromRole, ToRole: input.ToRole, FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID, ScopeEntityID: input.ScopeEntityID}, nil
+	return WorldEntityRelation{ID: relationID, FromRole: input.FromRole, ToRole: input.ToRole, FromEntityID: input.FromEntityID, ToEntityID: input.ToEntityID, ScopeEntityID: input.ScopeEntityID, IsProvisional: input.IsProvisional}, nil
 }
 
 // UpdateRelationInput is the typed input of relations.update. Empty string
@@ -1222,7 +1308,7 @@ func (w *WorldStore) ListRelations(worldID, entityID string) ([]WorldEntityRelat
 	if _, err := w.summary(db, worldID); err != nil {
 		return nil, err
 	}
-	rows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? and ((from_entity_id = ? or to_entity_id = ?) or scope_entity_id = ?) order by created_at", worldID, entityID, entityID, entityID)
+	rows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id, is_provisional from world_relations where world_id = ? and ((from_entity_id = ? or to_entity_id = ?) or scope_entity_id = ?) order by created_at", worldID, entityID, entityID, entityID)
 	if err != nil {
 		return nil, err
 	}
@@ -1231,10 +1317,12 @@ func (w *WorldStore) ListRelations(worldID, entityID string) ([]WorldEntityRelat
 	for rows.Next() {
 		var relation WorldEntityRelation
 		var scopeEntityID sql.NullString
-		if err := rows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
+		var provisional int
+		if err := rows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID, &provisional); err != nil {
 			return nil, err
 		}
 		relation.ScopeEntityID = nullStringValue(scopeEntityID)
+		relation.IsProvisional = provisional != 0
 		switch {
 		case relation.ScopeEntityID == entityID && relation.FromEntityID != entityID && relation.ToEntityID != entityID:
 			relation.Direction = "scope"
@@ -1273,7 +1361,7 @@ func (w *WorldStore) DeleteRelation(worldID, relationID, expectedRevisionID, cre
 	if _, err := tx.Exec("delete from world_relation_tombstones where id = ? and world_id = ?", relationID, worldID); err != nil {
 		return err
 	}
-	result, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where id = ? and world_id = ?", now, relationID, worldID)
+	result, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at, ?, '' from world_relations where id = ? and world_id = ?", now, relationID, worldID)
 	if err != nil {
 		return err
 	}

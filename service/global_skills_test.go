@@ -68,7 +68,7 @@ func TestGlobalSkillSyncsEmbeddedTree(t *testing.T) {
 		"recut-director/SKILL.md",
 		"recut-director/references/shot/SKILL.md",
 		"recut-director/references/generation-prompt/SKILL.md",
-		"recut-director/references/generation-prompt/assets/generation-prompt-template.md",
+		"recut-director/references/story/SKILL.md",
 		"recut-motion-graphic/SKILL.md",
 		"recut-motion-graphic/references/material.md",
 		"recut-motion-graphic/references/authoring.md",

@@ -167,6 +167,7 @@ var requiredFieldsByKind = map[string][]string{
 	EntityTypeCharacter: {"appearance", "personality", "voice", "invariants"},
 	EntityTypeScript:    {"logline", "beats"},
 	EntityTypeLocation:  {"description", "atmosphere"},
+	EntityTypeProp:      {"description", "appearance"},
 }
 
 // entityContentFields ignored when judging substance: structural metadata keys

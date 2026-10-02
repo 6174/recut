@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 guided/types、guided/context（attrText/refsLine/entityOf）、guided/cards（版式常量）
- * [OUTPUT]: 对外提供 ENTITY_ACTIONS：按预设类型（人物/场景/物件/故事/视频脚本/风格/规则 + 通用兜底）的引导提示动作注册表，
+ * [OUTPUT]: 对外提供 ENTITY_ACTIONS：按预设类型（角色/场景/道具/作品/视频脚本/风格/规则 + 通用兜底）的引导提示动作注册表，
  *   覆盖 sheet/derive/text/structure/plan/qc/transform/research/sound 九类与四种产出；故事/脚本的分镜表动作为一图 N 宫格分镜表
  * [POS]: web/lib/world-entity/guided 的实体动作数据层；build 为纯函数，预填全局 AI 输入框（RFC §5.1–5.7 / §5.9、
  *   RFC 2026-09-20-video-script-storyboard-sheet）
@@ -556,6 +556,85 @@ ${cardRefsLine(s.mediaRefs)}
   },
 ];
 
+// 道具（prop）是默认锚点实体（关键道具跨镜一致），字段为 描述 / 外观与标志 / 道具参考图(prop_reference, role=prop)。
+// 不套用「物件」动作集——那套硬编码了 object 的 material/origin/usage 字段，会引用不存在的字段。
+function propActions(): GuidedAiAction[] {
+  return [
+    {
+      id: "prop.card",
+      subject: "entity",
+      category: "sheet",
+      output: { kind: "media", modality: "image", gate: "direct" },
+      icon: "package",
+      label: "生成道具卡",
+      desc: "一张图：信息栏 + 多角度 + 细节 + 尺寸参照 + 状态变体",
+      typeIds: ["prop"],
+      priority: () => 70,
+      build: (ctx) => {
+        const s = entityOf(ctx);
+        return `为世界《${ctx.worldName}》的道具生成一张道具卡（prop card）。
+
+道具设定：
+- 描述：${attrText(s.entity, "description") || "（未填）"}
+- 外观与标志：${attrText(s.entity, "appearance") || "（未填）"}
+
+${OBJECT_CARD_LAYOUT}
+
+${stylePreamble(ctx.styleLock)}
+${cardRefsLine(s.mediaRefs)}
+产出后写回该实体的一条 media 属性，label「道具参考图」（role=prop）；只新增素材，不改其它设定。`;
+      },
+    },
+    {
+      id: "prop.details",
+      subject: "entity",
+      category: "derive",
+      output: { kind: "media", modality: "image", gate: "direct" },
+      icon: "scan",
+      label: "生成关键细节特写",
+      desc: "材质、纹样、磨损、边角特征",
+      typeIds: ["prop"],
+      build: (ctx) => `为道具「${entityOf(ctx).entity.name}」（外观与标志：${attrText(entityOf(ctx).entity, "appearance") || "见参考"}）生成关键细节特写：材质、纹样、磨损与边角特征，保持跨镜一致。产出写回该道具的 media 属性（role=prop）。`,
+    },
+    {
+      id: "prop.states",
+      subject: "entity",
+      category: "derive",
+      output: { kind: "media", modality: "image", gate: "direct" },
+      icon: "layers",
+      label: "生成状态变体",
+      desc: "崭新/陈旧/损坏/重要时刻",
+      typeIds: ["prop"],
+      build: (ctx) => `为道具「${entityOf(ctx).entity.name}」生成状态变体：崭新、陈旧、损坏、重要时刻四种，结构与外观标志一致。产出写回该道具的 media 属性（role=prop）。`,
+    },
+    {
+      id: "prop.consistency",
+      subject: "entity",
+      category: "qc",
+      output: { kind: "text" },
+      icon: "shield-check",
+      label: "跨镜一致性检查",
+      desc: "对比各镜里道具的颜色/材质/特征",
+      typeIds: ["prop"],
+      build: (ctx) => {
+        const s = entityOf(ctx);
+        return `以道具「${s.entity.name}」的外观与标志（${attrText(s.entity, "appearance") || "未填"}）与道具参考图（${refsLine(s.mediaRefs)}）为准，检查各镜头里该道具是否一致（颜色/材质/边角特征/尺寸），列出偏差镜头与重生成建议。只输出报告。`;
+      },
+    },
+    {
+      id: "prop.relations",
+      subject: "entity",
+      category: "structure",
+      output: { kind: "canon-proposal" },
+      icon: "share-2",
+      label: "建议归属人物/场景",
+      desc: "确认后建关系",
+      typeIds: ["prop"],
+      build: (ctx) => `为道具「${entityOf(ctx).entity.name}」建议归属的人物/场景（关系类型 + 理由），先列清单；确认后建立。`,
+    },
+  ];
+}
+
 const storyActions: GuidedAiAction[] = [
   {
     id: "story.storyboard",
@@ -934,6 +1013,7 @@ export const ENTITY_ACTIONS: GuidedAiAction[] = [
   ...characterActions,
   ...locationActions,
   ...objectActions,
+  ...propActions(),
   ...storyActions,
   ...scriptActions,
   ...styleActions,

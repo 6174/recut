@@ -104,7 +104,7 @@ const zh = {
 
   // 创作设定分类（SETTING_SECTIONS）
   "worlds.settings.character.title": "角色",
-  "worlds.settings.character.desc": "人物是谁、如何呈现、哪些特征不能改变。",
+  "worlds.settings.character.desc": "角色是谁、如何呈现、哪些特征不能改变。",
   "worlds.settings.character.action": "添加角色",
   "worlds.settings.story.title": "故事",
   "worlds.settings.story.desc": "这次想讲什么，以及它如何发生。",
@@ -118,6 +118,15 @@ const zh = {
   "worlds.settings.location.title": "场景",
   "worlds.settings.location.desc": "故事发生在哪里，有怎样的氛围与细节。",
   "worlds.settings.location.action": "添加场景",
+  "worlds.settings.prop.title": "道具",
+  "worlds.settings.prop.desc": "关键道具的外观与细节，跨镜保持一致。",
+  "worlds.settings.prop.action": "添加道具",
+  "worlds.settings.work.title": "作品",
+  "worlds.settings.work.desc": "交付单位：串起脚本、场次与成片。",
+  "worlds.settings.work.action": "添加作品",
+  "worlds.settings.script.title": "视频脚本",
+  "worlds.settings.script.desc": "要拍什么：叙事、口播、时长与分镜表。",
+  "worlds.settings.script.action": "添加脚本",
 
   // 设定字段
   "worlds.settings.field.appearance.label": "外貌与标志",
@@ -411,6 +420,15 @@ const en: Record<keyof typeof zh, string> = {
   "worlds.settings.location.title": "Location",
   "worlds.settings.location.desc": "Where the story happens, its mood and details.",
   "worlds.settings.location.action": "Add location",
+  "worlds.settings.prop.title": "Prop",
+  "worlds.settings.prop.desc": "A key prop's look and details, kept consistent across shots.",
+  "worlds.settings.prop.action": "Add prop",
+  "worlds.settings.work.title": "Work",
+  "worlds.settings.work.desc": "The delivery unit: ties scripts, scenes and the final cut together.",
+  "worlds.settings.work.action": "Add work",
+  "worlds.settings.script.title": "Video script",
+  "worlds.settings.script.desc": "What to shoot: narrative, voiceover, duration and storyboard.",
+  "worlds.settings.script.action": "Add script",
 
   // Setting fields
   "worlds.settings.field.appearance.label": "Appearance & signature",

@@ -7,7 +7,7 @@
 
 把视频模型当作自然语言理解能力很强、但不知道任何未声明制作意图的影片摄影与制作团队。任何对构图、空间、表演、动作、光线、材质、特效、声音或连续性有影响的细节，都要直接写出，不依赖模型“应该能猜到”。质量标准是：不同摄影与制作团队仅凭这份文件，也能复现主体、空间、运动、声音和镜头结果高度接近的影像。
 
-同时遵循[共享视频生成 Prompt 指南](../../references/video-generation-prompt-guide.md)、当前选定 style 和[Seedance 2.0 官方提示词指南](../../references/official-seedance-2.0-prompt-guide.md)。模型、720p、时长、画幅、声音开关和输入模式由 CLI 参数传入，不写入创作 Prompt。
+同时遵循[生成提示词](../../generation-prompt/SKILL.md)与当前选定 style，并按 Seedance 官方口径（若可获得）核对。模型、720p、时长、画幅、声音开关和输入模式由 CLI 参数传入，不写入创作 Prompt。
 
 ## 片段拆分与镜头节奏
 

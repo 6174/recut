@@ -33,8 +33,8 @@ recut.worlds.get({ worldId, scenarioId? })
 
 ## 3. Research 纪律
 
-- 消化产物先对齐蓝图目标形态（如 novel-adaptation：角色卡含 appearance/personality/voice/
-  invariants；story 含 premise；location 含 description）。
+- 消化产物先对齐蓝图目标形态（如 novel-adaptation：`character`（角色）卡含 appearance/personality/voice/
+  invariants；`script`（视频脚本）含 logline/beats；`location`（场景）含 description；关键 `prop`（道具）含 description/appearance）。
 - 原文与产出可追溯：角色卡字段尽量保留原文依据；用户追问时能指出出处。
 - 世界定位（identity）：从用户目的与素材归纳一句话定位，放入提案请用户确认。
 
@@ -42,8 +42,7 @@ recut.worlds.get({ worldId, scenarioId? })
 
 - 角色参考图、风格示例等候选用宿主图片生成工具（Recut 中为 `recut.image.generate`）生成。
 - **产物是候选**：把 assetId 深链与画廊式清单交给用户挑选；用户勾选前不得把候选写入 Canon。
-  未勾选 = 未发生。内容写入统一经画布接口 `recut.worlds.entity`（媒体作为实体 media 属性随 `attrs` 落盘）；
-  不存在 `recut.worlds.evidence.attach` / `references.attach` 工具。
+  未勾选 = 未发生。内容写入统一经画布接口 `recut.worlds.entity`（媒体作为实体 media 属性随 `attrs` 落盘）。
 - 生成预算克制：首轮每类 2-3 张样张，确认方向后再补全。
 
 ## 5. 提案（等待用户确认）
@@ -62,15 +61,14 @@ recut.worlds.get({ worldId, scenarioId? })
 
 - 逐条调用画布接口：`recut.worlds.entity`（op=create/update；含用户勾选的候选媒体，写入实体 media 属性；给
   `contextId` 时自动在画布落投影卡）、`recut.worlds.relation`（op=create）、`recut.worlds.update(skillMd)`，
-  全部携带 `expectedRevisionId`（提案时的 revision）。证据层已退役：媒体一律走实体 media 属性，没有独立的
-  证据写入/归档工具。
+  全部携带 `expectedRevisionId`（提案时的 revision）。媒体一律走实体 media 属性。
 - 任何一条返回 `WORLD_REVISION_CONFLICT`：**停止整批写回**，重读最新状态，刷新提案差异后再次请
   确认——绝不静默覆盖。
 - 非 local 世界只读（`WORLD_READ_ONLY`）：说明边界并提议 `recut.worlds.fork`，在副本上走本工作流。
-- 写回完成后汇报：新增/更新的实体与证据清单 + 新 revision + 更新后的 `readiness.level`。
+- 写回完成后汇报：新增/更新的实体与素材（media 属性）清单 + 新 revision + 更新后的 `readiness.level`。
 
 ## 边界（不变）
 
 - 无用户明确请求绝不写 World；onboarding UI / 用户消息的确认即明确请求。
-- 生成结果永不自动成为证据；候选未勾选 = 未发生。
+- 生成结果永不自动写入 Canon；候选未勾选 = 未发生。
 - 蓝图只是度量和建议：用户想存蓝图之外的内容，照常写——readiness 不惩罚蓝图外的自由 Canon。

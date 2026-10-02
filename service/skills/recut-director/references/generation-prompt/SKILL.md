@@ -121,7 +121,7 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 实测对照：同一模型、同一画幅、同一步数、同一 seed，只改这两句写法——前者出糊字，后者三段中文逐字正确。
 
 - 文字载体不止「屏幕」：招牌、横幅、菜单、价签、书页、包装、车牌、球衣号码、仪表读数、便利贴、涂鸦墙同样适用。
-- **画内文字 ≠ 字幕**：后期烧入的 caption 归 `references/captions`，不写进生成提示词；本节指的是物理存在于场景里、会被摄影机拍到的字。
+- **画内文字 ≠ 字幕**：后期烧入的 caption 归 `references/editing`，不写进生成提示词；本节指的是物理存在于场景里、会被摄影机拍到的字。
 - 与项目级生成锁的优先级：项目若已锁定「全程不生成任何字幕/屏幕文字」（见 `references/modes/*/video-prompt-guide.md`），则该锁优先，此时按上表的「无字视觉编码」支写，并且**不得**再在镜头里要求任何可读文字。
 
 ## 参考锚点表达规则
@@ -164,8 +164,8 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 
 当分镜先以**一张 N 宫格分镜表**（storyboard sheet，见 `references/shot` 的宫格压缩法）压缩生成时：
 
-1. **默认整张 sheet 作一张 image 直接作 `role="storyboard"` 参考**，与 `character`/`environment`/`style-ref`/`voice` 并列提交，由模型据此展开分镜；**参考数量有限，整张只占一个名额，不逐格占用**。它承载整段的构图与调度连续性，不是成片帧。
-2. **仅当命中升级条件**（模型吃 storyboard 参考弱或分辨率明显不足、需精确首尾帧端点、代表镜 proof 不过）才切格细化：`recut.media.gridSlice` 切出单格作 `role="storyboard"`，**只锚定该格**的构图/动作/调度；再叠 `character`（角色身份）/`environment`（场景）/`style-ref`（风格）。
+1. **默认整张 sheet 作一张 image 直接作 `role="storyboard"` 参考**，与 `character`/`environment`/`style-ref`/`prop`/`voice` 并列提交，由模型据此展开分镜；**参考数量有限，整张只占一个名额，不逐格占用**。它承载整段的构图与调度连续性，不是成片帧。
+2. **仅当命中升级条件**（模型吃 storyboard 参考弱或分辨率明显不足、需精确首尾帧端点、代表镜 proof 不过）才切格细化：`recut.media.gridSlice` 切出单格作 `role="storyboard"`，**只锚定该格**的构图/动作/调度；再叠 `character`（角色身份）/`environment`（场景）/`prop`（关键道具）/`style-ref`（风格）。
 3. 切格细化时提示词要求「去掉宫格边框与坐标编号、提升分辨率、保持角色/服装/道具/光位与相邻格一致」；**不放大草图**，成片关键帧必须重生成。
 4. 一格里已冻结的起止状态即该镜的首尾帧合同；相邻格用世界状态推导，不重建房间。
 
@@ -235,17 +235,12 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 
 | 问题 | 读什么 | 用途 |
 |---|---|---|
-| 生成提示词的多镜分镜意图 | `references/shot/SKILL.md` + `references/shot/references/cinematic-language.md` | 景别/角度/焦段/运动/调度/轴线 |
-| [CAMERA LOCK] 机身/镜头/焦段的选型与措辞 | `references/shot/references/cinematic-language.md` + `references/shot/references/prompt-lexicon.md` | 焦段心理、相机措辞与器材名词 |
-| 每镜机位/运动的起止写法（推、拉、摇、移、跟的起点与终点） | `references/shot/references/cinematic-language.md` + `references/shot/references/prompt-lexicon.md` | 起始机位、运动方向与结束景别；屏幕方向与人物方向 |
 | 全段底声与分镜局部声的分层、SFX 词汇与因果钉帧 | `references/sound/SKILL.md` | 底声/BGM 选型与层次纪律、动作声的因果对齐 |
-| 首尾帧与连续性锚点怎么写 | `references/shot/assets/keyframe-prompt-template.md`、`references/shot/references/continuity-bible.md` | 九槽位、invariant 串、状态账本 |
-| 抽象词→可观察行为、负面词库 | `references/shot/references/prompt-lexicon.md` | 措辞与 token 经济 |
 | 画内文字（屏幕/招牌/包装/界面上的可读字）怎么写 | 本 SKILL.md《画内文字》 | 判支规则、逐字写死五条、反例与正例、文字载体的像素要求 |
-| 六模块/十段式的详细模板 | `references/short-drama/references/ai-storyboard-director` | 生成任务/主体/场景/情绪/风格/分段脚本 |
+| 六模块/十段式的详细模板 | `references/story/SKILL.md`（短剧编排） | 生成任务/主体/场景/情绪/风格/分段脚本 |
 | 参考图职责与人物参考 | `references/modes/*/video-prompt-guide.md` | 各 Mode 的 `参考图N` 声明与素材连接纪律 |
-| `<reference>` 标签属性、role 词表、编号与提交规则 | 本 SKILL.md《参考锚点表达规则》+ `references/generation-prompt/assets/generation-prompt-template.md` | 标签属性、role、编号与提交形态 |
-| 世界内的生成（world.md 世界技能） | `recut.worlds.get({ worldId })` 读取 `skillMd` 与 `references[]`与 `references[]` | 该世界的 STYLE LOCK、可引用项与建议 role、资源口径；本技能是其通用底座 |
+| `<reference>` 标签属性、role 词表、编号与提交规则 | 本 SKILL.md《参考锚点表达规则》+ `references/generation-prompt/SKILL.md` | 标签属性、role、编号与提交形态 |
+| 世界内的生成（world.md 世界技能） | `recut.worlds.get({ worldId })` 读取 `skillMd` 与 `references[]` | 该世界的 STYLE LOCK、可引用项与建议 role、资源口径；本技能是其通用底座 |
 | 世界/画布里的生成怎么调工具 | `recut-worlds` 技能 | `recut.worlds.*` 操作与「读世界 → 写提示词 → 生成 → 落位」流程 |
 | 失败症状与门禁 | `references/qc` | F-code 与验收门禁 |
 
@@ -255,7 +250,7 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 
 ## 版本与来源
 
-- 自有存量：`references/shot/SKILL.md`（镜头意图与措辞）、`references/short-drama/references/ai-storyboard-director`（六大模块）、`references/modes/` 各 Mode 的 video-prompt-guide（参考图声明纪律）
+- 自有存量：`references/shot/SKILL.md`（镜头意图与措辞）、`references/story/SKILL.md`（短剧编排/六大模块）、`references/modes/` 各 Mode 的 video-prompt-guide（参考图声明纪律）
 - 新增协议：仓库设计文档 `rfc/2026-09-15-generation-reference-protocol.md`（统一 `<reference>` + role + resolver；本 SKILL.md 已内联其规则要点，不依赖该文档可达）
 - 搬运（MIT / Apache-2.0）内容以来源注记的原文为准，本文件只做融合与收敛。
 

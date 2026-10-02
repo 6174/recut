@@ -58,7 +58,7 @@ import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SI
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
-import { entityAttrMediaRef, entityKindLabel, type EntityAttrMediaValue } from "@/lib/recut-worlds-client";
+import { entityAttrMediaRef, entityKindLabel, isProductionEntityKind, isRetiredEntityKind, productionKindIcons, productionKindLabels, type EntityAttrMediaValue } from "@/lib/recut-worlds-client";
 
 // ---------- canvas-store → pomelo document 映射（block id 约定） ----------
 
@@ -549,6 +549,14 @@ function AttrCreatorPanel() {
       await createRelation(fromEntity.id, newId, fromRole);
     })();
   };
+  // 「+」引导建出的**子类型**（来源实体 childTypes 声明的）：只落归属子节点，不补关系——
+  // 归属靠 parentId（树），关系箭头是另一层语义（见生产层 RFC §6 / §7.2）。
+  const createChildAt = (kind: string) => {
+    void (async () => {
+      await createEntity(kind, { pos: entityPos });
+      setAttrCreator(null);
+    })();
+  };
   // 面板条目：与创建菜单同一套 CreatePanel 结构（左分组列表 + 右详情 + 「创建」）
   type AttrField = {
     key: string;
@@ -639,8 +647,32 @@ function AttrCreatorPanel() {
   }));
 
   const lastKind = readLastKind();
+  // §7.2：来源实体声明了 childTypes 时，手柄直接给「新建<子类型>」——建出的是**归属子节点**
+  // （parentId + 落卡），不补关系。子类型不是预设（用到即建），所以按声明 id 直接给入口。
+  const childTypeItems: CreateItem[] = (sourceType?.childTypes ?? []).map((id) => {
+    const declared = entityTypes.find((item) => item.id === id);
+    const icon = declared?.icon || productionKindIcons[id] || "◍";
+    const name = declared?.name || productionKindLabels[id] || id;
+    return {
+      key: `child:${id}`,
+      label: name,
+      icon,
+      hint: "新建子类型",
+      preview: {
+        icon,
+        title: name,
+        subtitle: `归属「${creator.fromEntityTitle}」`,
+        body: `在「${creator.fromEntityTitle}」下新建一个${name}（parentId 归属 + 落卡），不额外补关系——树的归属靠 parentId，不靠箭头。`,
+      },
+      run: () => createChildAt(id),
+    };
+  });
+  // 实体组只列默认集类型：退役预设（object/story/style/rule/reference）可能仍在类型目录里
+  // （旧世界有对应实体时类型行会保留），生产类型（场次/镜头）只作为**容器子类型**出现——
+  // 两者都不作为通用"新建"提供；实体自身的 schema 查找不受影响。
   const entityItems: CreateItem[] = [
-    ...entityTypes.map((item): CreateItem => ({
+    ...childTypeItems,
+    ...entityTypes.filter((item) => !isRetiredEntityKind(item.id) && !isProductionEntityKind(item.id)).map((item): CreateItem => ({
       key: `entity:${item.id}`,
       label: item.name || item.id,
       icon: item.icon || "◍",

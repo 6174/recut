@@ -9,7 +9,7 @@
 export type WorldKind = "character_ip" | "creator_brand" | "brand" | "fiction_world" | "custom";
 // Entity type id: preset ids autocomplete, any custom id allowed (type 目录开放)。
 // The legacy "reference" preset is retired — media attrs cover it.
-export type EntityKind = "character" | "location" | "script" | (string & {});
+export type EntityKind = "work" | "character" | "location" | "prop" | "script" | (string & {});
 export type WorldPurpose = "chat" | "video" | "voice" | "image" | "cover" | "agent";
 export type Page<T> = { items: T[]; nextCursor?: string };
 
@@ -88,6 +88,8 @@ export type WorldEntityRelation = {
   fromEntityId: string;
   toEntityId: string;
   scopeEntityId?: string;
+  /** Production draft link (has_script/has_scene/has_shot): not in the Canon until apply. */
+  isProvisional?: boolean;
   /** Read projection from the touched entity's point of view: out | in | scope. */
   direction?: "out" | "in" | "scope";
 };
@@ -277,11 +279,14 @@ export const worldKindLabels: Record<WorldKind, string> = {
   custom: "自定义",
 };
 
-// 与服务端 type 目录 name 统一文案（T11：「角色」→「人物」；目录缺失时兜底）。
-// 默认集是精简可运行的核心（生产层 RFC §5）：谁 / 在哪 / 拍什么；其余类型由用户按需自建。
+// 与服务端 type 目录 name 统一文案（目录缺失时兜底）。
+// 默认集是精简可运行的核心（生产层 RFC §5）：作品 / 角色 / 场景 / 道具 / 视频脚本；
+// `character` 是「角色」（涵盖人物 / 动物 / 生物），`prop` 是「道具」（关键道具锚点）。
 export const entityKindLabels: Record<EntityKind, string> = {
-  character: "人物",
+  work: "作品",
+  character: "角色",
   location: "场景",
+  prop: "道具",
   script: "视频脚本",
 };
 
@@ -289,12 +294,13 @@ export function entityKindLabel(typeId: string): string {
   return entityKindLabels[typeId] ?? typeId;
 }
 
-const referenceRoles = ["character_reference", "voice_reference", "location_reference", "style_reference", "story_reference", "brand_reference"];
+const referenceRoles = ["character_reference", "voice_reference", "location_reference", "prop_reference", "style_reference", "story_reference", "brand_reference"];
 
 export const referenceRoleLabels: Record<string, string> = {
   character_reference: "角色参考",
   voice_reference: "声音参考",
   location_reference: "地点参考",
+  prop_reference: "道具参考",
   style_reference: "风格参考",
   story_reference: "故事参考",
   brand_reference: "品牌参考",
@@ -308,8 +314,30 @@ export function worldTypes(): WorldKind[] {
   return ["character_ip", "creator_brand", "brand", "fiction_world", "custom"];
 }
 
+// 默认实体类型：精简可运行的核心（作品 / 角色 / 场景 / 道具 / 视频脚本）。其余由用户按需自建。
 export function entityKinds(): EntityKind[] {
-  return ["character", "location", "object", "story", "script", "style", "rule"];
+  return ["work", "character", "location", "prop", "script"];
+}
+
+// 退役的预设类型 id：`story` 并入 `script`、`rule`/`style` 降级为世界级属性
+// （identity.constraints / identity.style）、`object` 可选、`reference` 更早已退役。
+// 它们的**实体**在旧世界仍可读（类型行也会保留以免旧实体悬空），但**不再出现在任何"新建"入口**。
+export const RETIRED_ENTITY_KINDS: ReadonlySet<string> = new Set(["reference", "object", "story", "style", "rule"]);
+
+export function isRetiredEntityKind(typeId: string): boolean {
+  return RETIRED_ENTITY_KINDS.has(typeId);
+}
+
+// 生产层类型的显示名（非默认预设：用到即建、不进"设定"组；但作为容器的容许子类型提供，见 §7.2）。
+export const productionKindLabels: Record<string, string> = { scene: "场次", shot: "镜头" };
+export const productionKindIcons: Record<string, string> = { scene: "🎞", shot: "🎥" };
+
+// 生产层类型（作品容器内的结构化对象）：它们**只作为容器的容许子类型**出现在新建入口，
+// 不进通用的"设定"组，也不受退役过滤影响（见生产层 RFC §7.2）。
+export const PRODUCTION_ENTITY_KINDS: ReadonlySet<string> = new Set(["scene", "shot"]);
+
+export function isProductionEntityKind(typeId: string): boolean {
+  return PRODUCTION_ENTITY_KINDS.has(typeId);
 }
 
 export type EntityTypeField = {
@@ -334,6 +362,9 @@ export type WorldEntityType = {
   color?: string;
   baseKind?: string;
   fields: EntityTypeField[];
+  // 该类型**容许的子类型**（advisory，来自类型 schema）：驱动"容器内可新建什么"的入口。
+  // 归属真相仍是实体的 parentId；childTypes 只决定默认与置顶（见生产层 RFC §7.2）。
+  childTypes?: string[];
   extendsId?: string;
   builtin?: boolean;
   createdAt: string;

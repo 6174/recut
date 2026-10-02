@@ -501,7 +501,7 @@ function WorldDetailContent() {
         aria-label={t("worlds.detail.tabs.aria")}
         className="mb-6 flex flex-wrap items-center gap-1.5"
       >
-        {[{ kind: "skill" as const, title: t("worlds.detail.skill.title") }, ...entityTypeTabs(entityTypes)].map((section) => (
+        {[{ kind: "skill" as const, title: t("worlds.detail.skill.title") }, ...entityTypeTabs(entityTypes, Object.keys(entitiesByType))].map((section) => (
           <button
             aria-pressed={activeKind === section.kind}
             className={tabClass(activeKind === section.kind)}
@@ -715,14 +715,18 @@ async function loadWorldEntities(
   return grouped;
 }
 
-// 预设类型 + 已有自定义类型（type 目录开放；"reference" 已退役）
-function entityTypeTabs(types: WorldEntityType[]): Array<{ kind: EntityKind; title: string }> {
+// tab = 默认集预设 + **实际存在实体的类型**（含旧世界的退役类型，否则它们的实体会在设置视图里消失）+ 目录里的空自定义类型。
+function entityTypeTabs(types: WorldEntityType[], presentTypeIds: string[] = []): Array<{ kind: EntityKind; title: string }> {
   const nameOf = (typeId: EntityKind) => types.find((type) => type.id === typeId)?.name || entityKindLabel(typeId);
-  const presetTabs = entityKinds().map((kind) => ({ kind, title: nameOf(kind) }));
+  const defaults = entityKinds();
+  const presetTabs = defaults.map((kind) => ({ kind, title: nameOf(kind) }));
+  const legacyTabs = presentTypeIds
+    .filter((id) => !defaults.includes(id as EntityKind))
+    .map((id) => ({ kind: id as EntityKind, title: nameOf(id as EntityKind) }));
   const customTabs = types
-    .filter((type) => type.scope === "custom" && !entityKinds().includes(type.id as EntityKind))
+    .filter((type) => type.scope === "custom" && !defaults.includes(type.id as EntityKind) && !presentTypeIds.includes(type.id))
     .map((type) => ({ kind: type.id as EntityKind, title: type.name || entityKindLabel(type.id) }));
-  return [...presetTabs, ...customTabs];
+  return [...presetTabs, ...legacyTabs, ...customTabs];
 }
 
 function typeSectionText(typeId: EntityKind, types: WorldEntityType[], t: (key: string) => string) {

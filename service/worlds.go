@@ -47,19 +47,30 @@ const (
 )
 
 // WorldEntityTypeID names an entity's type inside the world's type directory.
-// It is an open id: preset ids (character/location/object/story/style/rule) are
+// It is an open id: preset ids (work/character/location/prop/script) are
 // seeded as builtin rows, any other string resolves to a world-local custom
 // type. The old closed kind enum is gone (RFC 统一 Entity 模型).
 type WorldEntityTypeID = string
 
+// Preset type ids. The default set is the minimal, runnable core (生产层 RFC §5):
+// 角色 / 在哪 / 道具 / 拍什么.
+//
+// `object` / `story` / `style` / `rule` are RETIRED presets: story merged into
+// script, rule/style became world-level attributes (identity.constraints /
+// identity.style), object is superseded by `prop` (道具). The ids stay as
+// constants because legacy worlds still hold entities of those types (which must
+// keep resolving); nothing in production code should create them as presets anymore.
 const (
-	EntityTypeCharacter = "character"
-	EntityTypeLocation  = "location"
-	EntityTypeObject    = "object"
-	EntityTypeStory     = "story"
-	EntityTypeScript    = "script"
-	EntityTypeStyle     = "style"
-	EntityTypeRule      = "rule"
+	EntityTypeWork      = "work"      // 作品：交付单位（成片 + 子节点聚合），脚本是它的子节点
+	EntityTypeCharacter = "character" // 角色（人物 / 动物 / 生物；显示名「角色」）
+	EntityTypeLocation  = "location"  // 场景 / 地点
+	EntityTypeProp      = "prop"      // 道具：关键道具的锚点（跨镜一致）
+	EntityTypeScript    = "script"    // 视频脚本
+
+	EntityTypeObject = "object" // retired preset (superseded by prop; legacy rows still read)
+	EntityTypeStory  = "story"  // retired preset (merged into script)
+	EntityTypeStyle  = "style"  // retired preset (→ identity.style)
+	EntityTypeRule   = "rule"   // retired preset (→ identity.constraints)
 )
 
 var worldKinds = map[WorldKind]bool{
@@ -70,7 +81,7 @@ var worldKinds = map[WorldKind]bool{
 // completed global Asset can play inside a World.
 var assetReferenceRoles = map[string]bool{
 	"character_reference": true, "voice_reference": true, "location_reference": true,
-	"style_reference": true, "story_reference": true, "brand_reference": true,
+	"prop_reference": true, "style_reference": true, "story_reference": true, "brand_reference": true,
 }
 
 // Evidence describes why an asset belongs to a World. Role is kept solely as
@@ -254,6 +265,9 @@ type WorldEntityRelation struct {
 	FromEntityID  string `json:"fromEntityId"`
 	ToEntityID    string `json:"toEntityId"`
 	ScopeEntityID string `json:"scopeEntityId,omitempty"`
+	// IsProvisional marks an exploration draft link (production plan chain):
+	// it is not part of the Canon and produces no revision until confirmed.
+	IsProvisional bool `json:"isProvisional,omitempty"`
 	// Direction is a read projection (out | in | scope) from the touched
 	// entity's point of view; only ListRelations fills it.
 	Direction string `json:"direction,omitempty"`
@@ -326,6 +340,7 @@ type WorldConstraints struct {
 type ResolvedWorldEntities struct {
 	Characters []map[string]any `json:"characters,omitempty"`
 	Locations  []map[string]any `json:"locations,omitempty"`
+	Props      []map[string]any `json:"props,omitempty"`
 	Scripts    []map[string]any `json:"scripts,omitempty"`
 	Styles     []map[string]any `json:"styles,omitempty"`
 	Rules      []map[string]any `json:"rules,omitempty"`
@@ -653,7 +668,7 @@ func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, 
 		entities = entities[:worldGraphEntityMax]
 	}
 
-	relationRows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? order by created_at limit ?", worldID, worldGraphRelationMax+1)
+	relationRows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id, is_provisional from world_relations where world_id = ? order by created_at limit ?", worldID, worldGraphRelationMax+1)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -662,10 +677,12 @@ func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, 
 	for relationRows.Next() {
 		var relation WorldEntityRelation
 		var scopeEntityID sql.NullString
-		if err := relationRows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
+		var provisional int
+		if err := relationRows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID, &provisional); err != nil {
 			return nil, nil, false, err
 		}
 		relation.ScopeEntityID = nullStringValue(scopeEntityID)
+		relation.IsProvisional = provisional != 0
 		relations = append(relations, relation)
 	}
 	if err := relationRows.Err(); err != nil {
@@ -715,19 +732,20 @@ func entityMediaAnchors(attrsJSON string) []WorldEntityMedia {
 
 // availableEntityKinds returns the preset type ids a World type surfaces first
 // in its UI; the directory itself stays open (custom types always allowed).
-// The default set is the minimal, runnable core (生产层 RFC §5): 谁 / 在哪 / 拍什么.
+// The default set is the minimal, runnable core (生产层 RFC §5):
+// 作品 / 角色 / 场景 / 道具 / 拍什么.
 func availableEntityKinds(kind WorldKind) []string {
 	switch kind {
 	case WorldCharacterIP:
-		return []string{EntityTypeCharacter, EntityTypeScript, EntityTypeLocation}
+		return []string{EntityTypeWork, EntityTypeCharacter, EntityTypeScript, EntityTypeLocation, EntityTypeProp}
 	case WorldCreatorBrand:
-		return []string{EntityTypeScript, EntityTypeCharacter, EntityTypeLocation}
+		return []string{EntityTypeWork, EntityTypeScript, EntityTypeCharacter, EntityTypeLocation, EntityTypeProp}
 	case WorldBrand:
-		return []string{EntityTypeScript, EntityTypeCharacter, EntityTypeLocation}
+		return []string{EntityTypeWork, EntityTypeScript, EntityTypeCharacter, EntityTypeLocation, EntityTypeProp}
 	case WorldFiction:
-		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeScript}
+		return []string{EntityTypeWork, EntityTypeCharacter, EntityTypeLocation, EntityTypeProp, EntityTypeScript}
 	default:
-		return []string{EntityTypeCharacter, EntityTypeLocation, EntityTypeScript}
+		return []string{EntityTypeWork, EntityTypeCharacter, EntityTypeLocation, EntityTypeProp, EntityTypeScript}
 	}
 }
 
@@ -1004,7 +1022,7 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 		return WorldEntity{}, err
 	}
 	entity.Children = children
-	relationRows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id from world_relations where world_id = ? and (from_entity_id = ? or to_entity_id = ?) and (scope_entity_id is null or scope_entity_id = ?) order by created_at", worldID, entityID, entityID, entityID)
+	relationRows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id, is_provisional from world_relations where world_id = ? and (from_entity_id = ? or to_entity_id = ?) and (scope_entity_id is null or scope_entity_id = ?) order by created_at", worldID, entityID, entityID, entityID)
 	if err != nil {
 		return WorldEntity{}, err
 	}
@@ -1013,10 +1031,12 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 	for relationRows.Next() {
 		var relation WorldEntityRelation
 		var scopeEntityID sql.NullString
-		if err := relationRows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID); err != nil {
+		var provisional int
+		if err := relationRows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID, &provisional); err != nil {
 			return WorldEntity{}, err
 		}
 		relation.ScopeEntityID = nullStringValue(scopeEntityID)
+		relation.IsProvisional = provisional != 0
 		entity.Relations = append(entity.Relations, relation)
 	}
 	if err := relationRows.Err(); err != nil {
@@ -1126,6 +1146,12 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 		}
 		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
 			entityID, input.WorldID, input.TypeID, input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, string(attrsJSON), nullIfEmpty(input.ParentID), input.ContainerRole, provisional, now, now); err != nil {
+			return WorldEntity{}, err
+		}
+		// Production chain (作品→脚本→场次→镜头): a production entity created under
+		// another production entity records its structural link here, so the tree is
+		// link-backed from the start (生产层 RFC D8). Provisional mirrors the entity.
+		if err := materializeProductionLinkTx(tx, input.WorldID, input.ParentID, entityID, input.TypeID, input.IsProvisional); err != nil {
 			return WorldEntity{}, err
 		}
 	} else {
@@ -1487,7 +1513,7 @@ func (w *WorldStore) DeleteEntity(input DeleteEntityInput) (DeleteEntityResult, 
 	if _, err := tx.Exec("delete from world_relation_tombstones where world_id = ? and id in (select id from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+")))", append(append([]any{input.WorldID, input.WorldID}, args...), args...)...); err != nil {
 		return DeleteEntityResult{}, err
 	}
-	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, ?, ? from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{now, batchID, input.WorldID}, args...), args...)...); err != nil {
+	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at, ?, ? from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{now, batchID, input.WorldID}, args...), args...)...); err != nil {
 		return DeleteEntityResult{}, err
 	}
 	if _, err := tx.Exec("delete from world_relations where world_id = ? and (from_entity_id in ("+placeholders+") or to_entity_id in ("+placeholders+"))", append(append([]any{input.WorldID}, args...), args...)...); err != nil {
@@ -1593,7 +1619,7 @@ func (w *WorldStore) RestoreEntity(input RestoreEntityInput) (RestoreEntityResul
 			for _, id := range restoredIDs {
 				args = append(args, id)
 			}
-			res, err = tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.to_role, t.metadata_json, t.scope_entity_id, t.created_at from world_relation_tombstones t where t.world_id = ? and t.batch_id <> '' and "+cond+" and "+alive, args...)
+			res, err = tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.to_role, t.metadata_json, t.scope_entity_id, t.is_provisional, t.created_at from world_relation_tombstones t where t.world_id = ? and t.batch_id <> '' and "+cond+" and "+alive, args...)
 			if err != nil {
 				return RestoreEntityResult{}, err
 			}
@@ -1680,7 +1706,7 @@ func (w *WorldStore) RestoreRelation(worldID, relationID, expectedRevisionID, cr
 		return err
 	}
 	// 两端都必须存活才允许重建（避免恢复出指向已归档实体的悬空边）
-	res, err := tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.to_role, t.metadata_json, t.scope_entity_id, t.created_at from world_relation_tombstones t where t.id = ? and t.world_id = ? and exists (select 1 from world_entities e where e.id = t.from_entity_id and e.world_id = t.world_id and e.archived_at is null) and exists (select 1 from world_entities e where e.id = t.to_entity_id and e.world_id = t.world_id and e.archived_at is null)", relationID, worldID)
+	res, err := tx.Exec("insert or ignore into world_relations (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at) select t.id, t.world_id, t.from_entity_id, t.to_entity_id, t.relation_type, t.to_role, t.metadata_json, t.scope_entity_id, t.is_provisional, t.created_at from world_relation_tombstones t where t.id = ? and t.world_id = ? and exists (select 1 from world_entities e where e.id = t.from_entity_id and e.world_id = t.world_id and e.archived_at is null) and exists (select 1 from world_entities e where e.id = t.to_entity_id and e.world_id = t.world_id and e.archived_at is null)", relationID, worldID)
 	if err != nil {
 		return err
 	}
@@ -2093,7 +2119,7 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 	}
 
 	relations := []map[string]any{}
-	relationRows, err := tx.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, metadata_json from world_relations where world_id = ? and scope_entity_id is null order by id", worldID)
+	relationRows, err := tx.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, metadata_json from world_relations where world_id = ? and scope_entity_id is null and is_provisional = 0 order by id", worldID)
 	if err != nil {
 		return "", "", err
 	}
@@ -2340,30 +2366,6 @@ func (w *WorldStore) validateSelection(db *sql.DB, worldID string, selection Wor
 	return selection, nil
 }
 
-// worldStyleLock returns the world-level STYLE LOCK from `identity.style`, the
-// attribute that replaced the retired `style` entity type (生产层 RFC §5): one
-// world has one visual identity, so it is a field, not a collection of entities.
-// Accepts a plain string or { visual, guidance, avoid }.
-func worldStyleLock(identity map[string]any) string {
-	raw, ok := identity["style"]
-	if !ok || raw == nil {
-		return ""
-	}
-	switch typed := raw.(type) {
-	case string:
-		return strings.TrimSpace(typed)
-	case map[string]any:
-		parts := []string{}
-		for _, key := range []string{"visual", "guidance"} {
-			if value, ok := typed[key].(string); ok && strings.TrimSpace(value) != "" {
-				parts = append(parts, strings.TrimSpace(value))
-			}
-		}
-		return strings.Join(parts, "\n")
-	}
-	return ""
-}
-
 // worldStyleView projects `identity.style` into the entity-view shape consumers
 // already read for styles, so the retirement is transparent downstream.
 func worldStyleView(identity map[string]any) map[string]any {
@@ -2470,6 +2472,8 @@ func (w *WorldStore) projectContext(world WorldDetail, canonical map[string]any,
 				context.Entities.Characters = append(context.Entities.Characters, w.entityView(record, "name"))
 			case "location":
 				context.Entities.Locations = append(context.Entities.Locations, w.entityView(record, "name"))
+			case "prop":
+				context.Entities.Props = append(context.Entities.Props, w.entityView(record, "name"))
 			case "script", "story":
 				// `story` is legacy (retired, merged into `script`): its
 				// entities still read as works so older worlds keep resolving.
@@ -2922,7 +2926,7 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 	if _, err := tx.Exec("delete from world_relation_tombstones where world_id = ? and id in (select id from world_relations where world_id = ?)", worldID, worldID); err != nil {
 		return WorldDetail{}, err
 	}
-	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, created_at, ?, '' from world_relations where world_id = ?", now, worldID); err != nil {
+	if _, err := tx.Exec("insert or ignore into world_relation_tombstones (id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at, archived_at, batch_id) select id, world_id, from_entity_id, to_entity_id, relation_type, to_role, metadata_json, scope_entity_id, is_provisional, created_at, ?, '' from world_relations where world_id = ?", now, worldID); err != nil {
 		return WorldDetail{}, err
 	}
 	if _, err := tx.Exec("delete from world_relations where world_id = ?", worldID); err != nil {

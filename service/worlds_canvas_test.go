@@ -94,15 +94,40 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 	for _, item := range types {
 		byID[item.ID] = item
 	}
-	// The default set is the minimal, runnable core (生产层 RFC §5).
-	for _, id := range []string{"character", "location", "script"} {
+	// The default set is the minimal, runnable core (生产层 RFC §5): 作品 / 角色 /
+	// 场景 / 道具 / 视频脚本.
+	for _, id := range []string{"work", "character", "location", "prop", "script"} {
 		if _, ok := byID[id]; !ok {
 			t.Fatalf("preset type %q not seeded", id)
 		}
 	}
+	// 默认集是**恰好**这 5 个：多一个都要显式决策（防漂移）。
+	if len(types) != 5 {
+		t.Fatalf("default directory = %d types, want exactly 5: %#v", len(types), byID)
+	}
+	// `character` reads as 角色 (covers animals/creatures, not just 人物); `prop` is 道具.
+	if byID["character"].Name != "角色" {
+		t.Fatalf("character display name = %q, want 角色", byID["character"].Name)
+	}
+	if byID["prop"].Name != "道具" {
+		t.Fatalf("prop display name = %q, want 道具", byID["prop"].Name)
+	}
+	prop := byID["prop"]
+	propLocked := map[string]bool{}
+	for _, field := range prop.Fields {
+		propLocked[field.Key] = field.Locked
+	}
+	for _, key := range []string{"description", "appearance", "prop_reference"} {
+		if !propLocked[key] {
+			t.Fatalf("prop preset field %q must be locked: %#v", key, prop.Fields)
+		}
+	}
+	if propLocked["background"] {
+		t.Fatal("prop background field must stay unlocked")
+	}
 	// Retired presets must not appear: `reference` (media attrs cover it),
 	// `rule`/`style` (world-level identity.constraints / identity.style now),
-	// `story` (merged into script), `object` (optional extension).
+	// `story` (merged into script), `object` (superseded by prop).
 	for _, id := range []string{"reference", "object", "story", "style", "rule"} {
 		if _, ok := byID[id]; ok {
 			t.Fatalf("retired preset %q must not appear in the type directory", id)

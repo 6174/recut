@@ -17,7 +17,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 | 概念 | 真相位置 | 说明 |
 |---|---|---|
 | 身份 | `name` / `intro` / `detail` | 名称、一句话简介、正文长文（`detail` 是一等字段，不是普通属性） |
-| 类型 | `world_entity_types` | 预设 **人物 / 场景 / 视频脚本** + 自定义（默认集精简可运行，其余按需自建）；决定默认字段 schema |
+| 类型 | `world_entity_types` | 预设 **作品 / 角色 / 场景 / 道具 / 视频脚本** + 自定义（默认集精简可运行，其余按需自建）；决定默认字段 schema。`character` 是**角色**（人物/动物/生物），`prop` 是**道具**（关键道具锚点） |
 | 属性 | `entity.attrs`（有序 `{key,label,type,value}`） | 数组顺序即 UI 顺序，可排序 |
 | 关系 | `world_relations`（双向语义） | 受控词表 + 自定义 relationType |
 | 画布元素 | `world_canvas`（投影 / 表达） | 不产 revision、可重建 |
@@ -29,35 +29,38 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 **属性类型**：`text / textarea / number / boolean / select / media`。
 
-**素材 = media 属性（唯一通道）**：实体挂图片/视频/音频，就是一条 `type:"media"` 的 attr，值为 `{assetId, name?, kind?, segment?}`。**没有独立的「参考素材 / 证据」层**（evidence 已退役）；不复制二进制，只引用素材库 `assetId`，`segment` 保留「只引用某一段」的能力。
+**素材 = media 属性（唯一通道）**：实体挂图片/视频/音频，就是一条 `type:"media"` 的 attr，值为 `{assetId, name?, kind?, segment?}`。不复制二进制，只引用素材库 `assetId`，`segment` 保留「只引用某一段」的能力。
 
-**预设类型字段（locked）**：`character` 外貌与标志/性格/声音与说话方式/**声线参考（`voice_reference`，media/audio）**/不可变特征；`location` 描述/氛围；`script`（视频脚本）一句话概括/节拍/口播/目标时长/画幅/目标平台/分镜表。每类另带一个 **unlocked `background`（media）** 字段。`voice_reference` 是角色的**声线参考**（区别于文本「声音与说话方式」的语气描述）；`references[]` 会把它的 role 声明为 `voice`（不再靠 label 推断）。
+**预设类型字段（locked）**：`work`（作品，交付单位）背景 media（成片是按需 media 属性）；`character`（**角色**）外貌与标志/性格/声音与说话方式/**声线参考（`voice_reference`，media/audio）**/不可变特征；`location`（场景）描述/氛围；`prop`（**道具**）描述/外观与标志/**道具参考图（`prop_reference`，media/image）**；`script`（视频脚本）一句话概括/节拍/口播/目标时长/画幅/目标平台/分镜表。每类另带一个 **unlocked `background`（media）** 字段。`voice_reference` 是角色的**声线参考**（role `voice`）、`prop_reference` 是道具的**参考图**（role `prop`）——`references[]` 直接按字段声明 role，不再靠 label 推断。
 
-**默认集之外的是「世界级属性」，不是实体**：**风格**写 `world.identity.style`（一个世界一个 STYLE LOCK），**规则**写 `world.identity.constraints`（`{ always, never, prefer }`）。它们是世界的属性，不是对象——做成可无限添加的实体类型反而制造冲突（多个风格互相打架、规则散成卡片）。旧世界若还留有 `style` / `rule` / `story` 实体仍可读（`story` 按作品处理）；需要更多类型（如物件）用 `recut.worlds.entityType` 自建即可。
+**默认集之外的是「世界级属性」，不是实体**：**风格**写 `world.identity.style`（一个世界一个 STYLE LOCK），**规则**写 `world.identity.constraints`（`{ always, never, prefer }`）。它们是世界的属性，不是对象——做成可无限添加的实体类型反而制造冲突（多个风格互相打架、规则散成卡片）。需要更多类型用 `recut.worlds.entityType` 自建即可——但**关键道具不用自建，`prop` 已是默认预设**。
 
-**视频脚本与分镜**：`script` 是**作品实体**——既承载叙事内核（一句话概括/节拍），又承载可生成规格（口播/时长/画幅/平台/分镜表）；不再有独立的 `story` 类型（`script` 是其超集）。分镜以**一张 N 宫格分镜表（storyboard sheet）**压缩生成（默认 5×5=25 格，每格标 `R{r}C{c}` 坐标与镜号），**默认整张直接作 `role="storyboard"` 参考驱动视频生成**（参考名额有限，整张只占一个），由模型据此展开分镜；仅当升级条件（模型吃 storyboard 参考弱/分辨率不足、需精确首尾帧端点、代表镜 proof 不过）才用 `recut.media.gridSlice` 按 rows×cols 等分切格、逐格细化关键帧。宫格图与单格都作 `role="storyboard"` 锚点。分镜表写回 `script.storyboard` 这条 locked media 属性。
+**视频脚本与分镜**：`script`（视频脚本）是**可生成规格**——既承载叙事内核（一句话概括/节拍），又承载生成规格（口播/时长/画幅/平台/分镜表）；**交付单位是 `work`（作品）**，一个作品可挂多个脚本（见下）。分镜以**一张 N 宫格分镜表（storyboard sheet）**压缩生成（默认 5×5=25 格，每格标 `R{r}C{c}` 坐标与镜号），**默认整张直接作 `role="storyboard"` 参考驱动视频生成**（参考名额有限，整张只占一个），由模型据此展开分镜；仅当升级条件（模型吃 storyboard 参考弱/分辨率不足、需精确首尾帧端点、代表镜 proof 不过）才用 `recut.media.gridSlice` 按 rows×cols 等分切格、逐格细化关键帧。宫格图与单格都作 `role="storyboard"` 锚点。分镜表写回 `script.storyboard` 这条 locked media 属性。
 
-**生产层（作品 → 场次 → 镜头）**：`scene` / `shot` 是**作品容器内的实体**（`typeId=scene/shot`，**不进默认预设目录、不进 facts**，用到即建、自带 schema）。树靠 **`parentId`**（**不是关系箭头**）；类型目录的 **`childTypes`** 声明容许的子类型（`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory）。**产物可挂在任一层**（镜头挂 关键帧/片段/配音，场次挂 场成片，作品挂 成片——`finalOutput` 就在这里），是**按需的 media 属性**（不设固定槽位、不预设生成方式，用 label 标角色）。整体排产用 `recut.worlds.production.plan`（草稿、零花费）→ 用户确认 → `.apply`（转正），读回用 `recut.worlds.production`；逐镜生成仍走 `recut.image/video/speech.generate`。
+**生产层（作品 → 视频脚本 → 场次 → 镜头）**：`scene` / `shot` 是**容器内的实体**（`typeId=scene/shot`，**不进默认预设目录、不进 facts**，用到即建、自带 schema）。**树的真源是显式结构关系 `has_script` / `has_scene` / `has_shot`（全局、父→子），不是 `parentId`**——`parentId` 只是通用归属（Notion 式文件夹），改它 / 移动卡片不断链；建生产节点时服务端按"父子都是生产类型"**自动补这条链**（草稿实体 → 草稿链）。类型目录的 **`childTypes`** 声明容许的子类型（`work.childTypes=[script]`、`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory，只喂"默认建什么 / 默认连哪条链"；容器内新建入口就按它给）。**产物可挂在任一层**（镜头挂 关键帧/片段/配音，场次挂 场成片，**作品挂 成片**——`finalOutput` 就在这里），是**按需的 media 属性**（不设固定槽位、不预设生成方式，用 label 标角色）。整体排产用 `recut.worlds.production.plan`（挂到 `parentId`，通常是脚本；草稿、零花费、写草稿链）→ 用户确认 → `.apply`（实体与结构链一并转正，1 条 revision），读回用 `recut.worlds.production`（沿结构链解析、环安全）；逐镜生成仍走 `recut.image/video/speech.generate`。
 
 ## 建一个作品：容器 + 子实体（最常见）
 
-**没有独立的「作品」对象——作品就是一个实体。** 「作品内部」由两件事共同构成：`parentId`（语义归属，进 Canon）+ 它的**内层画布**（`contextId = 该实体 id`，纯表达）。子实体 = `parentId` 指向作品的实体。任何实体都能当容器，没有「容器类型」；`containerRole` 只是子实体的角色标签（自由文本、不校验），不是容器标记。
+**作品 = `work` 实体（交付单位）。** 放进作品内部有两件互相独立的事：**归属**（`parentId`，通用文件夹，进 Canon）+ **落卡**（`contextId = 该实体 id`，纯表达的内层画布）。**关键：`parentId` 只是"放在哪个文件夹"，生产树 `作品 → 脚本 → 场次 → 镜头` 由结构关系 `has_script`/`has_scene`/`has_shot` 表达**——建子实体时服务端按"父子都是生产类型"自动补链（见上），所以移动卡片/改 `parentId` 不断链。任何实体都能当容器，没有「容器类型」；`containerRole` 只是子实体的角色标签（自由文本、不校验），不是容器标记。**一个作品可有多个「视频脚本」**（30s/60s、口播版 vs 分镜版…）——所以作品与脚本是**两层**：作品挂成片与总进度，脚本挂叙事/口播/分镜表（交付规格）。`childTypes` 声明各层的默认子类型：`work→[script]`、`script→[scene,shot]`、`scene→[shot]`。
 
 标准流程（作品建在哪一层 → 内部放什么）：
 
 1. **选层**：作品落在**根画布**（`contextId: ""`）或**用户指定的某个容器内层**（`contextId: <容器实体 id>`）。
-2. **建作品**：`recut.worlds.entity` op=`create`，给 `typeId` + `name` + `intro` + `detail`（作品简介/正文写 `detail`，不要拆成 attr）。`typeId` 用与作品性质相符的预设（视频/叙事作品都走 `script`，人物 `character`，场景 `location`）；**没有合适的就先用 `recut.worlds.entityType` 定义自定义类型，不要临时编一个 id**——未知 id 会被静默当成新类型自动建一个空类型。要它落在某层就带 `contextId`（根画布也要显式给 `""`，省略则只建实体、不落卡）；要它归属某容器再加 `parentId: <容器 id>`。
-3. **内部组织子实体**：每个子实体 `recut.worlds.entity` op=`create`，**同一调用里同时给两件**——`parentId: <作品 id>`（成为作品的子设定，可被 `entities.list {parentId}` 列出）+ `contextId: <作品 id>`（卡片落到作品的内层画布，可双击进入）。只给 `parentId` = 有归属、画布上没卡；只给 `contextId` = 有卡、没归属。
+2. **建作品**：`recut.worlds.entity` op=`create`，给 `typeId` + `name` + `intro` + `detail`（作品简介/正文写 `detail`，不要拆成 attr）。`typeId` 用与对象性质相符的预设（**作品用 `work`、脚本用 `script`**，角色 `character`，场景 `location`，道具 `prop`）；**没有合适的就先用 `recut.worlds.entityType` 定义自定义类型，不要临时编一个 id**——未知 id 会被静默当成新类型自动建一个空类型。要它落在某层就带 `contextId`（根画布也要显式给 `""`，省略则只建实体、不落卡）；要它归属某容器再加 `parentId: <容器 id>`。
+3. **内部组织子实体**：每个子实体 `recut.worlds.entity` op=`create`，**同一调用里同时给两件**——`parentId: <容器 id>`（归属，可被 `entities.list {parentId}` 列出）+ `contextId: <容器 id>`（卡片落到容器内层画布，可双击进入）。只给 `parentId` = 有归属、画布上没卡；只给 `contextId` = 有卡、没归属。**生产链**：在作品下建 `script`、在脚本下建 `scene`/`shot` 时，服务端会同时写入 `has_script`/`has_scene`/`has_shot` 结构链——那才是树的真源（`parentId` 只是文件夹）。
 4. **读回**：作品内层画布用 `recut.worlds.doc {contextId: <作品 id>}`；有哪些画布层用 `recut.worlds.docs`；作品有哪些子设定用 `recut.worlds.entities.get`（返回 `children`）或 `recut.worlds.entities.list {parentId: <作品 id>}`。
 
 ```jsonc
-// ① 建作品（根画布；若放进容器 c1 则 contextId 与 parentId 都给 c1）
-// recut.worlds.entity({ worldId, op: "create", typeId: "script", name: "《想找个人说话》",
-//   intro: "深夜独处切片 01", detail: "<作品正文 / 大纲>",
-//   attrs: [{ key: "aspectRatio", value: "9:16" }, { key: "durationSec", value: 45 }],
-//   contextId: "" }) → { id: "<workId>", … }
+// ① 建作品（work，交付单位）：根画布给 contextId:""；放进容器 c1 则 contextId 与 parentId 都给 c1
+// recut.worlds.entity({ worldId, op: "create", typeId: "work", name: "《想找个人说话》",
+//   intro: "深夜独处切片 01", detail: "<作品正文 / 大纲>", contextId: "" }) → { id: "<workId>", … }
 
-// ② 作品内部放子实体：parentId 与 contextId 都给作品 id
+// ①b 建脚本（script，可生成规格）：parentId 与 contextId 都给作品 id → 自动写 has_script 结构链
+// recut.worlds.entity({ worldId, op: "create", typeId: "script", name: "口播版 45s",
+//   attrs: [{ key: "aspectRatio", value: "9:16" }, { key: "durationSec", value: 45 }],
+//   parentId: "<workId>", contextId: "<workId>" }) → { id: "<scriptId>", … }
+
+// ② 作品内部放锚点子实体：parentId 与 contextId 都给作品 id
 // recut.worlds.entity({ worldId, op: "create", typeId: "character", name: "阿蛋", parentId: "<workId>", contextId: "<workId>" })
 // recut.worlds.entity({ worldId, op: "create", typeId: "location",  name: "深夜客厅", parentId: "<workId>", contextId: "<workId>" })
 ```
@@ -102,22 +105,22 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 ## 工具地图（意图 → 工具）
 
-**内容写入收口在画布接口（方案 A，World 即画布）**：MCP 不再有独立的语义 CRUD 工具，实体/关系/类型都经下列接口。
+**内容写入收口在画布接口（方案 A，World 即画布）**：实体 / 关系 / 类型都经下列接口写入。
 
 | 意图 | 工具 | 说明 |
 |---|---|---|
-| 发现 / 读取世界 | `recut.worlds.list` / `get` / `brief` / `readiness` / `resolve` | `get` = 概览 + world.md + **实体图**（entities 带 media 锚点 + relations）；`brief` = 可生产上下文（事实 + `references[]`；不传 selection 即整库） |
-| 读取内容 | `entities.list` / `entities.get` / `relations.list` / `entityTypes.list` / `evidence.list` | 只读；`entities.list` 支持 `parentId`（子设定）与 `includeProvisional`（草稿） |
+| 发现 / 读取世界 | `recut.worlds.list` / `recut.worlds.get` | `get` 是**单一入口**：一次返回概览 + world.md（`skillMd`）+ **实体图**（entities 带 media 锚点 + relations）+ **生产上下文**（`facts` 角色/场景/道具/作品/脚本/风格 + `constraints` + `references[]`）+ 就绪缺失 `readiness.missing`；不传 `selection` 即整库。 |
+| 读取内容 | `recut.worlds.entities.list` / `recut.worlds.entities.get` / `recut.worlds.entityTypes.list` | 只读；`entities.list` 支持 `typeId` / `parentId`（子设定）/ `text` 与 `includeProvisional`（草稿）；单个实体的 `relations` 由 `entities.get` 带出。 |
 | 读画布 | `recut.worlds.doc`（某层）/ `recut.worlds.docs`（层索引） | `contextId=""` 为根画布 |
-| 读生产层 | `recut.worlds.production` | **作品(script) → 场次(scene) → 镜头(shot)** 的树 + 派生状态（planned/generating/ready/failed）；产物可挂任一层（镜头产物 / 场成片 / 作品成片） |
-| 排产 | `recut.worlds.production.plan` / `.apply` | `plan` 按类型 schema 的 `childTypes` 批量派生「作品→场次→镜头」**草稿**（零花费、不产 revision）；用户确认后 `apply` 一次性转正（1 条 revision）。**都不生成素材** |
+| 读生产层 | `recut.worlds.production` | **作品(work) → 视频脚本(script) → 场次(scene) → 镜头(shot)** 的树 + 派生状态（planned/generating/ready/failed）；产物可挂任一层（镜头产物 / 场成片 / 作品成片） |
+| 排产 | `recut.worlds.production.plan` / `.apply` | `plan` 按「场次→镜头」派生**草稿**并写入 `has_scene`/`has_shot` **草稿链**（零花费、不产 revision）；用户确认后 `apply` 一次性转正（实体与结构链一并，1 条 revision）。**都不生成素材**。树的真源是结构链，不是 `parentId` |
 | 写内容（画布接口） | `recut.worlds.entity` | op：`create`（可带 `contextId` 自动落投影卡）/ `update`（只覆盖显式字段）/ `archive` / `restore` / `confirm`（草稿转正） |
 | | `recut.worlds.relation` | op：`create` / `update` / `archive` / `restore`；`scopeEntityId` 非空为局部关系 |
 | | `recut.worlds.entityType` | 定义/覆盖类型 schema（不产 revision） |
 | 写画布布局（不产 revision） | `recut.worlds.doc.update` | 元素级 ops：insert / update / remove；自由元素含 `note` / `text` / `shape` / `arrow` / `link` / `attr` / `media` |
 | 提升草稿为 Canon | `recut.worlds.promote` | 便签/文本→草稿实体；箭头→关系 / 属性绑定 |
 | 多步会话 | `recut.worlds.lock` / `recut.worlds.unlock` | 多步画布编辑前上 advisory 锁，结束务必释放 |
-| World 生命周期 | `worlds.create` / `update`（world.md/identity）/ `fork` / `delete` / `bind_project` / `evidence.archive` | 世界级操作，不是内容编辑 |
+| World 生命周期 | `recut.worlds.create` / `update`（world.md/identity）/ `fork` / `delete` / `revert` / `import` | 世界级操作，不是内容编辑 |
 
 ## 门禁（违反会被拒绝或造成事故）
 
@@ -125,7 +128,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 2. **写 Canon 需要用户明确授权**：onboarding/画布 UI 的确认动作即明确授权；无用户请求绝不主动写。
 3. **乐观并发**：所有 Canon 写携带 `expectedRevisionId`；`WORLD_REVISION_CONFLICT` 时停止整批、重读、刷新提案，绝不静默覆盖。
 4. **草稿免费**：`isProvisional: true` 的实体是探索草稿，不产 revision、不进 Canon、不计入 readiness；用 `recut.worlds.entity` op=`confirm` 转正。
-5. **删除是软删除**：`recut.worlds.entity` op=`archive` / `relation` op=`archive` = 归档（`archived_at` + 墓碑 + changeLog，可 `restore` 恢复），画布元素删除 = 本地移除。`worlds.delete` 是永久操作，只在用户明确要求并确认世界名称时调用；`evidence.archive` 是归档不是删除；**底层 media asset 永不因世界内容删除而删除**。
+5. **删除是软删除**：`recut.worlds.entity` op=`archive` / `relation` op=`archive` = 归档（`archived_at` + 墓碑 + changeLog，可 `restore` 恢复），画布元素删除 = 本地移除。`recut.worlds.delete` 是永久操作，只在用户明确要求并确认世界名称时调用；**底层 media asset 永不因世界内容删除而删除**。
 6. **生成产物默认不进 Canon**：见下。
 7. **视频默认待用户确认，图片/语音直接生成**：`recut.video.generate` 会按平台策略落一个**待用户确认**的全局素材（不花钱），把该 `assetId` 写进画布媒体元素，由用户在画布确认后才真正生成；**Agent 只提交与落位，不代确认**。图片/语音成本低，拿到 `assetId` 就落「图片节点 + 属性边」（`assetStatus:"generating"`），不等生成完成。图片/语音虽可直接生成，但**同样必须先过上面的「生图硬规则」**：先读 `references[]`、带对 role 的参考图，再提交。
 
@@ -133,18 +136,19 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 World 本身就是 **entities + relations**。只看计数、或只读目标那一个实体都不够——那样会不知道主角色是谁、它的参考图是什么，于是「生成环境就只生成环境」。进入任何世界级任务（尤其生成媒体）前，按顺序建立上下文：
 
-1. **`recut.worlds.get({ worldId })`（单一入口，缺省整库）** —— 一次拿到：身份、**world.md（`skillMd`）**、**实体图**（`entities` 带 media 锚点 + `relations`）、**整库事实**（`facts`：角色/场景/作品(脚本)/风格字段与 body）、`constraints`、全部 `references[]` 与就绪缺口 `missing`。据此知道「有哪些角色/场景/作品/风格、谁是主角色、每个实体有哪些参考图、它们怎么关联」。**不要习惯性传 `selection` 只取目标实体**：那会丢掉主角色与风格锚点；只有世界很大、确实要聚焦时才用 selection。
+1. **`recut.worlds.get({ worldId })`（单一入口，缺省整库）** —— 一次拿到：身份、**world.md（`skillMd`）**、**实体图**（`entities` 带 media 锚点 + `relations`）、**整库事实**（`facts`：角色/场景/道具/作品/脚本/风格字段与 body）、`constraints`、全部 `references[]` 与就绪缺口 `missing`。据此知道「有哪些角色/场景/道具/作品/风格、谁是主角色、每个实体有哪些参考图、它们怎么关联」。**不要习惯性传 `selection` 只取目标实体**：那会丢掉主角色与风格锚点；只有世界很大、确实要聚焦时才用 selection。
 2. **按需深读** —— 某实体完整字段/正文用 `recut.worlds.entities.get`；大世界用 `recut.worlds.entities.list`（`typeId`/`parentId`/`text` 分页）；`world.get` 返回 `graphTruncated=true` 时必须分页补读，不要假装世界只有返回的那些。
 
 **硬规则（生图 / 生视频 / 配音通用，未过不提交）**：任何世界语境下的 `recut.image.generate` / `recut.video.generate` / `recut.speech.generate`，提交前必须先取参考，不许「纯文本直出」：
 
 1. 先 `recut.worlds.get({ worldId })` 读 `references[]`（或 `world.get` 的实体 media 锚点），逐条对照本次画面/声音。
 2. 画面会出现主角色 → 必须带该角色参考图，`role="character"`。
-3. 世界已有场景 / 风格 / 色卡锚点 → 按 `role="environment" / "style-ref" / "color-card"` 传入，不堆无关图。
-4. **角色有台词 / 内心独白** → 必须带该角色**声线参考**，`role="voice"`（取实体 `voice_reference` 字段，`references[]` 已声明其 role）。角色不说话的纯环境/静默镜头不必带 voice。
-5. **视频提交口径**：用 `references:[{id,kind,role,label}]` 传参考（含 audio role），需要模型发声时传 `audioAssetIds`，并让 `generateAudio` 与「本段是否说话」一致；**不要**只传 `imageAssetIds` 而丢掉 role 与声线。
-6. 只有**明确不出现任何角色**的纯空场景，才允许不带任何参考；缺任一应有锚点（角色/场景/声线）即停下补齐，「我忘了读」不是理由。
-7. world.md 的「资源口径」优先（例如示例图只作 `style-ref` 低频校准）。
+3. 画面出现**关键道具**（反复出现 / 承担关键动作）→ 必须带该道具参考图，`role="prop"`（取实体 `prop_reference` 字段，`references[]` 已声明其 role）。
+4. 世界已有场景 / 风格 / 色卡锚点 → 按 `role="environment" / "style-ref" / "color-card"` 传入，不堆无关图。
+5. **角色有台词 / 内心独白** → 必须带该角色**声线参考**，`role="voice"`（取实体 `voice_reference` 字段，`references[]` 已声明其 role）。角色不说话的纯环境/静默镜头不必带 voice。
+6. **视频提交口径**：用 `references:[{id,kind,role,label}]` 传参考（含 audio role），需要模型发声时传 `audioAssetIds`，并让 `generateAudio` 与「本段是否说话」一致；**不要**只传 `imageAssetIds` 而丢掉 role 与声线。
+7. 只有**明确不出现任何角色**的纯空场景，才允许不带任何参考；缺任一应有锚点（角色/场景/道具/声线）即停下补齐，「我忘了读」不是理由。
+8. world.md 的「资源口径」优先（例如示例图只作 `style-ref` 低频校准）。
 
 **统一口径**：世界已有声线参考时，角色台词/旁白**必须用该声线**（参考音 → 声音角色 → 合成），不静默换成默认音色；生成以「段/场景」为单位（一段连续动作优先一次多镜连续生成），不逐帧、逐段 5s 硬拼。
 
@@ -231,11 +235,12 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 
 ### 参考集配方与自查（按产物类型）
 
-不同产物的参考集不同；提交前按产物类型核对 `references`（`id` 取自 `brief.references[]` 或 `world.get` 的实体 media 锚点）：
+不同产物的参考集不同；提交前按产物类型核对 `references`（`id` 取自 `recut.worlds.get` 的 `references[]` 或实体的 media 锚点）：
 
 | 产物 | 参考集（role） |
 |---|---|
 | 场景 / 环境卡 / establishing 全景 | 目标场景 media（`environment`）+ **主角色参考图（`character`，画面出现主角色时必带）** + 风格或版式范例（`style-ref`） |
+| 关键道具 / 道具特写 | 该道具参考图（`prop`，跨镜一致）+ 场景（`environment`）+ 主角色（`character`，画面出现时）+ 风格（`style-ref`） |
 | 角色设定 / 表情版 / 情绪九宫格 | 该角色参考图（`character`）+ 风格（`style-ref`） |
 | 分镜关键帧 | 该镜场景（`environment`）+ 主角色（`character`）+ 风格（`style-ref`） |
 | 一图分镜表（storyboard sheet） | 世界风格（`style-ref`）+ 出场角色（`character`）+ 场景（`environment`）；产出 role=`storyboard` |
@@ -244,7 +249,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 | 出镜表演 / 有台词的视频镜头 | 主角色（`character`）+ 场景（`environment`）+ 风格（`style-ref`）+ **声线参考（`voice`，角色说话时必带）** |
 | 音色 / 配音 | 音色参考（`voice`） |
 
-**提交前自查（未过不提交）**：这次**生图 / 生视频**引用了几条参考、各是什么 role？画面里会出现主角色，却没有任何 `role="character"` 的参考图 → 停下，从 `brief.references[]` / `world.get` 实体 media 锚点补上再提交。世界已有场景 / 风格 / 色卡锚点时同样要带入。world.md 里「涉及主角色必须传角色设定图」是硬约束，不是建议。只想生成纯空场景（明确不出现任何角色）时才可省略 `character`；「这次忘了先读 `references[]`」不是省略理由。
+**提交前自查（未过不提交）**：这次**生图 / 生视频**引用了几条参考、各是什么 role？画面里会出现主角色，却没有任何 `role="character"` 的参考图 → 停下，从 `recut.worlds.get` 的 `references[]` / 实体 media 锚点补上再提交（关键道具缺 `role="prop"` 同理）。世界已有场景 / 风格 / 色卡锚点时同样要带入。world.md 里「涉及主角色必须传角色设定图」是硬约束，不是建议。只想生成纯空场景（明确不出现任何角色）时才可省略 `character`；「这次忘了先读 `references[]`」不是省略理由。
 
 ### 视频默认待用户确认（全局资产，平台策略）
 
@@ -326,7 +331,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 ## 版本与来源
 
 - 工具权威：`service/agent.go` 的 `mcpToolLabels` 中 `recut.worlds.*` 清单（2026-09-15 实测）。
-- 属性/画布模型：`rfc/2026-09-09-unified-entity-model.md`（attrs 统一、evidence 退役）与 `web/app/worlds/[worldID]/canvas/README.md`（画布实现现状）。
+- 属性/画布模型：`rfc/2026-09-09-unified-entity-model.md`（attrs 统一）与 `web/app/worlds/[worldID]/canvas/README.md`（画布实现现状）。
 - 生成提案实现：`rfc/2026-09-16-media-generation-proposal.md`（proposed 资产、`service/media/proposals.go`、`web/lib/media/proposal.ts`、`rfc/2026-09-15-generation-reference-protocol.md`）。
 - 产品：`docs/world-canvas-prd-v2.md`。
 

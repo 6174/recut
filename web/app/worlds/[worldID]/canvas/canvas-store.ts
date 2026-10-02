@@ -48,6 +48,7 @@ import { ARRANGE_LABELS, computeArrange, type ArrangeMode, type ArrangeRect } fr
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import {
   createRecutWorldsClient,
+  isRetiredEntityKind,
   type EntityAttr,
   type EntityKind,
   type WorldCanvasElement,
@@ -422,8 +423,9 @@ function proposalFromAssetOfElement(elementId: string): GenerationProposal | nul
 
 // 默认实体名（B.5 自动确认规则的「非默认名」判定；B.7 命名态预填同名）；reference 预设已退役
 export const DEFAULT_ENTITY_TITLES: Record<string, string> = {
-  character: "新人物",
+  character: "新角色",
   location: "新地点",
+  prop: "新道具",
   object: "新物件",
   story: "新故事",
   style: "新风格",
@@ -462,7 +464,9 @@ const RECENT_TYPES_KEY = "wc:recentTypes";
 
 export function readLastKind(): string {
   try {
-    return localStorage.getItem(LAST_KIND_KEY) ?? "character";
+    const stored = localStorage.getItem(LAST_KIND_KEY) ?? "character";
+    // 退役预设不该再作为"最近使用"被双击空白建出来（见 RETIRED_ENTITY_KINDS）。
+    return isRetiredEntityKind(stored) ? "character" : stored;
   } catch {
     return "character";
   }

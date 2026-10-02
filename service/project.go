@@ -641,6 +641,7 @@ create table if not exists world_relations (
   to_role text not null default '',     -- toRole; '' = unmarked
   metadata_json text not null default '{}',
   scope_entity_id text references world_entities(id) on delete cascade,
+  is_provisional integer not null default 0,  -- 生产草稿链：不产 revision、不进 Canon，apply 时转正
   created_at text not null,
   unique(world_id, from_entity_id, to_entity_id, relation_type)
 );
@@ -658,6 +659,7 @@ create table if not exists world_relation_tombstones (
   to_role text not null default '',
   metadata_json text not null default '{}',
   scope_entity_id text,
+  is_provisional integer not null default 0,
   created_at text not null,
   archived_at text not null,
   batch_id text not null default ''
@@ -817,7 +819,9 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table worlds add column archived_at text",
 			"alter table world_relations add column scope_entity_id text",
 			"alter table world_relations add column to_role text not null default ''",
+			"alter table world_relations add column is_provisional integer not null default 0",
 			"alter table world_relation_tombstones add column to_role text not null default ''",
+			"alter table world_relation_tombstones add column is_provisional integer not null default 0",
 			"alter table projects add column updated_at text not null default ''",
 			"create index if not exists world_entities_parent on world_entities(world_id, parent_id)",
 			"create index if not exists world_entities_world_type on world_entities(world_id, type_id, updated_at desc)",

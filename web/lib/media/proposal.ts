@@ -50,7 +50,7 @@ export const PROPOSAL_ROLES: Array<{ id: string; label: string; kinds: string[] 
   { id: "pov", label: "视角", kinds: ["image", "video"] },
   { id: "color-card", label: "色卡", kinds: ["image"] },
   { id: "environment", label: "环境", kinds: ["image", "video"] },
-  { id: "character", label: "人物", kinds: ["image"] },
+  { id: "character", label: "角色", kinds: ["image"] },
   { id: "prop", label: "道具", kinds: ["image"] },
   { id: "style-ref", label: "风格", kinds: ["image"] },
   { id: "storyboard", label: "分镜", kinds: ["image"] },

@@ -19,8 +19,8 @@
 
 ## 开始任务前必须读取
 
-1. 资产规划、人物卡、换装、音色或场景参考：完整读取[视觉与声音参考资产指南](reference-development-guide.md)、[人物参考图指南](../../references/character-reference-image-guide.md)、当前选定 style；涉及音色时再读[音色参考与音频转换指南](../../references/voice-reference-guide.md)。
-2. 拆分片段、设计镜头或编写视频 Prompt：完整读取[专属视频 Prompt 指南](video-prompt-guide.md)、当前选定 style、[共享视频生成 Prompt 指南](../../references/video-generation-prompt-guide.md)和[Seedance 2.0 官方提示词指南](../../references/official-seedance-2.0-prompt-guide.md)。
+1. 资产规划、人物卡、换装、音色或场景参考：完整读取[视觉与声音参考资产指南](reference-development-guide.md)、[参考资产开发](../../assets/SKILL.md)、当前选定 style；涉及音色时再读[声音设计](../../sound/SKILL.md)。
+2. 拆分片段、设计镜头或编写视频 Prompt：完整读取[专属视频 Prompt 指南](video-prompt-guide.md)、当前选定 style 和[生成提示词](../../generation-prompt/SKILL.md)。
 3. 创建、连接、生成、查询或下载媒体：完整读取用户选定的 CLI 工具文档并查询实时 schema。
 
 ## 固定模型与成本边界

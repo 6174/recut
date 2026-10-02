@@ -36,6 +36,30 @@ const CANDIDATES: Record<string, Record<string, string[]>> = {
     object: ["part_of", "belongs_to", "contains", "references"],
     fallback: ["references", "depends_on"],
   },
+  // 生产层（作品→脚本→场次→镜头）：结构链由 has_*（父→子）表达，是树的单源；
+  // parentId 只是归属文件夹（生产层 RFC D8）。
+  work: {
+    script: ["has_script", "contains", "part_of"],
+    scene: ["has_scene", "contains", "references"],
+    shot: ["has_shot", "contains", "references"],
+    fallback: ["has_script", "has_scene", "has_shot", "references"],
+  },
+  script: {
+    work: ["belongs_to", "part_of"],
+    scene: ["has_scene", "contains", "references"],
+    shot: ["has_shot", "contains", "references"],
+    fallback: ["has_scene", "has_shot", "references", "part_of"],
+  },
+  scene: {
+    script: ["belongs_to", "part_of"],
+    shot: ["has_shot", "contains", "references"],
+    fallback: ["has_shot", "references", "part_of", "contains"],
+  },
+  shot: {
+    scene: ["belongs_to", "part_of"],
+    script: ["belongs_to", "part_of"],
+    fallback: ["belongs_to", "part_of", "references"],
+  },
 };
 
 const FALLBACK_ROW = ["references", "part_of", "belongs_to", "contains"];
