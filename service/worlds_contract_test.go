@@ -32,7 +32,7 @@ var worldsSessionTools = []string{"recut.worlds.lock", "recut.worlds.unlock"}
 var worldsContentWriteTools = []string{
 	"recut.worlds.entity", "recut.worlds.relation", "recut.worlds.entityType",
 	"recut.worlds.doc.update", "recut.worlds.promote",
-	"recut.worlds.production.plan", "recut.worlds.production.apply",
+	"recut.worlds.production.create",
 }
 
 // worldsLifecycleTools 是世界级生命周期/元数据工具（不是实体内容编辑）。
@@ -45,7 +45,7 @@ var worldsLifecycleTools = []string{
 var worldsBroadcastTools = []string{
 	"recut.worlds.create", "recut.worlds.update", "recut.worlds.doc.update", "recut.worlds.promote",
 	"recut.worlds.entity", "recut.worlds.relation", "recut.worlds.entityType", "recut.worlds.revert",
-	"recut.worlds.import", "recut.worlds.production.plan", "recut.worlds.production.apply",
+	"recut.worlds.import", "recut.worlds.production.create",
 }
 
 // retiredWorldsTools 是已从 MCP 面下线的工具（方案 A 收口）。
@@ -53,6 +53,7 @@ var retiredWorldsTools = []string{
 	"recut.worlds.entities.upsert", "recut.worlds.entities.create_child", "recut.worlds.entities.promote",
 	"recut.worlds.relations.create", "recut.worlds.relations.update", "recut.worlds.entityTypes.upsert",
 	"recut.worlds.references.attach", "recut.worlds.evidence.attach", "recut.worlds.evidence.update",
+	"recut.worlds.production.plan", "recut.worlds.production.apply",
 	// 已从 MCP 面移除（并入 get / 仅保留 HTTP 与 App runtime）：evidence 已退役、readiness 并入
 	// get.missing、resolve/bind_project 只服务运行时、relations.list 由 get/entities.get 覆盖。
 	"recut.worlds.evidence.list", "recut.worlds.evidence.archive", "recut.worlds.readiness",

@@ -1102,9 +1102,8 @@ type CreateRelationInput struct {
 	ToRole             string
 	ScopeEntityID      string
 	Metadata           map[string]any
-	// IsProvisional creates an exploration draft link (production plan chain,
-	// 生产层 RFC D8): no revision is produced and it stays out of the Canon
-	// until ApplyProduction confirms it.
+	// IsProvisional creates an exploration draft link: no revision is produced
+	// and it stays out of the Canon until it is promoted.
 	IsProvisional      bool
 	ExpectedRevisionID string
 	CreatedBy          string

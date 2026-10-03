@@ -3,9 +3,9 @@
  * [INPUT]: 依赖 react、canvas-store（creating/creatingAt/entityTypes 与
  * createEntity/addNote/addFreeElement/addMediaElement/setCreating/setAiDialogOpen/load 动作）、
  * recut-worlds-client、readLastKind/readRecentCustomTypes、canvas-create-panel（共用创建面板外壳）
- * [OUTPUT]: 对外提供 CreateMenu（B.7 创建菜单）：构建分组条目（画布元素 / 最近使用 / 设定 /
- * 自定义类型 / 操作——画布元素类比设定更常用，排在分组最前）与 [＋ 新建设定类型…] 对话框，
- * 面板本身由 CreatePanel 渲染（顶部搜索 + 左侧分组列表 + 右侧详情预览 + 「创建」）；
+ * [OUTPUT]: 对外提供 CreateMenu（B.7 创建菜单）：构建**三个粗分组**（设定（含容器子类型 / 最近使用 /
+ * 预设 / 生产结构（场次·镜头）/ 自定义类型）→ 画布元素 → 操作）与 [＋ 新建设定类型…] 对话框，
+ * 面板本身由 CreatePanel 渲染（顶部搜索 + 左侧分组卡片网格（badge 角标分类）+ 右侧详情预览 + 「创建」）；
  * 锚点 = creatingAt（双击空白 / Header ＋ 按钮正下方）或视口中心
  * [POS]: worlds/[worldID]/canvas 的创建系统菜单层；选类型即在锚点处落正式卡片并进入命名态
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -15,7 +15,7 @@
 import { useState } from "react";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { WorldEntityType } from "@/lib/recut-worlds-client";
-import { createRecutWorldsClient, entityKindLabels, isProductionEntityKind, isRetiredEntityKind, productionKindIcons, productionKindLabels } from "@/lib/recut-worlds-client";
+import { createRecutWorldsClient, entityKindLabels, isProductionEntityKind, isRetiredEntityKind, PRODUCTION_ENTITY_KINDS, productionKindIcons, productionKindLabels } from "@/lib/recut-worlds-client";
 import { CreatePanel, type CreateGroup, type CreateItem } from "./canvas-create-panel";
 import { readRecentCustomTypes, useWorldCanvasStore } from "./canvas-store";
 
@@ -100,6 +100,7 @@ export function CreateMenu() {
       label: name,
       icon,
       hint: "此容器可容纳",
+      badge: "子类型",
       preview: {
         icon,
         title: name,
@@ -110,6 +111,31 @@ export function CreateMenu() {
     };
   });
 
+  // 生产结构（§7.2）：场次/镜头是系统类型，用到即建（目录里可能还没有行），因此按声明 id 直接给入口；
+  // 容器内已通过 childTypes 提供时不再重复列出。
+  const productionItems: CreateItem[] = [...PRODUCTION_ENTITY_KINDS]
+    .filter((id) => !childTypeIds.includes(id))
+    .map((id) => {
+      const declared = entityTypes.find((type) => type.id === id);
+      const icon = declared?.icon || productionKindIcons[id] || "◍";
+      const name = declared?.name || productionKindLabels[id] || id;
+      return {
+        key: `production:${id}`,
+        label: name,
+        icon,
+        hint: "生产结构",
+        badge: "生产",
+        preview: {
+          icon,
+          title: name,
+          subtitle: "预设设定类型",
+          body: `在画布上落一张${name}卡，随后在右侧面板填写字段。场次/镜头通常归属「视频脚本」或「作品」。`,
+          facts: [{ label: "类型 ID", value: id }],
+        },
+        run: () => create(id),
+      };
+    });
+
   const close = () => {
     setCreating(false);
     setNewTypeOpen(false);
@@ -119,14 +145,16 @@ export function CreateMenu() {
     void useWorldCanvasStore.getState().createEntity(kind, { pos: cursorWorld(creatingAt) });
   };
 
-  const typeItem = (type: WorldEntityType): CreateItem => {
+  const typeItem = (type: WorldEntityType, badge?: string): CreateItem => {
     const icon = type.icon || KIND_ICONS[type.id] || "◍";
     const name = typeNameOf(type);
+    const scopeBadge = type.scope === "custom" ? "自定义" : "预设";
     return {
       key: `type:${type.id}`,
       label: name,
       icon,
-      hint: type.scope === "custom" ? "自定义" : "预设",
+      hint: scopeBadge,
+      badge: badge ?? scopeBadge,
       preview: {
         icon,
         title: name,
@@ -149,6 +177,7 @@ export function CreateMenu() {
       label: "便签",
       icon: "📝",
       hint: "随手草稿",
+      badge: "元素",
       preview: { icon: "📝", title: "便签", subtitle: "画布草稿", body: "落一张自由便签，记录临时想法；日后可用箭头把它提升为正式设定。" },
       run: () => {
         close();
@@ -160,6 +189,7 @@ export function CreateMenu() {
       label: "文本",
       icon: "Ｔ",
       hint: "自由文字",
+      badge: "元素",
       preview: { icon: "Ｔ", title: "文本", subtitle: "画布文字", body: "落一段自由文本，用于标注、标题或说明，不进入设定语义。" },
       run: () => {
         close();
@@ -172,6 +202,7 @@ export function CreateMenu() {
         label,
         icon,
         hint: "媒体卡",
+        badge: "元素",
         preview: { icon, title: label, subtitle: "媒体卡", body: `落一张空白${label}卡，占位引导；选中后在右侧详情面板选择来源或生成。` },
         run: () => {
           close();
@@ -187,6 +218,7 @@ export function CreateMenu() {
       label: "新建设定类型…",
       icon: "＋",
       hint: "自定义 schema",
+      badge: "操作",
       preview: { icon: "＋", title: "新建设定类型", subtitle: "自定义 schema", body: "定义一个属于这个世界的新类型：名称 + 图标，初始字段为「描述」，颜色自动分配，之后可继续添加字段。" },
       run: () => setNewTypeOpen(true),
     },
@@ -195,6 +227,7 @@ export function CreateMenu() {
       label: "用描述添加设定…",
       icon: "✨",
       hint: "交给 AI",
+      badge: "操作",
       preview: { icon: "✨", title: "用描述添加设定", subtitle: "AI 生成候选", body: "用一句自然语言描述，让 AI 生成若干设定候选，确认后再落到画布。" },
       run: () => {
         close();
@@ -203,14 +236,21 @@ export function CreateMenu() {
     },
   ];
 
-  // 画布元素（便签/文本/媒体）比设定类型更常用：排在分组最前，打开即可直接落元素。
-  // 但在容器内，**容器容许的子类型**（如作品内的「场次」）才是最该置顶的入口（§7.2）。
+  // 只分三组（不再按 预设/自定义/生产/最近 各起一节）：① 设定 = 所有可落卡的设定类型，
+  // 用 badge 角标区分 子类型/最近/预设/生产/自定义；② 画布元素；③ 操作。
   const groups: CreateGroup[] = [
-    { key: "child", title: "此容器可容纳", items: childTypeItems },
+    {
+      key: "setting",
+      title: "设定",
+      items: [
+        ...childTypeItems,
+        ...recentTypes.map((type) => typeItem(type, "最近")),
+        ...presetTypes.map((type) => typeItem(type)),
+        ...productionItems,
+        ...otherCustomTypes.map((type) => typeItem(type)),
+      ],
+    },
     { key: "element", title: "画布元素", items: elementItems },
-    { key: "recent", title: "最近使用", items: recentTypes.map(typeItem) },
-    { key: "preset", title: "设定", items: presetTypes.map(typeItem) },
-    { key: "custom", title: "自定义类型", items: otherCustomTypes.map(typeItem) },
     { key: "action", title: "操作", items: actionItems },
   ].filter((group) => group.items.length > 0);
 

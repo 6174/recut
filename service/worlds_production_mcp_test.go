@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 handleMCP / AgentBridge 与生产层 plan/apply/production 工具
+ * [INPUT]: 依赖 handleMCP / AgentBridge 与生产层 create/production 工具
  * [OUTPUT]: M0–M3 的端到端验收（走 MCP 面，而非直接调 Go 函数）：默认集收口 → childTypes →
- *   plan（草稿、零花费、不产 revision）→ production（树）→ apply（一次转正、产 1 revision）
+ *   production.create（一次建树、直接 canonical、产 1 revision）→ production（树）
  * [POS]: service 的生产层 MCP 端到端测试；证明工具接线与契约（§12 验收的一部分）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -74,34 +74,34 @@ func TestWorldsMCPProductionChain(t *testing.T) {
 	}
 	script := scriptRes.(map[string]any)["structuredContent"].(WorldEntity)
 
-	beforePlan, err := worlds.GetWorld(world.ID)
+	beforeCreate, err := worlds.GetWorld(world.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// M3：plan 在**脚本**下派生「场次 → 镜头」。
-	planRes, err := call("recut.worlds.production.plan", `{"worldId":"`+world.ID+`","parentId":"`+script.ID+`","scenes":[{"name":"第 1 场","shots":[{"name":"S01-01"},{"name":"S01-02"}]}]}`)
+	// M3：production.create 在**脚本**下直接建出「场次 → 镜头」（canonical、一条 revision）。
+	createRes, err := call("recut.worlds.production.create", `{"worldId":"`+world.ID+`","parentId":"`+script.ID+`","scenes":[{"name":"第 1 场","shots":[{"name":"S01-01"},{"name":"S01-02"}]}]}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := planRes.(map[string]any)["structuredContent"].(ProductionPlanResult)
-	if len(plan.SceneIDs) != 1 || len(plan.ShotIDs) != 2 {
-		t.Fatalf("plan = %d scenes / %d shots, want 1/2", len(plan.SceneIDs), len(plan.ShotIDs))
+	prodCreated := createRes.(map[string]any)["structuredContent"].(ProductionCreateResult)
+	if len(prodCreated.SceneIDs) != 1 || len(prodCreated.ShotIDs) != 2 {
+		t.Fatalf("create = %d scenes / %d shots, want 1/2", len(prodCreated.SceneIDs), len(prodCreated.ShotIDs))
 	}
 	// 树：作品 → 脚本 → 场次 → 2 镜头。
-	root := plan.Production.Roots
+	root := prodCreated.Production.Roots
 	if len(root) != 1 || root[0].TypeID != EntityTypeWork || len(root[0].Children) != 1 {
-		t.Fatalf("plan tree root = %#v, want work → script", root)
+		t.Fatalf("create tree root = %#v, want work → script", root)
 	}
 	if root[0].Children[0].TypeID != EntityTypeScript || len(root[0].Children[0].Children) != 1 {
-		t.Fatalf("plan tree script = %#v, want script → scene", root[0].Children)
+		t.Fatalf("create tree script = %#v, want script → scene", root[0].Children)
 	}
-	afterPlan, err := worlds.GetWorld(world.ID)
+	afterCreate, err := worlds.GetWorld(world.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if afterPlan.CurrentRevisionID != beforePlan.CurrentRevisionID {
-		t.Fatalf("plan must not produce a revision: %q -> %q", beforePlan.CurrentRevisionID, afterPlan.CurrentRevisionID)
+	if afterCreate.CurrentRevisionID == beforeCreate.CurrentRevisionID {
+		t.Fatal("production.create must produce a revision")
 	}
 
 	// M1：production 读回同一棵树（作品 + 脚本 + 场次 + 2 镜头 = 5 个节点，全 planned）。
@@ -115,22 +115,5 @@ func TestWorldsMCPProductionChain(t *testing.T) {
 	}
 	if production.Counts[ProductionPlanned] != 5 {
 		t.Fatalf("planned count = %d, want 5 (work + script + scene + 2 shots)", production.Counts[ProductionPlanned])
-	}
-
-	// M3：apply 一次转正（**plan 建的都是草稿**：场次 + 2 镜头 = 3；作品与脚本是既有正式实体，不在其列）。
-	applyRes, err := call("recut.worlds.production.apply", `{"worldId":"`+world.ID+`","workId":"`+work.ID+`","expectedRevisionId":"`+afterPlan.CurrentRevisionID+`"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applied := applyRes.(map[string]any)["structuredContent"].(ProductionApplyResult)
-	if applied.Confirmed != 3 {
-		t.Fatalf("confirmed = %d, want 3 (scene + 2 shots)", applied.Confirmed)
-	}
-	final, err := worlds.GetWorld(world.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if final.CurrentRevisionID == afterPlan.CurrentRevisionID {
-		t.Fatal("apply must produce a revision")
 	}
 }

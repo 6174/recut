@@ -1,9 +1,10 @@
 // File: web/app/worlds/[worldID]/canvas/canvas-create-panel.tsx (tsx)
 /*
  * [INPUT]: 依赖 react、lucide-react（Search）
- * [OUTPUT]: 对外提供创建类面板共用外壳 CreatePanel（顶部可选标题 + 搜索框，左侧分组列表，右侧 hover/高亮详情
- * 预览 + 「创建」按钮，键盘 ↑↓/Enter/Esc），以及 CreateItem / CreateGroup / CreatePreview 类型与
- * CREATE_PANEL_W / CREATE_PANEL_H 尺寸常量
+ * [OUTPUT]: 对外提供创建类面板共用外壳 CreatePanel（顶部可选标题 + 搜索框，左侧**分组卡片网格**——少量
+ * 粗分组标题 + 紧凑卡片，卡片右上角 badge 角标区分类别；右侧 hover/高亮详情预览 + 「创建」按钮，
+ * 键盘 ↑↓←→/Enter/Esc），以及 CreateItem / CreateGroup / CreatePreview 类型与 CREATE_PANEL_W /
+ * CREATE_PANEL_H 尺寸常量
  * [POS]: worlds/[worldID]/canvas 的创建类弹层共用结构层——创建菜单（canvas-create-menu.tsx）与
  * 「+」生成引导面板（canvas-pomelo.tsx AttrCreatorPanel）共用同一套交互结构，避免多套交互模式；
  * 锚点 = 调用方给的屏幕坐标（缺省视口居中），点击面板外部关闭
@@ -15,8 +16,11 @@ import { Search } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
 // 面板尺寸（用于锚点夹取；与 JSX 里的 w/h 保持一致）
-export const CREATE_PANEL_W = 600;
+export const CREATE_PANEL_W = 680;
 export const CREATE_PANEL_H = 460;
+
+// 左侧卡片网格列数（键盘 ↑/↓ 按整行移动）
+const GRID_COLS = 3;
 
 // 预览 = 右侧详情栏渲染所需的最小数据
 export type CreatePreview = {
@@ -31,7 +35,10 @@ export type CreateItem = {
   key: string;
   label: string;
   icon: string;
+  // hint 仅供搜索（不再显示在卡面）
   hint?: string;
+  // 卡片右上角类别角标（预设 / 自定义 / 最近 / 元素 …）
+  badge?: string;
   preview: CreatePreview;
   run: () => void;
 };
@@ -58,16 +65,18 @@ export function CreatePanel({
   const needle = query.trim().toLowerCase();
   const visibleGroups = needle
     ? groups
-        .map((group) => ({ ...group, items: group.items.filter((item) => `${item.label} ${item.hint ?? ""}`.toLowerCase().includes(needle)) }))
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => `${item.label} ${item.hint ?? ""} ${item.badge ?? ""}`.toLowerCase().includes(needle)),
+        }))
         .filter((group) => group.items.length > 0)
     : groups;
   const flatItems = visibleGroups.flatMap((group) => group.items);
   const activeItem = flatItems.find((item) => item.key === activeKey) ?? flatItems[0] ?? null;
 
-  const moveHighlight = (delta: number) => {
+  const moveHighlight = (targetIndex: number) => {
     if (flatItems.length === 0) return;
-    const currentIndex = Math.max(0, flatItems.findIndex((item) => item.key === activeItem?.key));
-    const nextIndex = Math.max(0, Math.min(flatItems.length - 1, currentIndex + delta));
+    const nextIndex = Math.max(0, Math.min(flatItems.length - 1, targetIndex));
     const next = flatItems[nextIndex];
     setActiveKey(next.key);
     listRef.current?.querySelector(`[data-create-key="${next.key}"]`)?.scrollIntoView({ block: "nearest" });
@@ -79,14 +88,25 @@ export function CreatePanel({
       onClose();
       return;
     }
+    const currentIndex = Math.max(0, flatItems.findIndex((item) => item.key === activeItem?.key));
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      moveHighlight(1);
+      moveHighlight(currentIndex + GRID_COLS);
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      moveHighlight(-1);
+      moveHighlight(currentIndex - GRID_COLS);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      moveHighlight(currentIndex + 1);
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      moveHighlight(currentIndex - 1);
       return;
     }
     if (event.key === "Enter") {
@@ -107,7 +127,7 @@ export function CreatePanel({
   return (
     <div className="fixed inset-0 z-[70]" onPointerDown={onClose}>
       <div
-        className="absolute flex h-[min(460px,calc(100vh-5rem))] w-[min(600px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-popover text-sm text-popover-foreground shadow-[var(--shadow-overlay)]"
+        className="absolute flex h-[min(460px,calc(100vh-5rem))] w-[min(680px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-popover text-sm text-popover-foreground shadow-[var(--shadow-overlay)]"
         onKeyDown={onKeyDown}
         onMouseDown={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
@@ -127,35 +147,39 @@ export function CreatePanel({
             />
           </div>
         </div>
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
-          <div className="min-h-0 overflow-y-auto border-r p-1.5" ref={listRef} role="listbox">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(200px,240px)]">
+          <div className="min-h-0 overflow-y-auto border-r p-2.5" ref={listRef} role="listbox">
             {visibleGroups.length === 0 ? (
               <p className="px-3 py-8 text-center text-[11px] text-muted-foreground">没有匹配的项</p>
             ) : (
               visibleGroups.map((group) => (
-                <div key={group.key} role="group">
-                  <p className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</p>
-                  {group.items.map((item) => (
-                    <button
-                      aria-selected={activeItem?.key === item.key}
-                      className={`flex w-full items-center gap-2.5 rounded-sm px-2 py-1.5 text-left ${activeItem?.key === item.key ? "bg-accent" : "hover:bg-muted"}`}
-                      data-create-key={item.key}
-                      key={item.key}
-                      onClick={item.run}
-                      onFocus={() => setActiveKey(item.key)}
-                      onMouseEnter={() => setActiveKey(item.key)}
-                      role="option"
-                      type="button"
-                    >
-                      <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-sm border bg-background text-xs">
-                        {item.icon}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium">{item.label}</span>
-                        {item.hint && <span className="block truncate text-[10px] text-muted-foreground">{item.hint}</span>}
-                      </span>
-                    </button>
-                  ))}
+                <div className="mb-2.5 last:mb-0" key={group.key} role="group">
+                  <p className="px-0.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {group.items.map((item) => (
+                      <button
+                        aria-selected={activeItem?.key === item.key}
+                        className={`relative flex w-full flex-col items-center gap-1 rounded-md border px-1 py-1.5 text-center transition-colors ${activeItem?.key === item.key ? "border-primary/50 bg-accent" : "border-border/60 bg-background/40 hover:bg-muted"}`}
+                        data-create-key={item.key}
+                        key={item.key}
+                        onClick={item.run}
+                        onFocus={() => setActiveKey(item.key)}
+                        onMouseEnter={() => setActiveKey(item.key)}
+                        role="option"
+                        type="button"
+                      >
+                        {item.badge && (
+                          <span className="absolute right-1 top-0.5 max-w-[calc(100%-0.5rem)] truncate text-[8px] leading-none text-muted-foreground/80">
+                            {item.badge}
+                          </span>
+                        )}
+                        <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-md border bg-background text-sm">
+                          {item.icon}
+                        </span>
+                        <span className="w-full truncate text-[10.5px] font-medium leading-tight">{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ))
             )}

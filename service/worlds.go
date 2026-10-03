@@ -1085,7 +1085,6 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 			return WorldEntity{}, worldsError(WorldsErrContextInvalid, "entity typeId is required when creating an entity")
 		}
 	}
-	now := iso(time.Now().UTC())
 	tx, err := db.Begin()
 	if err != nil {
 		return WorldEntity{}, err
@@ -1103,62 +1102,9 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 			return WorldEntity{}, err
 		}
 	}
-	// Entity type is an extensible type directory entry: preset ids are seeded
-	// as builtin rows, unknown ids auto-create a minimal custom type so "create
-	// on the canvas" never blocks on a missing type (RFC §5.4).
-	if err := w.ensureEntityType(tx, input.WorldID, input.TypeID); err != nil {
-		return WorldEntity{}, err
-	}
-	if input.ParentID != "" {
-		if err := w.checkParent(tx, input.WorldID, input.ParentID); err != nil {
-			return WorldEntity{}, err
-		}
-	}
-	// Attr merge: locked preset fields of the type are enforced from the schema
-	// (label/type pinned, value free); user attrs pass through validated.
-	// The type row may have been created inside this transaction (a custom
-	// type auto-created above), so it must be read through the tx.
-	entityType, err := getEntityTypeQuerier(tx, input.WorldID, input.TypeID)
+	entityID, merged, err := w.upsertEntityTx(tx, input, existing)
 	if err != nil {
 		return WorldEntity{}, err
-	}
-	attrs := existing.Attrs
-	if input.Attrs != nil {
-		attrs = input.Attrs
-	}
-	merged, err := w.mergeEntityAttrs(input.WorldID, entityType, attrs)
-	if err != nil {
-		return WorldEntity{}, err
-	}
-	attrsJSON, err := json.Marshal(merged)
-	if err != nil {
-		return WorldEntity{}, err
-	}
-	entityID := input.EntityID
-	provisional := 0
-	if input.IsProvisional {
-		provisional = 1
-	}
-	if entityID == "" {
-		entityID, err = newID()
-		if err != nil {
-			return WorldEntity{}, err
-		}
-		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
-			entityID, input.WorldID, input.TypeID, input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, string(attrsJSON), nullIfEmpty(input.ParentID), input.ContainerRole, provisional, now, now); err != nil {
-			return WorldEntity{}, err
-		}
-		// Production chain (作品→脚本→场次→镜头): a production entity created under
-		// another production entity records its structural link here, so the tree is
-		// link-backed from the start (生产层 RFC D8). Provisional mirrors the entity.
-		if err := materializeProductionLinkTx(tx, input.WorldID, input.ParentID, entityID, input.TypeID, input.IsProvisional); err != nil {
-			return WorldEntity{}, err
-		}
-	} else {
-		if _, err := tx.Exec("update world_entities set type_id = ?, title = ?, summary = ?, detail = ?, attrs_json = ?, updated_at = ? where id = ? and world_id = ?",
-			input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, string(attrsJSON), now, entityID, input.WorldID); err != nil {
-			return WorldEntity{}, err
-		}
 	}
 	// Exploration drafts are not facts: only canonical writes produce a revision.
 	if !input.IsProvisional {
@@ -1174,6 +1120,74 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 	// source; refresh every attr projection bound to this entity.
 	w.syncAttrProjections(input.WorldID, entityID, attrValueMap(merged))
 	return w.getEntity(db, input.WorldID, entityID)
+}
+
+// upsertEntityTx writes ONE entity inside a caller-owned transaction: type
+// seeding, parent check, attr merge, insert/update, and production-link
+// materialization. It commits nothing and never calls commitRevision — the
+// caller owns the revision boundary, so a batch (production.create) can write a
+// whole tree in one transaction that yields exactly one revision. `existing` is
+// the pre-read entity for updates (the zero value when creating).
+func (w *WorldStore) upsertEntityTx(tx *sql.Tx, input UpsertEntityInput, existing WorldEntity) (string, []EntityAttr, error) {
+	now := iso(time.Now().UTC())
+	// Entity type is an extensible type directory entry: preset ids are seeded
+	// as builtin rows, unknown ids auto-create a minimal custom type so "create
+	// on the canvas" never blocks on a missing type (RFC §5.4).
+	if err := w.ensureEntityType(tx, input.WorldID, input.TypeID); err != nil {
+		return "", nil, err
+	}
+	if input.ParentID != "" {
+		if err := w.checkParent(tx, input.WorldID, input.ParentID); err != nil {
+			return "", nil, err
+		}
+	}
+	// Attr merge: locked preset fields of the type are enforced from the schema
+	// (label/type pinned, value free); user attrs pass through validated.
+	// The type row may have been created inside this transaction (a custom
+	// type auto-created above), so it must be read through the tx.
+	entityType, err := getEntityTypeQuerier(tx, input.WorldID, input.TypeID)
+	if err != nil {
+		return "", nil, err
+	}
+	attrs := existing.Attrs
+	if input.Attrs != nil {
+		attrs = input.Attrs
+	}
+	merged, err := w.mergeEntityAttrs(input.WorldID, entityType, attrs)
+	if err != nil {
+		return "", nil, err
+	}
+	attrsJSON, err := json.Marshal(merged)
+	if err != nil {
+		return "", nil, err
+	}
+	entityID := input.EntityID
+	provisional := 0
+	if input.IsProvisional {
+		provisional = 1
+	}
+	if entityID == "" {
+		entityID, err = newID()
+		if err != nil {
+			return "", nil, err
+		}
+		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
+			entityID, input.WorldID, input.TypeID, input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, string(attrsJSON), nullIfEmpty(input.ParentID), input.ContainerRole, provisional, now, now); err != nil {
+			return "", nil, err
+		}
+		// Production chain (作品→脚本→场次→镜头): a production entity created under
+		// another production entity records its structural link here, so the tree is
+		// link-backed from the start (生产层 RFC D8). Provisional mirrors the entity.
+		if err := materializeProductionLinkTx(tx, input.WorldID, input.ParentID, entityID, input.TypeID, input.IsProvisional); err != nil {
+			return "", nil, err
+		}
+	} else {
+		if _, err := tx.Exec("update world_entities set type_id = ?, title = ?, summary = ?, detail = ?, attrs_json = ?, updated_at = ? where id = ? and world_id = ?",
+			input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, string(attrsJSON), now, entityID, input.WorldID); err != nil {
+			return "", nil, err
+		}
+	}
+	return entityID, merged, nil
 }
 
 // mergeEntityAttrs applies the type schema to a candidate attr list:

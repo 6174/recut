@@ -37,7 +37,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 **视频脚本与分镜**：`script`（视频脚本）是**可生成规格**——既承载叙事内核（一句话概括/节拍），又承载生成规格（口播/时长/画幅/平台/分镜表）；**交付单位是 `work`（作品）**，一个作品可挂多个脚本（见下）。分镜以**一张 N 宫格分镜表（storyboard sheet）**压缩生成（默认 5×5=25 格，每格标 `R{r}C{c}` 坐标与镜号），**默认整张直接作 `role="storyboard"` 参考驱动视频生成**（参考名额有限，整张只占一个），由模型据此展开分镜；仅当升级条件（模型吃 storyboard 参考弱/分辨率不足、需精确首尾帧端点、代表镜 proof 不过）才用 `recut.media.gridSlice` 按 rows×cols 等分切格、逐格细化关键帧。宫格图与单格都作 `role="storyboard"` 锚点。分镜表写回 `script.storyboard` 这条 locked media 属性。
 
-**生产层（作品 → 视频脚本 → 场次 → 镜头）**：`scene` / `shot` 是**容器内的实体**（`typeId=scene/shot`，**不进默认预设目录、不进 facts**，用到即建、自带 schema）。**树的真源是显式结构关系 `has_script` / `has_scene` / `has_shot`（全局、父→子），不是 `parentId`**——`parentId` 只是通用归属（Notion 式文件夹），改它 / 移动卡片不断链；建生产节点时服务端按"父子都是生产类型"**自动补这条链**（草稿实体 → 草稿链）。类型目录的 **`childTypes`** 声明容许的子类型（`work.childTypes=[script]`、`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory，只喂"默认建什么 / 默认连哪条链"；容器内新建入口就按它给）。**产物可挂在任一层**（镜头挂 关键帧/片段/配音，场次挂 场成片，**作品挂 成片**——`finalOutput` 就在这里），是**按需的 media 属性**（不设固定槽位、不预设生成方式，用 label 标角色）。整体排产用 `recut.worlds.production.plan`（挂到 `parentId`，通常是脚本；草稿、零花费、写草稿链）→ 用户确认 → `.apply`（实体与结构链一并转正，1 条 revision），读回用 `recut.worlds.production`（沿结构链解析、环安全）；逐镜生成仍走 `recut.image/video/speech.generate`。
+**生产层（作品 → 视频脚本 → 场次 → 镜头）**：`scene` / `shot` 是**容器内的实体**（`typeId=scene/shot`，**不进默认预设目录、不进 facts**，用到即建、自带 schema）。**树的真源是显式结构关系 `has_script` / `has_scene` / `has_shot`（全局、父→子），不是 `parentId`**——`parentId` 只是通用归属（Notion 式文件夹），改它 / 移动卡片不断链；建生产节点时服务端按"父子都是生产类型"**自动补这条链**（草稿实体 → 草稿链）。类型目录的 **`childTypes`** 声明容许的子类型（`work.childTypes=[script]`、`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory，只喂"默认建什么 / 默认连哪条链"；容器内新建入口就按它给）。**产物可挂在任一层**（镜头挂 关键帧/片段/配音，场次挂 场成片，**作品挂 成片**——`finalOutput` 就在这里），是**按需的 media 属性**（不设固定槽位、不预设生成方式，用 label 标角色）。整体排产用 `recut.worlds.production.create`（挂到 `parentId`，通常是脚本；**一次调用直接建出正式实体、一条 revision**，无草稿/转正），读回用 `recut.worlds.production`（沿结构链解析、环安全）；逐镜生成仍走 `recut.image/video/speech.generate`。
 
 ## 建一个作品：容器 + 子实体（最常见）
 
@@ -113,7 +113,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 | 读取内容 | `recut.worlds.entities.list` / `recut.worlds.entities.get` / `recut.worlds.entityTypes.list` | 只读；`entities.list` 支持 `typeId` / `parentId`（子设定）/ `text` 与 `includeProvisional`（草稿）；单个实体的 `relations` 由 `entities.get` 带出。 |
 | 读画布 | `recut.worlds.doc`（某层）/ `recut.worlds.docs`（层索引） | `contextId=""` 为根画布 |
 | 读生产层 | `recut.worlds.production` | **作品(work) → 视频脚本(script) → 场次(scene) → 镜头(shot)** 的树 + 派生状态（planned/generating/ready/failed）；产物可挂任一层（镜头产物 / 场成片 / 作品成片） |
-| 排产 | `recut.worlds.production.plan` / `.apply` | `plan` 按「场次→镜头」派生**草稿**并写入 `has_scene`/`has_shot` **草稿链**（零花费、不产 revision）；用户确认后 `apply` 一次性转正（实体与结构链一并，1 条 revision）。**都不生成素材**。树的真源是结构链，不是 `parentId` |
+| 排产 | `recut.worlds.production.create` | 按「场次→镜头」**一次建出**并写入 `has_scene`/`has_shot` 结构链（**正式实体，无草稿/转正**，一条事务一条 revision）。**不生成素材**。树的真源是结构链，不是 `parentId` |
 | 写内容（画布接口） | `recut.worlds.entity` | op：`create`（可带 `contextId` 自动落投影卡）/ `update`（只覆盖显式字段）/ `archive` / `restore` / `confirm`（草稿转正） |
 | | `recut.worlds.relation` | op：`create` / `update` / `archive` / `restore`；`scopeEntityId` 非空为局部关系 |
 | | `recut.worlds.entityType` | 定义/覆盖类型 schema（不产 revision） |

@@ -1,7 +1,7 @@
 ---
 name: plan
 appId: recut.platform
-description: 决定「这部片子怎么排产」——备齐锚点、把戏拆成可生成的镜头、定每镜用料与参数，落成一份可审阅、可执行、零花费的生产计划。
+description: 决定「这部片子怎么排产」——备齐锚点、把戏拆成可生成的镜头、定每镜用料与参数，落成一份可执行的生产计划。
 ---
 
 # Recut 生产计划技能（references/plan）
@@ -14,7 +14,7 @@ description: 决定「这部片子怎么排产」——备齐锚点、把戏拆�
 
 | 归属 | 内容 |
 |---|---|
-| **本技能** | 排产：备锚点 → 拆场/镜 → 定用料 → 定参数与成本 → 落草稿计划 |
+| **本技能** | 排产：备锚点 → 拆场/镜 → 定用料 → 定参数与成本 → 落生产计划 |
 | `references/assets` | 把参考锚点真的做出来（角色卡/场景图/道具图/色卡/声线/分镜表）——**本技能的前置** |
 | `references/shot` | 单个镜头/一场怎么拍（景别/角度/焦段/运动/调度/连续性） |
 | `references/generation-prompt` | 一条提示词怎么写（CAMERA LOCK / STYLE LOCK / 参考锚定 / 多镜连续段 / 声音两层 / 画内文字） |
@@ -45,19 +45,17 @@ description: 决定「这部片子怎么排产」——备齐锚点、把戏拆�
 
 ## 三、落地（工具）
 
-1. `recut.worlds.production.plan({ worldId, parentId, scenes:[{ name, shots:[{ name, attrs? }] }] })`
-   —— **一次把树落成草稿**：`isProvisional`，**零花费、不产 revision、不进 Canon**；同时写入结构关系 **`has_scene` / `has_shot` 草稿链**（这才是生产树的真源）。`parentId` 只是卡片落位（通常是**视频脚本**；无脚本短片可直接给作品），`placeCards`（默认 true）在该节点内层画布落卡。**只建结构，不生成任何素材**。
-2. 呈报计划 → 用户审阅可改（用 `recut.worlds.production` 读回树与派生状态）。
-3. `recut.worlds.production.apply({ worldId, workId, expectedRevisionId })`
-   —— 用户确认后**一次性转正**（实体与结构链一并，1 条 revision）。
-4. 逐镜生成：走 `recut.image/video/speech.generate`（**视频待用户确认**），产物落成镜头的 **media 属性**（`label` 标角色，如「关键帧」/「片段」/「配音」）。
+1. `recut.worlds.production.create({ worldId, parentId, scenes:[{ name, shots:[{ name, attrs? }] }] })`
+   —— **一次把树建成**：场次/镜头**直接以正式实体写入**（无草稿态、无转正步骤），**一条事务产一条 revision**；同时写入结构关系 **`has_scene` / `has_shot`**（这才是生产树的真源）。`parentId` 只是卡片落位（通常是**视频脚本**；无脚本短片可直接给作品），`placeCards`（默认 true）在该节点内层画布落卡。**只建结构，不生成任何素材**。
+2. 用户可改（用 `recut.worlds.production` 读回树与派生状态）。
+3. 逐镜生成：走 `recut.image/video/speech.generate`（**视频待用户确认**），产物落成镜头的 **media 属性**（`label` 标角色，如「关键帧」/「片段」/「配音」）。
 
 ## 四、纪律
 
-- **计划阶段零花费**：plan 只建草稿，不提交任何生成。
+- **建树不花钱、生成才花钱**：`production.create` 只建结构（正式实体），不提交任何生成；花钱的闸门只在下游生成（媒体提案门）。
 - **树 = 结构链，不是 `parentId`**：`has_script`/`has_scene`/`has_shot` 表达生产归属（单源、可环）；`parentId` 只是文件夹；`followed_by`/`precedes` 表达镜头顺序；别混。
 - **产物挂在任一层**：镜头产物、场成片、作品成片；上层是下层的聚合（作品成片 = liblib 图外的 `finalOutput`）。
-- **不替用户确认**：树要人确认（apply），视频要人确认（提案门）。
+- **生成才要人确认**：结构直接落；视频走生成提案门（不是实体转正）。
 - **改了锚点要重跑下游**：换角色卡 → 用到它的镜头标记过期 → 重跑（见 `references/qc`）。
 - **可生成性预算**：高风险镜（多人交手、复杂运镜）先写拆分预案（见 `references/shot`）。
 

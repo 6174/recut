@@ -21,7 +21,7 @@
  * 视频首帧（video-frame）：视频块默认画首帧 center-cover（抽帧失败退化为双击提示）；
  * 就绪态（ready）只表示 pomelo 文档已挂上，不含字体：字体在后台加载，加载中在画布底部显式提示
  * 进度（订阅 pomelo-vello/vello-fonts 的快照），字体到位后由适配器整场重绘把文字补上；
- * 「+」引导面板（AttrCreatorPanel）与创建菜单共用 CreatePanel 交互结构（搜索 + 左分组列表 + 右详情 +
+ * 「+」引导面板（AttrCreatorPanel）与创建菜单共用 CreatePanel 交互结构（搜索 + 左分组卡片网格 + 右详情 +
  * 「创建」），支持把实体 schema 建议字段/简介/正文作为关联拖出；文本属性卡高度服从几何 box
  * （渲染侧裁剪溢出，不随内容自增长），双击就地编辑内滚动并支持全屏放大；
  * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
@@ -468,8 +468,8 @@ function restoreViewport(editor: PomeloEditor, key: string): boolean {
 }
 
 
-// ---------- 「+」生成引导面板（分组：属性 / 空白属性 / 实体）----------
-// 与创建菜单（CreateMenu）共用 CreatePanel 交互结构（搜索 + 左分组列表 + 右详情 + 「创建」），
+// ---------- 「+」生成引导面板（分组：属性 / 实体）----------
+// 与创建菜单（CreateMenu）共用 CreatePanel 交互结构（搜索 + 左分组卡片网格 + 右详情 + 「创建」），
 // 不再自成一枚 chip 面板：属性组 = 来源实体 type schema 建议字段 + 一等实体字段「简介/正文」
 // （预填 entity.intro/detail，编辑即回写字段）——已填值的带值可选、未填值的可新建设置；空白属性组 =
 // 四种媒体；实体组 = 预设/自定义实体类型 + 「空白」（最近使用），点即建草稿卡并自动补一条默认关系
@@ -557,7 +557,7 @@ function AttrCreatorPanel() {
       setAttrCreator(null);
     })();
   };
-  // 面板条目：与创建菜单同一套 CreatePanel 结构（左分组列表 + 右详情 + 「创建」）
+  // 面板条目：与创建菜单同一套 CreatePanel 结构（左分组卡片网格 + 右详情 + 「创建」）
   type AttrField = {
     key: string;
     label?: string;
@@ -590,6 +590,7 @@ function AttrCreatorPanel() {
       label: field.label ?? field.key,
       icon: mediaIconOf(media),
       hint: filled ? summary : "新建",
+      badge: filled ? "已填" : "新建",
       preview: {
         icon: mediaIconOf(media),
         title: field.label ?? field.key,
@@ -623,6 +624,7 @@ function AttrCreatorPanel() {
     label: `${option.label}属性`,
     icon: option.icon,
     hint: "空白属性",
+    badge: "空白",
     preview: {
       icon: option.icon,
       title: `空白${option.label}属性`,
@@ -658,6 +660,7 @@ function AttrCreatorPanel() {
       label: name,
       icon,
       hint: "新建子类型",
+      badge: "子类型",
       preview: {
         icon,
         title: name,
@@ -677,6 +680,7 @@ function AttrCreatorPanel() {
       label: item.name || item.id,
       icon: item.icon || "◍",
       hint: item.scope === "custom" ? "自定义类型" : "预设类型",
+      badge: item.scope === "custom" ? "自定义" : "预设",
       preview: {
         icon: item.icon || "◍",
         title: item.name || item.id,
@@ -690,6 +694,7 @@ function AttrCreatorPanel() {
       label: "空白",
       icon: "◻",
       hint: `最近使用 · ${entityTypes.find((item) => item.id === lastKind)?.name ?? lastKind}`,
+      badge: "最近",
       preview: {
         icon: "◻",
         title: "空白设定",
@@ -700,10 +705,17 @@ function AttrCreatorPanel() {
     },
   ];
 
+  // 只分两组：① 属性（已填 / 可新建 / 空白合并，靠 badge 角标区分）；② 实体。
   const groups: CreateGroup[] = [
-    { key: "attr-filled", title: sourceType ? `属性 · ${sourceType.name}已填的带值可选` : "属性 · 已填值可选", items: attrFields.filter(attrFilled).map(attrItem) },
-    { key: "attr-new", title: "属性 · 可新建", items: attrFields.filter((field) => !attrFilled(field)).map(attrItem) },
-    { key: "blank", title: "空白属性", items: blankItems },
+    {
+      key: "attribute",
+      title: "属性",
+      items: [
+        ...attrFields.filter(attrFilled).map(attrItem),
+        ...attrFields.filter((field) => !attrFilled(field)).map(attrItem),
+        ...blankItems,
+      ],
+    },
     { key: "entity", title: "实体", items: entityItems },
   ].filter((group) => group.items.length > 0);
 

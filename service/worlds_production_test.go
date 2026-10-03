@@ -217,109 +217,85 @@ func TestEntityTypeChildTypesDeclared(t *testing.T) {
 	}
 }
 
-// M3：plan 派生草稿（零花费、不产 revision）→ apply 一次性转正（1 条 revision）。
-func TestPlanThenApply(t *testing.T) {
+// production.create 一次调用直接建出 canonical 树——无草稿、无转正、恰好一条 revision。
+func TestCreateProduction(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	world, err := worlds.CreateWorld(CreateWorldInput{Name: "短片", Type: WorldFiction})
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: world.ID, TypeID: EntityTypeScript, Name: "《深夜电台》"})
+	work, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: world.ID, TypeID: EntityTypeWork, Name: "《深夜电台》"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 建作品本身会产 1 条 revision；草稿阶段应从这之后开始比较。
-	beforePlan, err := worlds.GetWorld(world.ID)
+	script, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: world.ID, TypeID: EntityTypeScript, Name: "口播版 45s", ParentID: work.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	revisionBefore := beforePlan.CurrentRevisionID
+	revisionsBefore, err := worlds.ListRevisions(world.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	plan, err := worlds.PlanProduction(ProductionPlanInput{
-		WorldID: world.ID, ParentID: work.ID, PlaceCards: true,
-		Scenes: []ProductionPlanScene{
-			{Name: "第 1 场", Shots: []ProductionPlanShot{{Name: "S01-01"}, {Name: "S01-02"}}},
-			{Name: "第 2 场", Shots: []ProductionPlanShot{{Name: "S02-01"}}},
+	created, err := worlds.CreateProduction(ProductionCreateInput{
+		WorldID: world.ID, ParentID: script.ID, PlaceCards: true,
+		Scenes: []ProductionCreateScene{
+			{Name: "第 1 场", Shots: []ProductionCreateShot{{Name: "S01-01"}, {Name: "S01-02"}}},
+			{Name: "第 2 场", Shots: []ProductionCreateShot{{Name: "S02-01"}}},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.SceneIDs) != 2 || len(plan.ShotIDs) != 3 {
-		t.Fatalf("plan created %d scenes / %d shots, want 2/3", len(plan.SceneIDs), len(plan.ShotIDs))
+	if len(created.SceneIDs) != 2 || len(created.ShotIDs) != 3 {
+		t.Fatalf("create made %d scenes / %d shots, want 2/3", len(created.SceneIDs), len(created.ShotIDs))
 	}
-	if plan.PlacedCards != 5 {
-		t.Fatalf("placedCards = %d, want 5", plan.PlacedCards)
+	if created.PlacedCards != 5 {
+		t.Fatalf("placedCards = %d, want 5", created.PlacedCards)
 	}
-	// 草稿阶段：树已可见，但不产 revision。
-	if len(plan.Production.Roots) != 1 || len(plan.Production.Roots[0].Children) != 2 {
-		t.Fatalf("plan tree = %#v", plan.Production.Roots)
+	// 树：作品 → 脚本 → 2 场，全 planned。
+	roots := created.Production.Roots
+	if len(roots) != 1 || roots[0].TypeID != EntityTypeWork || len(roots[0].Children) != 1 {
+		t.Fatalf("create tree = %#v, want work → script", roots)
 	}
-	// 草稿链：plan 同时写了 has_scene(2) + has_shot(3)，且都是 provisional。
+	if got := roots[0].Children[0].Children; len(got) != 2 {
+		t.Fatalf("script children = %d, want 2 scenes", len(got))
+	}
+
+	// 结构链是 canonical（非草稿）：5 条 has_scene/has_shot，全库 0 条 provisional。
 	db, err := worlds.database()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var draftLinks int
-	if err := db.QueryRow("select count(*) from world_relations where world_id = ? and relation_type in ('has_scene','has_shot') and is_provisional = 1", world.ID).Scan(&draftLinks); err != nil {
+	var draftRows, canonicalLinks int
+	if err := db.QueryRow("select count(*) from world_relations where world_id = ? and is_provisional = 1", world.ID).Scan(&draftRows); err != nil {
 		t.Fatal(err)
 	}
-	if draftLinks != 5 {
-		t.Fatalf("draft production links = %d, want 5", draftLinks)
-	}
-	after, err := worlds.GetWorld(world.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.CurrentRevisionID != revisionBefore {
-		t.Fatalf("plan must not produce a revision: %q -> %q", revisionBefore, after.CurrentRevisionID)
-	}
-	// 默认列表不含草稿。
-	summaries, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: world.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range summaries {
-		if item.TypeID == ProductionTypeScene || item.TypeID == ProductionTypeShot {
-			t.Fatalf("draft %q leaked into the default list", item.TypeID)
-		}
-	}
-
-	// apply：一次性转正（2 场 + 3 镜 = 5），产 1 条 revision。
-	applied, err := worlds.ApplyProduction(ProductionApplyInput{WorldID: world.ID, WorkID: work.ID, ExpectedRevisionID: after.CurrentRevisionID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if applied.Confirmed != 5 {
-		t.Fatalf("confirmed = %d, want 5", applied.Confirmed)
-	}
-	final, err := worlds.GetWorld(world.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if final.CurrentRevisionID == after.CurrentRevisionID {
-		t.Fatal("apply must produce a revision")
-	}
-	summaries, _, err = worlds.ListEntities(ListEntitiesInput{WorldID: world.ID, TypeID: ProductionTypeShot})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(summaries) != 3 {
-		t.Fatalf("after apply shots = %d, want 3", len(summaries))
-	}
-	// apply 一并转正草稿链：不再有 provisional 生产链，5 条转正。
-	var stillDraft, canonicalLinks int
-	if err := db.QueryRow("select count(*) from world_relations where world_id = ? and is_provisional = 1", world.ID).Scan(&stillDraft); err != nil {
-		t.Fatal(err)
-	}
-	if stillDraft != 0 {
-		t.Fatalf("after apply draft links = %d, want 0", stillDraft)
+	if draftRows != 0 {
+		t.Fatalf("create must not leave draft rows, got %d", draftRows)
 	}
 	if err := db.QueryRow("select count(*) from world_relations where world_id = ? and relation_type in ('has_scene','has_shot') and is_provisional = 0", world.ID).Scan(&canonicalLinks); err != nil {
 		t.Fatal(err)
 	}
 	if canonicalLinks != 5 {
-		t.Fatalf("after apply canonical production links = %d, want 5", canonicalLinks)
+		t.Fatalf("canonical production links = %d, want 5", canonicalLinks)
+	}
+
+	// 批量建树 = 恰好 1 条 revision（不是每节点一条）。
+	revisionsAfter, err := worlds.ListRevisions(world.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revisionsAfter) != len(revisionsBefore)+1 {
+		t.Fatalf("revisions %d -> %d, want exactly +1", len(revisionsBefore), len(revisionsAfter))
+	}
+	// 镜头是正式实体，默认列表可见（不再有草稿隐藏）。
+	summaries, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: world.ID, TypeID: ProductionTypeShot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 3 {
+		t.Fatalf("shots = %d, want 3", len(summaries))
 	}
 }
 
