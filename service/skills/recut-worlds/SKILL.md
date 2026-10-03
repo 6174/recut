@@ -155,6 +155,15 @@ World Canvas 的价值是**无限画布**——内容摊在一层上，一眼看
 
 **结构不靠层级、靠关系**：生产树（谁属于谁）由 `has_script` / `has_scene` / `has_shot` 结构链单源表达（`recut.worlds.production*` 会写），`parentId` 只是"摆在哪个文件夹"。把卡片摊到作品层**不会让 `recut.worlds.production` 读不到树**——层级只是表达，别拿它当文件夹。
 
+**生产树在作品层怎么摆（思维导图式树形排版）**：`script → scene → shot` 是有向父子树，**别把卡片堆成一坨**；按**分层树**摆，让 `has_script`/`has_scene`/`has_shot` 的投影连线自然连成树：
+
+- **分层列**：`work` 在最左（或最上），`script` 一列、`scene` 一列、`shot` 再一列；`x` 逐层递增 ≈ 360px。
+- **同层等距**：同一父节点的子节点**同列、等距纵向排列**（行距 ≈ 380px；实体卡 264×328，留 ~50px 间隙），并对齐到父节点**纵向居中**（父节点 `y` ≈ 子节点 `y` 的中位数）。
+- **先读后放**：放卡前用 `recut.worlds.doc {contextId: <workId>}` 读已有 `geometry`，找空位、避免重叠；不传 `x/y` 时服务端只会贴到已有内容右侧兜底，必乱。
+- **树线即关系**：树线只用 `has_*` 链的投影（`arrow:<relationId>`），**不要手写箭头**；关系定结构、坐标定排面，两者分工。
+- **规模控制**：同层超过约 5 个子节点就换列或收紧行距；`shot` 很多时按场次分簇、簇间留更大间距，保持"一眼看全"。
+- **微调**：`production.create` 的 `placeCards` 只是初排；树形美观用 `recut.worlds.doc.update` 的 `update` op 改 `geometry`（不产 revision）。
+
 **唯一的加深例外**：一个作品**确实有多个脚本、且需要按脚本归组场次 / 镜头**时，才把该脚本的场次 / 镜头放进这个脚本的内层（再深一层）；其余一律平铺在作品层。判断依据：`parentId` 的语义是通用归属（Notion 式文件夹），不是生产结构（生产结构的真源永远是 `has_*` 链）。
 
 **工具提醒**：`recut.worlds.production.create` 会按 `作品 → 脚本 → 场次 → 镜头` **依次落 `parentId`**（scene 挂 script、shot 挂 scene），产出的是**深层级文件夹**——它对应上面的"加深例外"（多脚本按脚本归组）。要平铺时**逐层用 `recut.worlds.entity` 建**，把 `parentId` 与 `contextId` 统一给作品 id（层级是创建时定的，事后 `update` 改不了归属，要浅必须一开始就浅）。
