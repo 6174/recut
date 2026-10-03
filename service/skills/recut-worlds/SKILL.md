@@ -39,37 +39,66 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 **生产层（作品 → 视频脚本 → 场次 → 镜头）**：`scene` / `shot` 是**容器内的实体**（`typeId=scene/shot`，**不进默认预设目录、不进 facts**，用到即建、自带 schema）。**树的真源是显式结构关系 `has_script` / `has_scene` / `has_shot`（全局、父→子），不是 `parentId`**——`parentId` 只是通用归属（Notion 式文件夹），改它 / 移动卡片不断链；建生产节点时服务端按"父子都是生产类型"**自动补这条链**（草稿实体 → 草稿链）。类型目录的 **`childTypes`** 声明容许的子类型（`work.childTypes=[script]`、`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory，只喂"默认建什么 / 默认连哪条链"；容器内新建入口就按它给）。**产物可挂在任一层**（镜头挂 关键帧/片段/配音，场次挂 场成片，**作品挂 成片**——`finalOutput` 就在这里），是**按需的 media 属性**（不设固定槽位、不预设生成方式，用 label 标角色）。整体排产用 `recut.worlds.production.create`（挂到 `parentId`，通常是脚本；**一次调用直接建出正式实体、一条 revision**，无草稿/转正），读回用 `recut.worlds.production`（沿结构链解析、环安全）；逐镜生成仍走 `recut.image/video/speech.generate`。
 
+## 画布层级纪律：无限画布 ≠ 文件夹（建任何实体前先读）
+
+World Canvas 的价值是**无限画布**——内容摊在一层上，一眼看全、随手连线。把实体一层层塞进彼此的**内层画布**（sub-world），就等于把画布退化成文件夹树：每多一层就多下钻一次，"看全"的价值归零。**默认层级最多两层：世界根层 + 作品层。**
+
+两条硬约束：
+
+1. **锚点实体放世界根层**：`character` / `location` / `prop` / `work`（角色 / 场景 / 道具 / 作品）——即"谁 / 在哪 / 拿什么 / 交付什么"——直接建在**根画布**（`contextId: ""`），**归属留空**（不给 `parentId`）。世界级锚点是全库共享的，不要为了"归类"另造中间容器实体（如「作品 - 1」「竖屏版」这类空目录）。
+2. **生产实体在作品层平铺**：`script` / `scene` / `shot`（脚本 / 场次 / 镜头）全部建在**作品的内层画布**（`contextId: <workId>`），**归属也停在作品**（`parentId: <workId>`），彼此**同级**；不要 script 套 scene、scene 再套 shot 地逐级下钻。
+
+```text
+✗ 太深：把画布当文件夹                ✓ 平铺：最多两层
+世界                                  世界
+└ 作品 - 1                            ├ 角色 · 阿蛋
+  └ 画中哑女                           ├ 道具 · 铜镜
+    └ 画中哑女·竖屏3分半版              └ 画中哑女（work）
+      └ 临河观音堂·雨夜                    ├ 脚本 · 竖屏3分半版
+        └ #15 画褪 …                       ├ 场次 · 临河观音堂·雨夜
+                                           └ 镜头 · #15 画褪 …
+```
+
+**结构不靠层级、靠关系**：生产树（谁属于谁）由 `has_script` / `has_scene` / `has_shot` 结构链单源表达（`recut.worlds.production*` 会写），`parentId` 只是"摆在哪个文件夹"。把卡片摊到作品层**不会让 `recut.worlds.production` 读不到树**——层级只是表达，别拿它当文件夹。
+
+**唯一的加深例外**：一个作品**确实有多个脚本、且需要按脚本归组场次 / 镜头**时，才把该脚本的场次 / 镜头放进这个脚本的内层（再深一层）；其余一律平铺在作品层。判断依据：`parentId` 的语义是通用归属（Notion 式文件夹），不是生产结构（生产结构的真源永远是 `has_*` 链）。
+
+**工具提醒**：`recut.worlds.production.create` 会按 `作品 → 脚本 → 场次 → 镜头` **依次落 `parentId`**（scene 挂 script、shot 挂 scene），产出的是**深层级文件夹**——它对应上面的"加深例外"（多脚本按脚本归组）。要平铺时**逐层用 `recut.worlds.entity` 建**，把 `parentId` 与 `contextId` 统一给作品 id（层级是创建时定的，事后 `update` 改不了归属，要浅必须一开始就浅）。
+
 ## 建一个作品：容器 + 子实体（最常见）
 
-**作品 = `work` 实体（交付单位）。** 放进作品内部有两件互相独立的事：**归属**（`parentId`，通用文件夹，进 Canon）+ **落卡**（`contextId = 该实体 id`，纯表达的内层画布）。**关键：`parentId` 只是"放在哪个文件夹"，生产树 `作品 → 脚本 → 场次 → 镜头` 由结构关系 `has_script`/`has_scene`/`has_shot` 表达**——建子实体时服务端按"父子都是生产类型"自动补链（见上），所以移动卡片/改 `parentId` 不断链。任何实体都能当容器，没有「容器类型」；`containerRole` 只是子实体的角色标签（自由文本、不校验），不是容器标记。**一个作品可有多个「视频脚本」**（30s/60s、口播版 vs 分镜版…）——所以作品与脚本是**两层**：作品挂成片与总进度，脚本挂叙事/口播/分镜表（交付规格）。`childTypes` 声明各层的默认子类型：`work→[script]`、`script→[scene,shot]`、`scene→[shot]`。
+**作品 = `work` 实体（交付单位）。** 放进作品内部有两件互相独立的事：**归属**（`parentId`，通用文件夹，进 Canon）+ **落卡**（`contextId = 该实体 id`，纯表达的内层画布）。**关键：`parentId` 只是"放在哪个文件夹"，生产树 `作品 → 脚本 → 场次 → 镜头` 由结构关系 `has_script`/`has_scene`/`has_shot` 表达**——建子实体时服务端按"父子都是生产类型"自动补链（见上），所以移动卡片/改 `parentId` 不断链。任何实体都能当容器，没有「容器类型」；`containerRole` 只是子实体的角色标签（自由文本、不校验），不是容器标记。**一个作品可有多个「视频脚本」**（30s/60s、口播版 vs 分镜版…）——所以作品与脚本是**两层**：作品挂成片与总进度，脚本挂叙事/口播/分镜表（交付规格）。`childTypes` 声明各层的默认子类型：`work→[script]`、`script→[scene,shot]`、`scene→[shot]`（advisory，只决定"默认建什么"）；**实际摆放按上节《画布层级纪律》平铺在作品层，不逐级下钻**。
 
 标准流程（作品建在哪一层 → 内部放什么）：
 
-1. **选层**：作品落在**根画布**（`contextId: ""`）或**用户指定的某个容器内层**（`contextId: <容器实体 id>`）。
+1. **选层**：作品落在**根画布**（`contextId: ""`）——作品是顶层交付单位。仅当**用户明确要求**把作品归到某个容器内层时，才给 `contextId: <容器实体 id>`。
 2. **建作品**：`recut.worlds.entity` op=`create`，给 `typeId` + `name` + `intro` + `detail`（作品简介/正文写 `detail`，不要拆成 attr）。`typeId` 用与对象性质相符的预设（**作品用 `work`、脚本用 `script`**，角色 `character`，场景 `location`，道具 `prop`）；**没有合适的就先用 `recut.worlds.entityType` 定义自定义类型，不要临时编一个 id**——未知 id 会被静默当成新类型自动建一个空类型。要它落在某层就带 `contextId`（根画布也要显式给 `""`，省略则只建实体、不落卡）；要它归属某容器再加 `parentId: <容器 id>`。
-3. **内部组织子实体**：每个子实体 `recut.worlds.entity` op=`create`，**同一调用里同时给两件**——`parentId: <容器 id>`（归属，可被 `entities.list {parentId}` 列出）+ `contextId: <容器 id>`（卡片落到容器内层画布，可双击进入）。只给 `parentId` = 有归属、画布上没卡；只给 `contextId` = 有卡、没归属。**生产链**：在作品下建 `script`、在脚本下建 `scene`/`shot` 时，服务端会同时写入 `has_script`/`has_scene`/`has_shot` 结构链——那才是树的真源（`parentId` 只是文件夹）。
+3. **内部组织子实体**：每个子实体 `recut.worlds.entity` op=`create`，**同一调用里同时给两件**——`parentId: <容器 id>`（归属，可被 `entities.list {parentId}` 列出）+ `contextId: <容器 id>`（卡片落到容器内层画布，可双击进入）。只给 `parentId` = 有归属、画布上没卡；只给 `contextId` = 有卡、没归属。**生产链**：在作品下建 `script`/`scene`/`shot`（**同级平铺**，不再逐级下钻）时，服务端会同时写入 `has_script`/`has_scene`/`has_shot` 结构链——那才是树的真源（`parentId` 只是文件夹）。
 4. **读回**：作品内层画布用 `recut.worlds.doc {contextId: <作品 id>}`；有哪些画布层用 `recut.worlds.docs`；作品有哪些子设定用 `recut.worlds.entities.get`（返回 `children`）或 `recut.worlds.entities.list {parentId: <作品 id>}`。
 
 ```jsonc
-// ① 建作品（work，交付单位）：根画布给 contextId:""；放进容器 c1 则 contextId 与 parentId 都给 c1
+// ① 建作品（work，交付单位）：作品是顶层交付单位 → 建在根画布，只给 contextId:""，不给 parentId
 // recut.worlds.entity({ worldId, op: "create", typeId: "work", name: "《想找个人说话》",
 //   intro: "深夜独处切片 01", detail: "<作品正文 / 大纲>", contextId: "" }) → { id: "<workId>", … }
+//   （例外：用户明确要求归到容器 c1 内层时，才 contextId 与 parentId 都给 c1）
 
-// ①b 建脚本（script，可生成规格）：parentId 与 contextId 都给作品 id → 自动写 has_script 结构链
+// ② 锚点实体（角色 / 场景 / 道具）建在世界根层：只给 contextId:""，不给 parentId
+// recut.worlds.entity({ worldId, op: "create", typeId: "character", name: "阿蛋", contextId: "" })
+// recut.worlds.entity({ worldId, op: "create", typeId: "location",  name: "深夜客厅", contextId: "" })
+
+// ③ 生产实体（脚本 / 场次 / 镜头）平铺在作品内层：parentId 与 contextId 都给作品 id，彼此同级
 // recut.worlds.entity({ worldId, op: "create", typeId: "script", name: "口播版 45s",
 //   attrs: [{ key: "aspectRatio", value: "9:16" }, { key: "durationSec", value: 45 }],
 //   parentId: "<workId>", contextId: "<workId>" }) → { id: "<scriptId>", … }
-
-// ② 作品内部放锚点子实体：parentId 与 contextId 都给作品 id
-// recut.worlds.entity({ worldId, op: "create", typeId: "character", name: "阿蛋", parentId: "<workId>", contextId: "<workId>" })
-// recut.worlds.entity({ worldId, op: "create", typeId: "location",  name: "深夜客厅", parentId: "<workId>", contextId: "<workId>" })
+// recut.worlds.entity({ worldId, op: "create", typeId: "scene", name: "临河观音堂·雨夜", parentId: "<workId>", contextId: "<workId>" })
+// recut.worlds.entity({ worldId, op: "create", typeId: "shot",  name: "#15 画褪", parentId: "<workId>", contextId: "<workId>" })
 ```
 
 边界：
 
 - **归属只在创建时定**：op=`update` 的 `parentId` / `containerRole` 不被采纳——要归属就在 create 时给；已经建好的实体改不了归属（要换就重建）。
 - **归档作品 = 归档整棵子图**：op=`archive` 级联归档作品与其全部子实体（同一条 revision、同一恢复批次），op=`restore` 按批次原位恢复；内层画布与其上的卡保留。
-- **作品可再嵌作品**（容器递归，可多级下钻），但 `parentId` 必须同 world——实体从不跨 World。
+- **作品可再嵌作品**（容器递归），但那是**例外不是默认**——作品默认建在根层，别用嵌套当组织手段（见《画布层级纪律》）；`parentId` 必须同 world——实体从不跨 World。
 - 内层画布只是表达层：子实体的真相仍在 `entity`（`attrs` / `intro` / `detail`），画布元素不产 revision。
 
 ## 属性怎么显示：三层分工
@@ -131,6 +160,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 5. **删除是软删除**：`recut.worlds.entity` op=`archive` / `relation` op=`archive` = 归档（`archived_at` + 墓碑 + changeLog，可 `restore` 恢复），画布元素删除 = 本地移除。`recut.worlds.delete` 是永久操作，只在用户明确要求并确认世界名称时调用；**底层 media asset 永不因世界内容删除而删除**。
 6. **生成产物默认不进 Canon**：见下。
 7. **视频默认待用户确认，图片/语音直接生成**：`recut.video.generate` 会按平台策略落一个**待用户确认**的全局素材（不花钱），把该 `assetId` 写进画布媒体元素，由用户在画布确认后才真正生成；**Agent 只提交与落位，不代确认**。图片/语音成本低，拿到 `assetId` 就落「图片节点 + 属性边」（`assetStatus:"generating"`），不等生成完成。图片/语音虽可直接生成，但**同样必须先过上面的「生图硬规则」**：先读 `references[]`、带对 role 的参考图，再提交。
+8. **资产一创建就落位，不等生成成功**（无限画布的第二优势）：图片 / 视频 / 音频只要拿到 `assetId`——哪怕是 `proposed` / `queued` / `running`——就**立刻**在**它所属的画布层**落「节点 + 属性边」并标 `assetStatus:"generating"`，让用户在画布上实时看到进展。**"等生成成功才挂到实体"是最要修的反模式**：用户会在等待里失去耐心。落位**不依赖生成终态**（Canon media 属性也接受未就绪 `assetId`），所以随时可以先落位、后台生成，就绪后画布自动切换。理由与《画布层级纪律》同源：**画布是让人"当下就看见"的表达层**，不是只在完工后才更新一次的存储。
 
 ## 读世界的顺序（生成 / 编辑前必做）
 
@@ -278,6 +308,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 
 规则：
 
+- **提交即落位**：`recut.video.generate` 一返回 `assetId`，就**立刻**把媒体元素放上**它所属的画布层**（待确认 / 生成中态）——不要等用户确认、更不要等生成成功再挂。用户要先在画布上看见"已提交、待确认"，再决定是否确认（见门禁 8）。
 - **内容与状态都在资产**：画布不写 `props.proposal`（旧元素仍可只读回退）。
 - `references` 是这次生成的**绑定记录**（`id`=assetId、`kind`、`role`、`label`），也是模型提交顺序依据；role 必须与 kind 匹配（`voice/sfx/music` 只能 audio，`color-card` 只能 image），否则会被拒绝。
 - `modelId` 留空则由用户在确认时选；不确定当前可用模型时先留空，不要编造。`aspectRatio` / `durationSec` 按世界或分镜口径填。
@@ -305,9 +336,11 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 - **替用户确认视频生成**：视频由平台落为待确认资产；自行确认、把直生当默认、或自行轮询采纳都是越权；确认只属于用户。
 - **世界生图/生视频不带参考图**：不先读 `references[]` 就纯文本直出，是最严重的误用——主角色会漂、场景/风格会串。画面可能出现主角色而没有 `role="character"` 参考图时**必须停下补齐**，只有明确无角色的纯空场景才可省略。
 - **角色说话却不带声线参考**：只传 `imageAssetIds`、丢掉 `references`/`audioAssetIds`，或让 VO 走默认音色——角色的声音会与 Canon 不一致；有台词的镜头必须带 `role="voice"`。
-- **等图片生成完成才落位**：图片/语音拿到 `assetId` 就应立刻落节点（`assetStatus:"generating"`）；用 `recut.job.wait` 把落位堵在终态之后、或轮询后回写节点都是多余动作。
+- **等生成成功才落位**：图片 / 视频 / 音频拿到 `assetId` 就应**立刻**落节点（`assetStatus:"generating"`；视频含待确认态）；用 `recut.job.wait` 把落位堵在终态之后、或轮询后回写节点，都会让用户干等、失去耐心——违背无限画布的即时反馈（门禁 8）。
 - **只写实体属性、不落画布节点**：用户要的是画布上的「图片节点 + 属性边」（实体的一条可见属性）；只写实体 attrs 不会在画布上出现节点。两者都要做时，节点与边的 `label` 保持一致。
 - **在画布元素上写语义真相**：语义只存实体/关系；画布只承载投影与表达。
+- **把画布当文件夹**：用 `parentId` 一层层套内层画布（作品 > 脚本 > 场次 > 镜头…），每多一层就多下钻一次，丢掉无限画布"一眼看全"的价值。锚点放根层、生产实体平铺在作品层，最多两层（见《画布层级纪律》）。
+- **为"归类"造空容器实体**：为了分组新建「作品 - 1」「竖屏版」这类中间实体——分组用类型 / 关系 / 位置表达，不要造空目录。
 
 ## References 路由表
 
@@ -334,5 +367,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 - 属性/画布模型：`rfc/2026-09-09-unified-entity-model.md`（attrs 统一）与 `web/app/worlds/[worldID]/canvas/README.md`（画布实现现状）。
 - 生成提案实现：`rfc/2026-09-16-media-generation-proposal.md`（proposed 资产、`service/media/proposals.go`、`web/lib/media/proposal.ts`、`rfc/2026-09-15-generation-reference-protocol.md`）。
 - 产品：`docs/world-canvas-prd-v2.md`。
+- 层级纪律（2026-10-03）：新增《画布层级纪律》，约束 `parentId` 深度——锚点实体在根层、生产实体平铺在作品层（最多两层）；依据 `rfc/2026-10-02-world-canvas-production-layer.md`（`parentId` 只是文件夹，生产树真源是 `has_*` 链）。
+- 即时落位（2026-10-03）：门禁 8——图片/视频/音频一拿到 `assetId`（含 proposed/queued/running）立即落在所属画布层，不等生成成功；视频待确认态同样先落位。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

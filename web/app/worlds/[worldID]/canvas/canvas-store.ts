@@ -709,6 +709,16 @@ async function flushCanvasSave(): Promise<void> {
   }
 }
 
+// 立即落盘：拖拽/resize 等交互收尾调用，绕过 150ms 去抖，避免窗口内刷新/关闭丢写。
+// 见 canvas-pomelo-plugin 的 commitGeometry（拖完即落盘，不再等去抖）。
+export function flushCanvasSaveNow(): void {
+  if (canvasSaveState.timer) {
+    clearTimeout(canvasSaveState.timer);
+    canvasSaveState.timer = null;
+  }
+  void flushCanvasSave();
+}
+
 // 组装字段补丁：只带脏元素、且只带脏分组（未改的组不发，服务端按 key 合并）。
 function canvasPatchElements(
   elements: WorldCanvasElement[],
@@ -754,7 +764,10 @@ if (typeof window !== "undefined") {
       version: state.docVersion,
     });
     const url = `${state.apiBase}/v1/worlds/${encodeURIComponent(state.worldId)}/canvas/doc`;
-    navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
+    // apiBase 与页面通常不同源；application/json 是「非 CORS 安全列表」类型，会触发预检，
+    // 而 sendBeacon 无法完成预检 → 请求被静默丢弃（刷新前的最后一笔写永久丢失）。
+    // 传字符串（Content-Type: text/plain，安全列表类型）不发预检；服务端按 JSON 解析，无需改。
+    navigator.sendBeacon(url, body);
     canvasSaveState.dirty.clear();
     canvasSaveState.removed.clear();
   });
@@ -1556,7 +1569,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
 
   moveElement: (id, x, y) => {
-    markCanvasDirty(id, ["geometry"]);
+    // 首次拖拽尚未入文档的元素（子世界/新层里实体卡按自动布局渲染、元素尚未落库）：
+    // 影子元素若只标 geometry，服务端按「不存在的元素且无 kind」丢弃补丁，刷新即回退到自动布局。
+    // 故新建影子时标全部字段组，让补丁带 kind/refKind/refId，服务端才能创建该元素。
+    const exists = get().elements.some((element) => element.id === id);
+    markCanvasDirty(id, exists ? ["geometry"] : CANVAS_ALL_GROUPS);
     set((state) => {
       if (!state.elements.some((element) => element.id === id)) {
         // 首次拖拽尚未入文档的元素（罕见兜底）：先落一个本地影子元素，随统一保存落库

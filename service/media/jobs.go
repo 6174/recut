@@ -28,11 +28,14 @@ import (
 
 const jobColumns = `id, capability, status, prompt, model_id, project_id, reference_ids_json, output_json, asset_ids_json, remote_id, error, created_at, updated_at`
 
-// atlasImagePollRetries bounds how many prediction polls a synchronous image
-// strategy may attempt before failing. Image generation is fast relative to
-// video, so a modest budget keeps recut.image.generate from blocking for the
-// full five-minute mediaRequestTimeout on a stuck remote task.
-const atlasImagePollRetries = 40
+// atlasImagePollBudget bounds how long a synchronous image strategy may keep
+// polling a submitted prediction before it is reported as failed. The budget is
+// wall-clock, not a retry count: Atlas accepts the job immediately and queues it
+// upstream for as long as it needs, so the only thing we own is how long we
+// wait. Spending the budget leaves the Asset failed while the prediction ID
+// stays checkpointed, so the retry affordance re-pulls the same prediction
+// (RetryAssetDownload) instead of paying for a second generation.
+const atlasImagePollBudget = 2 * time.Hour
 
 // imageEditRouteID is the image route used for edit/reference submissions (a
 // model that accepts an image input). Pure text-to-image submissions keep using
@@ -657,7 +660,7 @@ func (m *MediaService) generateImage(job MediaJob, credential MediaCredential, m
 		Secret:           secret,
 		HTTPClient:       mediaHTTPClient,
 		PollClient:       atlasPollingHTTPClient,
-		PollRetries:      atlasImagePollRetries,
+		PollBudget:       atlasImagePollBudget,
 		RecordPrediction: recordPrediction,
 	})
 	if err != nil {

@@ -18,7 +18,7 @@ import (
 	"recut-service/media/providers/atlas"
 )
 
-const defaultAtlasPollRetries = 60
+const defaultAtlasPollBudget = 30 * time.Minute
 
 type atlasCloudProvider struct{}
 
@@ -63,11 +63,16 @@ func (atlasCloudProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 	if pollClient == nil {
 		pollClient = client
 	}
-	retries := input.PollRetries
-	if retries <= 0 {
-		retries = defaultAtlasPollRetries
+	budget := input.PollBudget
+	if budget <= 0 {
+		budget = defaultAtlasPollBudget
 	}
-	for attempt := 0; attempt < retries; attempt++ {
+	// Bound by wall-clock, not by a retry count: Atlas owns how long it queues
+	// the prediction, so the only decision left to us is how long to wait. The
+	// last sleep is capped at the remaining budget so a spent budget returns
+	// immediately instead of sleeping one more interval first.
+	deadline := time.Now().Add(budget)
+	for attempt := 0; ; attempt++ {
 		prediction, err = atlas.Poll(pollClient, input.APIBase, input.Secret, prediction)
 		if err != nil {
 			return ImageResult{}, err
@@ -82,7 +87,15 @@ func (atlasCloudProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 			}
 			return downloadImage(client, url)
 		}
-		time.Sleep(atlasPollDelay(attempt))
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		if delay := atlasPollDelay(attempt); delay < remaining {
+			time.Sleep(delay)
+		} else {
+			time.Sleep(remaining)
+		}
 	}
 	return ImageResult{}, errors.New("Atlas Cloud image generation did not finish in time")
 }

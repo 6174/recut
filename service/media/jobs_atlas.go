@@ -292,6 +292,24 @@ func (m *MediaService) atlasTask(jobID string) (atlasTask, bool) {
 }
 
 func (m *MediaService) collectAtlasOutput(task atlasTask, prediction atlas.Prediction) error {
+	if task.job.Capability == ImageGenerate {
+		// The synchronous image path downloads inline; only a restarted daemon
+		// or a retry reaches this branch. The completed output is an image URL,
+		// so read its real type instead of letting the shared video branch
+		// label the Asset video/mp4.
+		url := prediction.FirstOutput()
+		if url == "" {
+			return errors.New("Atlas Cloud image completed without an output URL")
+		}
+		client := *mediaHTTPClient
+		client.Timeout = atlasDownloadTimeout
+		content, mimeType, err := fetchMediaDetect(&client, url)
+		if err != nil {
+			return err
+		}
+		_, err = m.completeRemoteAsset(task.job.ID, task.asset.ID, content, mimeType)
+		return err
+	}
 	if task.job.Capability == SpeechGenerate {
 		url := prediction.FirstOutput()
 		if url == "" {

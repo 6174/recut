@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRegistryForwardsAtlasCloud(t *testing.T) {
@@ -171,6 +172,46 @@ func TestAtlasImageSurfacesProviderFailure(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "insufficient balance") {
 		t.Fatalf("atlas failure error = %v", err)
+	}
+}
+
+func TestAtlasImageStopsAtPollBudget(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v1/model/generateImage":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id":     "pred-slow",
+				"status": "processing",
+				"urls":   map[string]any{"get": server.URL + "/api/v1/model/prediction/pred-slow"},
+			}})
+		case "/api/v1/model/prediction/pred-slow":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id":     "pred-slow",
+				"status": "processing",
+			}})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	started := time.Now()
+	_, err := (atlasCloudProvider{}).GenerateImage(ImageInput{
+		Model:      "openai/gpt-image-2/text-to-image",
+		Prompt:     "a fox",
+		APIBase:    server.URL,
+		Secret:     "atlas-key",
+		HTTPClient: client,
+		PollClient: client,
+		PollBudget: 30 * time.Millisecond,
+	})
+	if err == nil || !strings.Contains(err.Error(), "did not finish in time") {
+		t.Fatalf("expected a poll-budget timeout, got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("poll budget must stop the loop promptly, took %s", elapsed)
 	}
 }
 

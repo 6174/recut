@@ -6,7 +6,10 @@
  */
 package model_providers
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 // ImageReference is a decoded reference asset passed to a provider strategy.
 // Byte decoding happens in the media service; strategies only serialize it
@@ -31,7 +34,12 @@ type ImageInput struct {
 	Secret          string
 	HTTPClient      *http.Client
 	PollClient      *http.Client
-	PollRetries     int
+	// PollBudget bounds how long a strategy may keep polling an async
+	// prediction before returning a timeout error. It is wall-clock, not a
+	// retry count, because the provider owns how long it queues the task; the
+	// caller only decides how long to wait. A non-positive value falls back to
+	// the strategy's own default.
+	PollBudget time.Duration
 	// RecordPrediction checkpoints the remote task ID as soon as the provider
 	// accepted the submission, so a later download failure can be retried
 	// without resubmitting the generation.

@@ -28,7 +28,7 @@
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { PomeloPlugin } from "@/lib/pomelo/pomelo-core/pomelo-plugin";
 import { DomOverlay, cssColor } from "@/lib/pomelo/pomelo-vello/overlay-dom";
-import { WORLD_ELEMENT_ID, canvasElementIdOfBlock, useWorldCanvasStore } from "./canvas-store";
+import { WORLD_ELEMENT_ID, canvasElementIdOfBlock, flushCanvasSaveNow, useWorldCanvasStore } from "./canvas-store";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { audioBlockRect, isAudioBlockRecord } from "@/lib/pomelo/world-canvas/blocks/audio-block-metrics";
@@ -1031,6 +1031,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
             geometryHistory,
           );
         }
+        // 拖拽/resize 提交即落盘：绕过去抖，避免用户停手后立刻刷新时丢失这次位移。
+        flushCanvasSaveNow();
         // 提交完成：立即清除实时几何——store 已持有最终几何，留着会在随后（含撤销触发的）重建里
         // 用拖拽值覆盖 store，表现为撤销位移后又被拉回。
         for (const blockId of liveIds) this.liveGeometry.delete(canvasElementIdOfBlock(blockId));
