@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -34,6 +35,9 @@ type WorldCanvasDocument struct {
 	Elements  []WorldCanvasElement `json:"elements"`
 	CreatedAt string               `json:"createdAt"`
 	UpdatedAt string               `json:"updatedAt"`
+	// Changed 表示本次写是否实质改变了文档（传输层不可见 json:"-"）。写路径据此决定是否广播实时通知：
+	// 空补丁 / 幂等写（如重复写同一个 coverAspect）不改变文档，就不该触发其它标签页 reload（防风暴）。
+	Changed bool `json:"-"`
 }
 
 // canvasDocPayload is the persisted doc_json envelope.
@@ -250,7 +254,11 @@ func (w *WorldStore) SaveCanvasDocument(worldID, contextID string, elements []Wo
 	if row.exists && expectedVersion != row.version {
 		return WorldCanvasDocument{}, worldsError(WorldsErrCanvasConflict, fmt.Sprintf("canvas version conflict: expected %d, current %d", expectedVersion, row.version))
 	}
+	// 两侧都 normalize 后再比：读回的 doc_json 里空的 props/style 会解码成 nil，而新元素是 {}（omitempty
+	// 会在存储时把空 map 省掉）——不归一就会把「同值重写」误判成 changed，触发多余的跨标签页广播。
+	before := normalizeCanvasElements(row.payload.Elements)
 	payload := canvasDocPayload{DocVersion: 1, Elements: normalizeCanvasElements(elements)}
+	changed := !reflect.DeepEqual(before, payload.Elements)
 	row, err = writeCanvasDocInTx(tx, worldID, contextID, row, payload)
 	if err != nil {
 		return WorldCanvasDocument{}, err
@@ -261,6 +269,7 @@ func (w *WorldStore) SaveCanvasDocument(worldID, contextID string, elements []Wo
 	return WorldCanvasDocument{
 		WorldID: worldID, ContextID: contextID, Version: row.version,
 		Elements: row.payload.Elements, CreatedAt: row.createdAt, UpdatedAt: row.updatedAt,
+		Changed: changed,
 	}, nil
 }
 
@@ -326,6 +335,8 @@ func (w *WorldStore) PatchCanvasDocument(input PatchCanvasDocumentInput) (WorldC
 	if row.exists && input.ExpectedVersion != row.version {
 		return WorldCanvasDocument{}, worldsError(WorldsErrCanvasConflict, fmt.Sprintf("canvas version conflict: expected %d, current %d", input.ExpectedVersion, row.version))
 	}
+	// 同 Save：读回 payload 的空 props/style 是 nil，新元素是 {}，需归一后再比。
+	before := normalizeCanvasElements(row.payload.Elements)
 	elements := append([]WorldCanvasElement{}, row.payload.Elements...)
 	if len(input.Removed) > 0 {
 		dropped := make(map[string]bool, len(input.Removed))
@@ -393,17 +404,20 @@ func (w *WorldStore) PatchCanvasDocument(input PatchCanvasDocumentInput) (WorldC
 		elements = append(elements, element)
 		attrElementIDs = append(attrElementIDs, canvasAttrSyncTargets(element)...)
 	}
-	row, err = writeCanvasDocInTx(tx, input.WorldID, input.ContextID, row, canvasDocPayload{DocVersion: 1, Elements: normalizeCanvasElements(elements)})
+	finalElements := normalizeCanvasElements(elements)
+	changed := !reflect.DeepEqual(before, finalElements)
+	row, err = writeCanvasDocInTx(tx, input.WorldID, input.ContextID, row, canvasDocPayload{DocVersion: 1, Elements: finalElements})
 	if err != nil {
 		return WorldCanvasDocument{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return WorldCanvasDocument{}, err
 	}
-	w.syncCanvasAttrTargets(input.WorldID, attrElementIDs, elements)
+	w.syncCanvasAttrTargets(input.WorldID, attrElementIDs, finalElements)
 	return WorldCanvasDocument{
 		WorldID: input.WorldID, ContextID: input.ContextID, Version: row.version,
 		Elements: row.payload.Elements, CreatedAt: row.createdAt, UpdatedAt: row.updatedAt,
+		Changed: changed,
 	}, nil
 }
 

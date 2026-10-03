@@ -21,8 +21,8 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 │ Left                          │ Right                                │
 │ [功能] [记录]                  │ 统一生产预览 + 参数 + 日志            │
 │  · 功能：顶部切换预设包/函数，  │  · 生成：图片/视频/音频预览 + 保存入库 │
-│    每个函数有自己的表单，       │  · 参数：完整回显全部参数 + 参考图     │
-│    可选 GPU 档位               │    （点击经素材预览全屏打开）          │
+│    每个函数有自己的表单，       │  · 参数：完整回显全部参数 + 参考素材   │
+│    可选 GPU 档位               │    （图可全屏预览；视频/音频内联播放） │
 │  · 记录：部署/下载/运行统一列表 │  · 日志：成功/失败都展示完整日志、   │
 │                               │    生成中自动滚到最新（上滚时不打扰） │
 │                               │  · 部署/下载：实时日志 + 就绪度        │
@@ -134,6 +134,10 @@ modalapps/my-app/
 **上平台（可选）**：在 `manifest.json` 加 `expose: { "model": "<平台模型简单名>", "function": "<函数 id>" }`，重跑生成器后即注册为平台模型
 `modal-cloud/<model>`（`model` 只能含 `a-z0-9-_`，如 `qwen-image-2.1` 暴露为 `qwen-image`）。缺省 `function` 取 `functions[0]`，
 capability 按该函数 `output.kind` 推导（image/video/audio）；未声明 `expose` 的预设包不上平台（用户 scaffold 默认不带）。
+
+`expose` 也可以是数组：一个预设包可暴露**多个**平台模型（每个条目一个），各自命名并以各自函数判定输入能力与就绪度——例如
+Qwen-Image-2.1 同时暴露 `qwen-image`（`text-to-image`，纯文本，进平台「图片生成」用途）与 `qwen-image-edit`
+（`image-edit`，参考型，进「图片编辑」用途）。条目可带 `name`（双语展示名）覆盖预设包名，另有 `parameters`（额外平台参数属性名）。
 
 **产物就绪（可选，推荐给「需要离线合并/额外适配器」的预设包）**：在 `engine.artifacts` 里声明产物
 （`{ key, volume, marker }`，`marker` 是 bootstrap 写在卷根的完成标记），在 `engine.requires` 里按函数声明所需产物键。

@@ -36,6 +36,14 @@ export interface GpuTiers {
   options: GpuTier[];
 }
 
+/** 一个平台模型暴露条目：model 为平台模型简单名，function 为其默认函数，name 可覆盖展示名。 */
+export interface ExposeEntry {
+  model: string;
+  function?: string;
+  name?: LocalLabel;
+  parameters?: string[];
+}
+
 export interface ModalFunction {
   id: string;
   label: LocalLabel;
@@ -59,7 +67,8 @@ export interface ModalApp {
   deployed?: boolean;
   volumeReady?: boolean;
   stale?: boolean;
-  expose?: { model?: string; function?: string };
+  /** 平台模型暴露条目；单个对象或数组（一个预设包可同时暴露文生图/图像编辑等多个平台模型）。 */
+  expose?: ExposeEntry | ExposeEntry[];
   gpuTiers: GpuTiers;
   weights: { sizeGb?: number; revision?: string };
   profileId?: string;
@@ -184,6 +193,11 @@ export interface ReferenceParam {
   name?: string;
   savedAssetId?: string;
   available?: boolean;
+  /** 素材类型；历史任务缺省（按图片回落）。 */
+  kind?: "image" | "video" | "audio" | string;
+  mimeType?: string;
+  /** 该参考素材归属的 media 字段（referenceImages / referenceAudios …）。 */
+  field?: string;
 }
 
 export interface GenerationParams {

@@ -105,6 +105,8 @@ Add a directory under `modalapps/` (`manifest.json`, `modal_app.py`, `bootstrap.
 
 **Opting onto the platform (optional)**: add `expose: { "model": "<simple platform model id>", "function": "<function id>" }` to `manifest.json` and rerun the generator; the pack then registers as the platform model `modal-cloud/<model>` (`model` may only contain `a-z0-9-_`, so `qwen-image-2.1` exposes as `qwen-image`). `function` defaults to `functions[0]`, and the capability is derived from that function's `output.kind` (image/video/audio). Packs without `expose` stay off-platform (user scaffolds have none by default).
 
+`expose` may also be an array: one pack can expose **multiple** platform models (one per entry), each named and classified independently by its own function — e.g. Qwen-Image-2.1 exposes both `qwen-image` (`text-to-image`, text-only, lands in the platform's "Image generation" purpose) and `qwen-image-edit` (`image-edit`, reference-based, lands in "Image edit"). An entry may carry `name` (bilingual display name) to override the pack name, plus `parameters` (extra platform parameter names).
+
 **Artifact readiness (optional; recommended for packs that need offline merges / extra adapters)**: declare artifacts in `engine.artifacts` (`{ key, volume, marker }`, where `marker` is the completion marker bootstrap writes at the volume root) and which artifacts each function needs in `engine.requires`. Once declared, `modal.status` probes them individually (`assets`) and the UI decides readiness per selected function, and `modal.generate` pre-checks before dispatching; without it the old semantics apply (first volume's download marker only).
 
 ## Developers

@@ -1,10 +1,10 @@
 /**
  * [INPUT]: 依赖 modal.catalog/overview 的预设包/函数清单/formSchema/output/gpuTiers/就绪度（就绪度可缺省＝尚未探测）、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调、AgentDefaultsDialog 与 useRunStore
- * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint；标记 `randomizable` 的数字字段如随机种子带「随机」按钮，一键填入区间内随机整数）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图全屏预览；预览图经 injectedReference 一键回填，注入 nonce 记在**模块作用域**、每次注入只生效一次——避免 RunTab 因就绪度门/Tab 切换卸载重建时把旧草稿重放到表单、点击运行后参数被悄悄改回）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪（未部署 / 权重缺失 / **离线合并等产物缺失**）则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**就绪度按「逐产物」判定**（requires 声明每个函数所需产物、assets 是探测结果）——缺离线合并产物时基础权重卷仍是就绪的，只看 volumeReady 会误报「就绪」并放行一个注定在云端 crash-loop 的提交；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
+ * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint；标记 `randomizable` 的数字字段如随机种子带「随机」按钮，一键填入区间内随机整数）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图按真实类型渲染（图＝缩略图并可点开全屏预览，视频＝静音首帧，音频＝图标占位）；预览图经 injectedReference 一键回填，注入 nonce 记在**模块作用域**、每次注入只生效一次——避免 RunTab 因就绪度门/Tab 切换卸载重建时把旧草稿重放到表单、点击运行后参数被悄悄改回）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪（未部署 / 权重缺失 / **离线合并等产物缺失**）则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**就绪度按「逐产物」判定**（requires 声明每个函数所需产物、assets 是探测结果）——缺离线合并产物时基础权重卷仍是就绪的，只看 volumeReady 会误报「就绪」并放行一个注定在云端 crash-loop 的提交；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
  * [POS]: Left「功能」Tab；部署、权重与运行都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { AlertTriangle, Check, Dices, Download, ImagePlus, Rocket, SlidersHorizontal, Wand2, X } from "lucide-react";
+import { AlertTriangle, AudioLines, Check, Dices, Download, ImagePlus, Rocket, SlidersHorizontal, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
@@ -204,7 +204,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         const targetMediaFields = mediaFields(targetFn);
         if (targetMediaFields.length) {
           const assets = (draft.referenceAssetIds ?? []).filter((item) => item.available !== false)
-            .map((item) => ({ id: item.id, name: item.name, kind: "image" }));
+            .map((item) => ({ id: item.id, name: item.name, kind: item.kind || "image" }));
           setReferences(placeReferences(targetMediaFields, assets));
         } else {
           setReferences({});
@@ -486,26 +486,39 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
           return (
             <Field key={field.key} label={labelText(field.label, locale, field.key)} hint={multiple ? t(locale, "run.references-hint") : undefined}>
               <div className="flex flex-wrap items-center gap-2">
-                {fieldRefs.map((asset) => (
-                  <div key={asset.id} className="group relative size-16 overflow-hidden rounded-md border bg-muted">
-                    <button
-                      type="button"
-                      title={t(locale, "run.preview-reference")}
-                      onClick={() => void recut.media.preview(mediaContentURL(asset.id), { name: asset.name || asset.id })}
-                      className="block size-full cursor-zoom-in"
-                    >
-                      <img className="size-full object-cover" src={mediaContentPath(asset.id)} alt={asset.name || asset.id} />
-                    </button>
-                    <button
-                      type="button"
-                      title={t(locale, "run.remove-reference")}
-                      onClick={() => setFieldReferences(field.key, (prev) => prev.filter((item) => item.id !== asset.id))}
-                      className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-background/85 text-foreground opacity-0 transition group-hover:opacity-100"
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </div>
-                ))}
+                {fieldRefs.map((asset) => {
+                  // 参考素材按真实类型渲染（以素材自带 kind 为准，回落字段声明的 kind）：
+                  // 图片＝缩略图（点击经宿主全屏预览）；视频＝静音首帧；音频＝图标占位，绝不画成参考图。
+                  const kind = asset.kind === "video" || asset.kind === "audio"
+                    ? asset.kind
+                    : field.kind === "video" || field.kind === "audio" ? field.kind : "image";
+                  return (
+                    <div key={asset.id} className="group relative size-16 overflow-hidden rounded-md border bg-muted" title={asset.name || asset.id}>
+                      {kind === "image" ? (
+                        <button
+                          type="button"
+                          title={t(locale, "run.preview-reference")}
+                          onClick={() => void recut.media.preview(mediaContentURL(asset.id), { name: asset.name || asset.id })}
+                          className="block size-full cursor-zoom-in"
+                        >
+                          <img className="size-full object-cover" src={mediaContentPath(asset.id)} alt={asset.name || asset.id} />
+                        </button>
+                      ) : kind === "video" ? (
+                        <video className="size-full object-cover" src={mediaContentPath(asset.id)} muted playsInline preload="metadata" />
+                      ) : (
+                        <span className="grid size-full place-items-center text-muted-foreground"><AudioLines className="size-5" /></span>
+                      )}
+                      <button
+                        type="button"
+                        title={t(locale, "run.remove-reference")}
+                        onClick={() => setFieldReferences(field.key, (prev) => prev.filter((item) => item.id !== asset.id))}
+                        className="absolute right-0.5 top-0.5 grid size-4 place-items-center rounded-full bg-background/85 text-foreground opacity-0 transition group-hover:opacity-100"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  );
+                })}
                 {multiple || fieldRefs.length === 0 ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => void pickFieldReferences(field)}>
                     <ImagePlus className="size-3.5" />{t(locale, "run.add-reference")}

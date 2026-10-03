@@ -1,8 +1,8 @@
 """
 [INPUT]: modalapps/*/manifest.json（每个预设包的单一信息源）
-[OUTPUT]: 生成 python/registry.json（modalapps：engine/函数/表单/权重/expose/并发上限 concurrency/就绪兜底）与 modalapps/index.json
-          （id 列表），并同步根 manifest.json 的 contributes.media.providers[0].models（每个声明 expose 的
-          modalapp → 一个平台模型，读取其 expose.function 的表单/权重；inputModes 按 media 字段类型汇总，
+[OUTPUT]: 生成 python/registry.json（modalapps：engine/函数/表单/权重/expose 条目/并发上限 concurrency/就绪兜底）与
+          modalapps/index.json（id 列表），并同步根 manifest.json 的 contributes.media.providers[0].models（expose 的
+          每个条目 → 一个平台模型，读取该条目 function 的表单/权重；inputModes 按 media 字段类型汇总，
           另产出 referenceFields 让平台识别「可锚定参考」的模型）
 [POS]: modal-studio 的注册表生成器；运行期只读生成物，人工不再手改 registry.json；构建内置归档前先跑
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -49,6 +49,20 @@ def registry_function(manifest: dict, function: dict) -> dict:
     }
 
 
+def expose_entries(manifest: dict) -> list:
+    """归一 expose：既接受单个 {model, function, ...}，也接受数组。
+
+    一个预设包可暴露多个平台模型（例如同一底模的「文生图」与「图像编辑」两个用途分开成两个平台模型，
+    使平台「按用途配置模型」时二者都能被选中）。
+    """
+    raw = manifest.get("expose")
+    if isinstance(raw, list):
+        return [entry for entry in raw if isinstance(entry, dict) and entry.get("model")]
+    if isinstance(raw, dict) and raw.get("model"):
+        return [raw]
+    return []
+
+
 def registry_modalapp(manifest: dict) -> dict:
     engine = manifest.get("engine") or {}
     weights = manifest.get("weights") or {}
@@ -59,7 +73,7 @@ def registry_modalapp(manifest: dict) -> dict:
         "appName": engine.get("appName") or manifest["id"],
         "sourceDir": engine.get("sourceDir") or f"modalapps/{manifest['id']}",
         "origin": "builtin",
-        "expose": manifest.get("expose") or {},
+        "expose": expose_entries(manifest),
         "gpuTiers": engine.get("gpuTiers") or {"default": "T4", "options": []},
         "concurrency": engine.get("concurrency") or {},
         "timeoutSec": engine.get("timeoutSec", 3600),
@@ -157,8 +171,8 @@ def reference_fields(function: dict) -> list:
 def extra_parameters(manifest: dict, declared, existing: list) -> list:
     """按 expose.parameters 显式补充平台模型参数。
 
-    平台模型默认只取 expose.function 的表单（例如 qwen 暴露 image-edit，它没有 resolution），
-    但「分辨率」这类只存在于文生图函数的参数也需要在平台侧可选。运行时会按实际命中的函数
+    平台模型默认只取该 expose 条目的 function 表单（例如 qwen 的文生图条目没有某些编辑参数），
+    但「分辨率」这类只存在于同预设包其他函数的参数也可能需要在平台侧可选。运行时会按实际命中的函数
     （background.js resolveTarget + coerceParams）裁剪，不适用的参数会被丢弃，因此多补是安全的。
     """
     names = {param.get("name") for param in existing}
@@ -172,16 +186,16 @@ def extra_parameters(manifest: dict, declared, existing: list) -> list:
     return existing + [available[name] for name in wanted if name in available]
 
 
-def contributed_model(manifest: dict) -> dict | None:
-    expose = manifest.get("expose") or {}
+def contributed_model(manifest: dict, expose: dict) -> dict:
     model_id = expose.get("model")
     if not model_id:
-        return None
+        raise SystemExit(f"{manifest['id']}: expose entry requires a model id")
     if not MODEL_ID_RE.match(model_id):
         raise SystemExit(f"{manifest['id']}: expose.model {model_id!r} must match {MODEL_ID_RE.pattern}")
     function = exposed_function(manifest, expose.get("function") or (manifest.get("functions") or [{}])[0].get("id"))
     weights = manifest.get("weights") or {}
-    name = manifest.get("name")
+    # 条目可覆盖预设包名（同一预设包暴露多个平台模型时各自命名，如「文生图」与「图像编辑」）。
+    name = expose.get("name") or manifest.get("name")
     label = (name.get("zh") or name.get("en") or model_id) if isinstance(name, dict) else (name or model_id)
     model = {
         "id": model_id,
@@ -206,6 +220,10 @@ def contributed_model(manifest: dict) -> dict | None:
     return model
 
 
+def contributed_models(manifest: dict) -> list:
+    return [contributed_model(manifest, entry) for entry in expose_entries(manifest)]
+
+
 def main() -> None:
     manifests = scan_modalapps()
     apps = [registry_modalapp(m) for m in manifests]
@@ -218,7 +236,7 @@ def main() -> None:
     media = ((root.get("contributes") or {}).get("media") or {})
     providers = media.get("providers") or []
     if providers:
-        models = [m for m in (contributed_model(manifest) for manifest in manifests) if m]
+        models = [model for manifest in manifests for model in contributed_models(manifest)]
         providers[0]["models"] = models
         dump_json(manifest_path, root)
 

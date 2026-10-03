@@ -49,6 +49,7 @@ Modal 云函数是 Recut 的**云端 GPU 自托管 App**：把开源 GPU 项目�
 
 - `id`：`[a-z0-9][a-z0-9._-]*`，且**不可与内置 id 撞名**。
 - `expose`（可选）：`{ model, function }` 把该预设包注册为一个平台模型 `modal-cloud/<model>`；`model` 只能含 `a-z0-9-_`（不能含 `.`），`function` 缺省取 `functions[0]`。不加则不上平台。
+  - `expose` 也可以是**数组**：一个预设包可暴露多个平台模型（每个条目一个），各自 `name`（双语展示名，覆盖预设包名）与 `function`；平台按各自函数的 `inputModes` 把模型归到「图片生成 / 图片编辑」等用途。例：Qwen-Image-2.1 同时暴露 `qwen-image`（`text-to-image`，纯文本 → 图片生成）与 `qwen-image-edit`（`image-edit`，参考型 → 图片编辑）。
 - 参考图：平台在 `ctx.media.materialize` 时**统一**把图片等比缩到单边上限 1024、去 alpha 压成 JPEG——全局口径，预设包无需声明；确实要原图的渲染类消费方传 `{ raw: true }`。
 - `engine.appName`：云端 Modal App 名（如 `recut-my-app`），与 `modal_app.py` 里 `modal.App(...)` 一致。
 - `engine.gpuTiers`：`{ default, options:[{id,gpu,label}] }`；`gpu` 直接传给 `with_options(gpu=...)`。
@@ -92,8 +93,8 @@ modal.modalapp.remove { id }          # 删除用户预设包（内置不可删�
 
 ## 平台集成（已接入）
 
-- 本 App 在 manifest `contributes.media` 声明 provider `modal-cloud`（`protocol:"local"`）；**每个声明 `expose: { model, function }` 的 modalapp 注册为一个平台模型 `modal-cloud/<model>`**（图片与视频都注册）。内置的 MiniMax-H3 与 Qwen-Image 都把 **`expose.function` 指向「可锚定参考」的函数**（参考生视频 / 图像编辑），并在函数上声明 `referenceFields`/`referenceBudgets`——平台据此把模型识别为参考型并校验参考数量上限；`inputModes` 由 media 字段类型汇总（image/video/audio）。函数的 `formSchema` 非 media 字段同时进入平台模型 `parameters`（`prompt` 除外——它是平台一等输入），平台据此折叠一等字段（把顶层 `aspectRatio` 折进 `output`）并渲染参数控件，但**输出参数仍由 App 校验**（平台标记 `PassthroughParams`，不复核、不注入默认）。参考图由平台统一归一：`ctx.media.materialize(id)` 默认把图片等比缩到单边上限 1024、去 alpha 压成 JPEG（全局口径，无需声明；确实要原图传 `{ raw: true }`）——参考图只做参考，不喂原图。
-- 平台「生图/生视频默认路由」可指向 `modal-cloud/<model>`；生成经通用执行桥组装 `{ model, prompt, params, referenceAssetIds }` 调 `modal.generate`（`resolveTarget` 按 `expose.model` 解析 modalapp + `expose.function`），终态经 `modal.task.get` 观察，产物 `modal.save` 入库。
+- 本 App 在 manifest `contributes.media` 声明 provider `modal-cloud`（`protocol:"local"`）；**每个 `expose` 条目注册为一个平台模型 `modal-cloud/<model>`**（单个预设包可暴露多个；图片与视频都注册）。内置的 MiniMax-H3 与 Qwen-Image-2.1 的参考型条目都把 **`expose.function` 指向「可锚定参考」的函数**（参考生视频 / 图像编辑），并在函数上声明 `referenceFields`/`referenceBudgets`——平台据此把模型识别为参考型并校验参考数量上限；`inputModes` 由 media 字段类型汇总（image/video/audio）。纯文生条目（如 Qwen 的 `qwen-image` → `text-to-image`）没有 media 字段，`inputModes` 只有 text，平台据此把它归到「图片生成（文生图）」用途，与参考型的「图片编辑」分开两类。函数的 `formSchema` 非 media 字段同时进入平台模型 `parameters`（`prompt` 除外——它是平台一等输入），平台据此折叠一等字段（把顶层 `aspectRatio` 折进 `output`）并渲染参数控件，但**输出参数仍由 App 校验**（平台标记 `PassthroughParams`，不复核、不注入默认）。参考图由平台统一归一：`ctx.media.materialize(id)` 默认把图片等比缩到单边上限 1024、去 alpha 压成 JPEG（全局口径，无需声明；确实要原图传 `{ raw: true }`）——参考图只做参考，不喂原图。
+- 平台「生图/生视频默认路由」可指向 `modal-cloud/<model>`；生成经通用执行桥组装 `{ model, prompt, params, referenceAssetIds }` 调 `modal.generate`（`resolveTarget` 按 `expose` 条目的 `model` 解析 modalapp + 该条目的 `function`），终态经 `modal.task.get` 观察，产物 `modal.save` 入库。
 - **参考可选，无参考自动回退文生**：平台路由不带 `referenceAssetIds` 时，`resolveTarget` 会把 `expose.function`（参考型）自动换成同输出类型的纯文生函数（`text-to-*`）；带参考才走参考函数。回退的**触发条件是参考函数声明了 `minReferences >= 1`**（与 MiniMax 的 `reference-to-video`/`first-last-frame`、Qwen-Image-2.1 的 `image-edit` 一致，缺省 0 则永不回退）。注意区分两层「下限」：函数级 `minReferences: 1` 是**参考函数的正常声明**（回退依据）；而平台模型的 `referenceBudgets` 只声明**上限**，不能声明 `images>=1` 这类下限（否则平台在提交前就拒绝纯文本请求，回退走不到）。
 - **就绪是动态的**：`modal.catalog.models[]` 上报 `ready`，**只有 `deployed && volumeReady` 才为真**；未就绪时平台路由提交给出引导错误（先部署/下权重）。
 - 因此 `recut.media.list_capability_models` 会列出本 App 与其模型就绪度；平台路由与显式 `modal.*` 调用两条路径都可用。

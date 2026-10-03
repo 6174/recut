@@ -515,6 +515,21 @@ const canvasSaveState = {
   saving: false,
 };
 
+// 每个标签页一个稳定客户端 id：同标签页刷新不变（sessionStorage）、跨标签页不同。随画布写一起发给
+// 服务端，服务端在 world.changed 里原样回填，发起页据此跳过自己的事件（echo 抑制，见 index.tsx）。
+export const canvasClientId: string = (() => {
+  const make = () => `tab-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    const existing = sessionStorage.getItem("wc:clientId");
+    if (existing) return existing;
+    const id = make();
+    sessionStorage.setItem("wc:clientId", id);
+    return id;
+  } catch {
+    return make();
+  }
+})();
+
 // 撤销/重做回放标记：回放期（entry.undo()/entry.redo() 执行中）抑制 logChange，
 // 避免撤销动作内部调用的写动作（deleteEntity/removeRelation/removeElement…）再向 changeLog
 // 追加条目，破坏 LIFO 双栈语义。用计数而非布尔：合并条目内部可能再触发回放，最外层结束才解除抑制。
@@ -671,6 +686,7 @@ async function flushCanvasSave(): Promise<void> {
       elements,
       removed: [...removed],
       version,
+      clientId: canvasClientId,
     });
     // 只有仍在保存同一层时才回写 docVersion，避免旧层保存结果覆盖新层的乐观锁。
     if (useWorldCanvasStore.getState().elementsContextId === contextId) {
@@ -762,6 +778,7 @@ if (typeof window !== "undefined") {
       elements: canvasPatchElements(state.elements, canvasSaveState.dirty),
       removed: [...canvasSaveState.removed],
       version: state.docVersion,
+      clientId: canvasClientId,
     });
     const url = `${state.apiBase}/v1/worlds/${encodeURIComponent(state.worldId)}/canvas/doc`;
     // apiBase 与页面通常不同源；application/json 是「非 CORS 安全列表」类型，会触发预检，
@@ -1180,14 +1197,18 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       });
       // AI 锁期内本地保存被暂停：远端回拉时保留本地脏元素/删除覆盖，避免用户未落盘的改动被覆盖。
       let nextElements = canonical.elements;
-      if (get().aiLocked && (canvasSaveState.dirty.size || canvasSaveState.removed.size)) {
+      // 本页未落盘的编辑（dirty/removed）始终覆盖远端结果——多标签页 / Agent 触发的远端 reload
+      // 不得吞掉本地改动。仅在「同一画布层」内合并：切层后 elements 仍是旧层数据，套到新层会串元素。
+      const sameLayer = get().elementsContextId === contextId;
+      if (sameLayer && (canvasSaveState.dirty.size || canvasSaveState.removed.size)) {
         const byId = new Map(canonical.elements.map((element) => [element.id, element]));
         for (const id of canvasSaveState.removed) byId.delete(id);
         for (const element of get().elements) {
           if (canvasSaveState.dirty.has(element.id)) byId.set(element.id, element);
         }
         nextElements = [...byId.values()];
-      } else if (canonical.changed) {
+      }
+      if (canonical.changed) {
         // 一次性迁移：归一后的文档立即落库，避免每次加载重复归一。
         for (const element of nextElements) markCanvasDirty(element.id);
       }

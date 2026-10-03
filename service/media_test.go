@@ -480,6 +480,87 @@ func TestAtlasSyncImageGenerationRunsNativePrediction(t *testing.T) {
 	}
 }
 
+func TestAtlasImageRetryResumesRunningPrediction(t *testing.T) {
+	var mu sync.Mutex
+	pollStatus := "error"
+
+	var atlas *httptest.Server
+	atlas = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/model/generateImage":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id":     "image-retry",
+				"status": "processing",
+				"urls":   map[string]any{"get": atlas.URL + "/api/v1/model/prediction/image-retry"},
+			}})
+		case "/api/v1/model/prediction/image-retry":
+			mu.Lock()
+			status := pollStatus
+			mu.Unlock()
+			switch status {
+			case "error":
+				http.Error(w, "temporary poll failure", http.StatusInternalServerError)
+			case "processing":
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "image-retry", "status": "processing"}})
+			default:
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+					"id": "image-retry", "status": "completed",
+					"outputs": []string{atlas.URL + "/recovered.png"},
+				}})
+			}
+		case "/recovered.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("recovered image"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer atlas.Close()
+
+	media, credentialID := newAtlasVideoMediaService(t, atlas.URL)
+	job, err := media.Generate(GenerateMediaInput{
+		Capability:     ImageGenerate,
+		Prompt:         "a landscape",
+		ModelID:        "atlas-cloud/openai/gpt-image-2",
+		CredentialID:   credentialID,
+		IdempotencyKey: "atlas-image-retry",
+	})
+	if err != nil || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued image job = %#v, %v", job, err)
+	}
+	assetID := job.AssetIDs[0]
+	stop := media.StartReconciler(10 * time.Millisecond)
+	defer stop()
+
+	waitForMediaJobStatus(t, media, job.ID, "failed")
+	failed, err := media.GetAsset(assetID)
+	if err != nil || failed.Status != "failed" || failed.RemoteID != "image-retry" {
+		t.Fatalf("failed image asset = %#v, %v", failed, err)
+	}
+
+	// Atlas is still working: the retry must resume polling instead of failing
+	// the asset again because our own budget ran out.
+	mu.Lock()
+	pollStatus = "processing"
+	mu.Unlock()
+	resumed, err := media.RetryAssetDownload(assetID)
+	if err != nil || resumed.Status != "running" {
+		t.Fatalf("retry of a still-running prediction = %#v, %v", resumed, err)
+	}
+
+	mu.Lock()
+	pollStatus = "completed"
+	mu.Unlock()
+	completed := waitForMediaJobStatus(t, media, job.ID, "completed")
+	if len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != assetID {
+		t.Fatalf("recovered image job = %#v", completed)
+	}
+	asset, err := media.GetAsset(assetID)
+	if err != nil || asset.Status != "completed" || asset.SizeBytes == 0 {
+		t.Fatalf("recovered image asset = %#v, %v", asset, err)
+	}
+}
+
 func TestAtlasAsyncVideoMarksPublishedAssetFailed(t *testing.T) {
 	pollStarted := make(chan struct{}, 1)
 	releasePoll := make(chan struct{})

@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 LoadCatalog、modal-studio 的 contributes.media 声明（provider modal-cloud + 由 modalapps
  *          expose 生成的模型）与 media 包的 RegisterAppProviders/CapabilityModelGroups
  * [OUTPUT]: 验证 modal-studio 作为标准 App 安装后，其 contributes.media 被映射为平台模型
- *          modal-cloud/<expose.model>（图片与视频都注册）并注册通用执行桥；
+ *          modal-cloud/<expose.model>（每个 expose 条目一个平台模型，图片与视频都注册）并注册通用执行桥；
  *          App 模型参数声明（含 aspectRatio）进入平台目录且标记 PassthroughParams
  * [POS]: service 的「App 贡献本地 media provider」回归测试（modal-studio 版）；不访问真实用户目录或网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -58,6 +58,7 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 	}
 	for id, capability := range map[string]string{
 		"modal-cloud/qwen-image":       "image.generate",
+		"modal-cloud/qwen-image-edit":  "image.generate",
 		"modal-cloud/sd-turbo":         "image.generate",
 		"modal-cloud/minimax-h3":       "video.generate",
 		"modal-cloud/minimax-h3-one":   "video.generate",
@@ -94,11 +95,15 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 	for _, model := range service.Models() {
 		byID[model.ID] = model
 	}
+	// 同一预设包可暴露多个平台模型：Qwen-Image-2.1 拆成文生图（qwen-image，纯文本）与图像编辑
+	// （qwen-image-edit，参考型）两个模型，使平台「按用途配置模型」在「图片生成」与「图片编辑」
+	// 两处都能选中它。
 	for id, wantModes := range map[string][]string{
 		"modal-cloud/minimax-h3":       {"text", "image", "video", "audio"},
 		"modal-cloud/minimax-h3-one":   {"text", "image", "video", "audio"},
 		"modal-cloud/minimax-h3-turbo": {"text", "image", "video", "audio"},
-		"modal-cloud/qwen-image":       {"text", "image"},
+		"modal-cloud/qwen-image":       {"text"},
+		"modal-cloud/qwen-image-edit":  {"text", "image"},
 	} {
 		model, ok := byID[id]
 		if !ok {
@@ -109,11 +114,24 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 				t.Fatalf("model %s inputModes = %v, missing %q", id, model.InputModes, mode)
 			}
 		}
+	}
+	// 文生图条目必须是「只吃文本」的纯文本模型（否则平台会把它归到「图片编辑」用途）：
+	// 不带任何参考输入能力与 referenceBudgets。
+	textModel, ok := byID["modal-cloud/qwen-image"]
+	if !ok {
+		t.Fatal("modal-cloud/qwen-image missing from the merged catalog")
+	}
+	if stringIn(textModel.InputModes, "image") || len(textModel.ReferenceBudgets) != 0 {
+		t.Fatalf("modal-cloud/qwen-image must be pure text-to-image so it can be the global 文生图 route: %#v", textModel)
+	}
+	// 参考型模型必须带 referenceBudgets（平台据此约束参考数量）。
+	// 参考是可选输入：budget 只能设上限，不能要求「≥1 个参考」，否则平台会在提交前拒绝
+	// 纯文本请求，App 的「无参考自动回退 text-to-* 」就永远走不到。
+	for _, id := range []string{"modal-cloud/minimax-h3", "modal-cloud/minimax-h3-one", "modal-cloud/minimax-h3-turbo", "modal-cloud/qwen-image-edit"} {
+		model := byID[id]
 		if len(model.ReferenceBudgets) == 0 {
 			t.Fatalf("model %s must carry referenceBudgets so the platform enforces its reference inputs", id)
 		}
-		// 参考是可选输入：budget 只能设上限，不能要求「≥1 个参考」，否则平台会在提交前拒绝
-		// 纯文本请求，App 的「无参考自动回退 text-to-* 」就永远走不到。
 		for _, budget := range model.ReferenceBudgets {
 			if len(budget.Requirements) != 0 {
 				t.Fatalf("model %s reference budget %q must not require references (text-only must fall back)", id, budget.Requirements)
@@ -124,7 +142,7 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 	// App 模型把 manifest 的参数声明带进平台目录，并标记为 passthrough：平台据此折叠一等字段
 	// （把顶层 aspectRatio/durationSec 折进 Output），但输出参数仍由 App 校验（App 表单是唯一真相）。
 	// 模型必须声明 aspectRatio，否则 applyAspectRatio 会静默丢弃画幅（参考/首尾帧生视频就设不了画幅）。
-	for _, id := range []string{"modal-cloud/qwen-image", "modal-cloud/minimax-h3", "modal-cloud/minimax-h3-one", "modal-cloud/minimax-h3-turbo"} {
+	for _, id := range []string{"modal-cloud/qwen-image", "modal-cloud/qwen-image-edit", "modal-cloud/minimax-h3", "modal-cloud/minimax-h3-one", "modal-cloud/minimax-h3-turbo"} {
 		model := byID[id]
 		if !model.PassthroughParams {
 			t.Fatalf("app-contributed model %s must be marked PassthroughParams", id)
@@ -158,7 +176,7 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 
 	// 能力聚合：image/video 两个能力下都应出现 modal-cloud 分组及其平台模型。
 	for capability, want := range map[media.MediaCapability][]string{
-		media.ImageGenerate: {"modal-cloud/qwen-image", "modal-cloud/sd-turbo"},
+		media.ImageGenerate: {"modal-cloud/qwen-image", "modal-cloud/qwen-image-edit", "modal-cloud/sd-turbo"},
 		media.VideoGenerate: {"modal-cloud/minimax-h3", "modal-cloud/minimax-h3-one", "modal-cloud/minimax-h3-turbo"},
 	} {
 		groups, err := service.CapabilityModelGroups(capability)

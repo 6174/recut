@@ -6,14 +6,14 @@
  *          invoke/cancel/teardown/secret）
  * [OUTPUT]: 注册首屏轻量负载（modal.overview：只读本机 registry/profiles/设置 + 上次就绪度快照，不拉起 Python）、
  *          连通性与就绪度（modal.status，结果同时写入快照供下次首屏回放）、预设包目录（modal.catalog，含 deployed/volumeReady/stale 代码变更标记与平台模型就绪投影 models[]——
- *          models[].ready 要求 deployed 且该包 expose.function 所需产物齐备，逐产物就绪由引擎 engine.artifacts/requires 声明并探测，assets 上报）、token profiles（modal.profiles.*）、
+ *          models[].ready 要求 deployed 且该包对应 expose 条目 function 所需产物齐备，逐产物就绪由引擎 engine.artifacts/requires 声明并探测，assets 上报）、token profiles（modal.profiles.*）、
  *          设置（modal.settings.set：默认 profile / 权重源 / GPU 档位 / 每「预设包+函数」的 AI 默认参数（含默认 GPU 档位）agent_defaults:<id>:<fn>）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
  *          调用函数（modal.generate，按预设包单槽、跨预设包并行；兼容平台执行桥的 model 入参；非 origin="manual" 的调用用 agentDefaults 补全缺省字段；
  *          **派发前先预检目标函数所需产物**，缺失直接拒绝、不创建云端容器——否则容器会在 @modal.enter 里反复起不来 = crash-loop）、历史与入库（modal.generations / modal.generation.complete /
- *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel）与取消（modal.cancel：运行中的 generate
+ *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel——params 回显参考素材时逐条带 kind/mimeType/field，供右侧按真实类型渲染，音频/视频不再被当成参考图）与取消（modal.cancel：运行中的 generate
  *          先按 runner 落盘的调用 ID 直接取消云端 Modal 调用，再终止本地 shell job，避免云端 GPU 继续烧；拿不到调用 ID 时返回告警而非静默放过）。
- * [POS]: modal-studio 的唯一业务后端；经 manifest contributes.media 向平台注册 modal-cloud provider（每个声明
- *        expose 的 modalapp → 一个平台模型，平台默认生图/生视频路由可指向它，经通用执行桥调用 modal.generate），
+ * [POS]: modal-studio 的唯一业务后端；经 manifest contributes.media 向平台注册 modal-cloud provider（每个 expose
+ *        条目 → 一个平台模型；单个 modalapp 可暴露多个，平台默认生图/生视频路由可指向它，经通用执行桥调用 modal.generate），
  *        其余能力经本 App 的 api/mcp operation（modal.generate/modal.save 等 capability:true）暴露。任务并发：运行（generate）与部署（deploy）
  *        按预设包独立排队（同一预设包单槽 FIFO、上限可经 engine.concurrency 调大；跨预设包并行）、同预设包内 deploy 与 generate 互斥且 deploy 优先、
  *        准备（prepare）全局单槽、权重（install）按预设包串行、停止（teardown）可并行；提交永不拒绝。
@@ -89,7 +89,7 @@ function normalizeManifest(manifest, origin, sourceRel) {
     id: manifest.id,
     label: manifest.name || manifest.id,
     capability: manifest.capability || "image.generate",
-    expose: (manifest.expose && typeof manifest.expose === "object") ? manifest.expose : {},
+    expose: normalizeExpose(manifest.expose),
     appName: engine.appName || manifest.id,
     sourceDir: sourceRel,
     origin,
@@ -145,6 +145,19 @@ function sourceAbs(ctx, modalapp) {
 
 function appDef(registry, id) { return (registry.modalapps || []).find((a) => a.id === id) || null; }
 function functionDef(modalapp, id) { return (modalapp.functions || []).find((f) => f.id === id) || null; }
+
+// 归一 expose：既接受单个 {model, function, parameters}，也接受数组。一个预设包可暴露多个平台模型
+// （例如同一底模的「文生图」与「图像编辑」拆成两个平台模型，使平台「按用途配置模型」时二者都能被选中）。
+function normalizeExpose(raw) {
+  if (Array.isArray(raw)) return raw.filter((entry) => entry && entry.model);
+  if (raw && typeof raw === "object" && raw.model) return [raw];
+  return [];
+}
+function exposeEntries(modalapp) { return normalizeExpose(modalapp && modalapp.expose); }
+// 某 expose 条目对应的函数：条目声明的 function，缺省取预设包首个函数（与旧单对象 expose 行为一致）。
+function exposedFunction(modalapp, entry) {
+  return functionDef(modalapp, (entry && entry.function) || "") || (modalapp.functions || [])[0] || null;
+}
 
 function outputKind(spec) { return (spec && spec.kind) || "image"; }
 function outputExt(spec) { return (spec && spec.ext) || "png"; }
@@ -299,7 +312,7 @@ function projectModalapps(ctx, registry, states) {
     const projected = {
       id: a.id, label: a.label || a.id, capability: a.capability, appName: a.appName || a.id,
       origin: a.origin || "builtin", sourceDir: a.sourceDir || "", path: sourceAbs(ctx, a),
-      expose: a.expose || {},
+      expose: exposeEntries(a),
       gpuTiers: a.gpuTiers || { default: "T4", options: [] },
       concurrency: a.concurrency || {},
       weights: a.weights || {}, profileId: a.profileId || "",
@@ -332,18 +345,23 @@ function missingAssets(modalapp, fnId) {
 
 // models 是 modalapps 的平台模型就绪投影（供 app_media_bridge 的动态就绪面按 expose.model 匹配）：
 // 只有 deployed && 就绪产物齐备时才 ready，平台据此把该模型标记为可用（"一旦 available 就注册"）。
-// 就绪产物按 expose.function 判定——离线合并产物缺失时基础权重卷仍是就绪的，只看 volumeReady 会把
-// 「缺合并产物」的模型误报为可用，提交后云端容器起不来（crash-loop）。
+// 每个 expose 条目投影为一个平台模型；就绪产物按该条目 function 判定——离线合并产物缺失时基础权重卷
+// 仍是就绪的，只看 volumeReady 会把「缺合并产物」的模型误报为可用，提交后云端容器起不来（crash-loop）。
 function projectModels(modalapps) {
-  return modalapps.filter((a) => a.expose && a.expose.model).map((a) => {
-    const fnId = (a.expose && a.expose.function) || (a.functions && a.functions[0] && a.functions[0].id) || "";
-    const ready = a.deployed === true && a.volumeReady === true && missingAssets(a, fnId).length === 0;
-    return {
-      model: a.expose.model, app: a.expose.model, capability: a.capability, runtime: "modal",
-      label: a.label || a.id, ready,
-      weight: { installed: a.volumeReady === true, sizeGb: (a.weights && a.weights.sizeGb) || 0, source: "", revision: (a.weights && a.weights.revision) || "" }
-    };
-  });
+  const models = [];
+  for (const a of modalapps) {
+    for (const entry of exposeEntries(a)) {
+      const fn = exposedFunction(a, entry);
+      const fnId = (fn && fn.id) || "";
+      const ready = a.deployed === true && a.volumeReady === true && missingAssets(a, fnId).length === 0;
+      models.push({
+        model: entry.model, app: entry.model, capability: a.capability, runtime: "modal",
+        label: entry.name || a.label || a.id, ready,
+        weight: { installed: a.volumeReady === true, sizeGb: (a.weights && a.weights.sizeGb) || 0, source: "", revision: (a.weights && a.weights.revision) || "" }
+      });
+    }
+  }
+  return models;
 }
 
 // 提交前就绪度预检：目标函数所需产物（基础权重 / LoRA / 离线合并）缺失时直接拒绝，**不创建云端容器**。
@@ -455,6 +473,15 @@ function coerceParams(fn, raw) {
 // media 字段 → 带角色标记的参考素材列表。入参优先用按字段分组的 `references`（{field:[assetId]}，App UI 走这条）；
 // 平台执行桥只给扁平有序的 `referenceAssetIds`，此时单字段函数直接落到该字段，多字段函数留空由契约层按 mimeType 推断。
 function mediaFieldsOf(fn) { return ((fn && fn.formSchema) || []).filter((field) => field && field.type === "media"); }
+
+// 参考素材类型：优先用 ctx.media.materialize 返回的 kind，缺省时按 mimeType 推断。
+function kindFromMimeType(mimeType) {
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  return "";
+}
 
 function collectReferences(fn, input) {
   const fields = mediaFieldsOf(fn);
@@ -773,9 +800,24 @@ function getTaskParams(ctx, input) {
   const record = records[0];
   let params = {};
   try { params = JSON.parse(record.params_json || "{}"); } catch (_) { params = {}; }
-  let referenceAssetIds = [];
-  try { referenceAssetIds = JSON.parse(record.reference_asset_ids || "[]"); } catch (_) { referenceAssetIds = []; }
-  referenceAssetIds = (Array.isArray(referenceAssetIds) ? referenceAssetIds : []).map((assetId) => ({ id: assetId, name: "", savedAssetId: assetId, available: true }));
+  let storedReferences = [];
+  try { storedReferences = JSON.parse(record.reference_asset_ids || "[]"); } catch (_) { storedReferences = []; }
+  const stored = Array.isArray(storedReferences) ? storedReferences : [];
+  // 历史行的 reference_asset_ids 只有裸 assetId（无 kind）：按提交时落盘的 refs（与参考素材同序）补类型，
+  // 否则旧任务的参考音频/视频仍会被当成参考图画成破图。
+  let fallbackKinds = [];
+  if (stored.some((entry) => !entry || typeof entry !== "object" || !entry.kind)) {
+    let refEntries = [];
+    try { refEntries = JSON.parse(ctx.files.readText(taskRefsPath(id)) || "[]"); } catch (_) { refEntries = []; }
+    if (Array.isArray(refEntries)) fallbackKinds = refEntries.map((entry) => kindFromMimeType(entry && entry.mimeType));
+  }
+  const referenceAssetIds = stored.map((entry, index) => {
+    const prior = fallbackKinds[index] || "";
+    if (entry && typeof entry === "object") {
+      return { id: String(entry.id || ""), name: entry.name || "", savedAssetId: String(entry.id || ""), available: true, kind: entry.kind || prior, mimeType: entry.mimeType || "", field: entry.field || "" };
+    }
+    return { id: String(entry || ""), name: "", savedAssetId: String(entry || ""), available: true, kind: prior, mimeType: "", field: "" };
+  });
   return {
     taskId: id,
     params: {
@@ -1264,16 +1306,17 @@ function teardown(input, ctx) {
 }
 
 // 解析生成目标：App 内调用走 modalapp + function；平台执行桥只传一个平台模型简单名（model），
-// 按 modalapps 的 expose.model 命中预设包并用其 expose.function（缺省取首个函数）。平台路由表示用户已在
+// 按 modalapps 的 expose 条目命中预设包并用该条目的 function（缺省取首个函数）。平台路由表示用户已在
 // 平台侧选择该模型（视频另经平台提案确认门），因此不再重复 App 的 confirmCost 门。
 function resolveTarget(registry, input) {
   const explicit = appDef(registry, value(input, "modalapp"));
   if (explicit) return { modalapp: explicit, fn: functionDef(explicit, value(input, "function")), platform: false };
   const model = value(input, "model");
   if (!model) return { modalapp: null, fn: null, platform: false };
-  const app = (registry.modalapps || []).find((a) => a.expose && a.expose.model === model) || appDef(registry, model);
+  const app = (registry.modalapps || []).find((a) => exposeEntries(a).some((e) => e.model === model)) || appDef(registry, model);
   if (!app) return { modalapp: null, fn: null, platform: true };
-  let fn = functionDef(app, (app.expose && app.expose.function) || "") || (app.functions || [])[0] || null;
+  const entry = exposeEntries(app).find((e) => e.model === model) || null;
+  let fn = exposedFunction(app, entry);
   // 平台执行桥只按 model 路由、不分函数：若请求未带任何参考素材，而 expose.function 需要参考，
   // 自动回退到同输出类型的纯文生函数（text-to-*），使「有参考走参考、无参考走文生」自动成立。
   const hasReferences = Array.isArray(input.referenceAssetIds) && input.referenceAssetIds.length > 0;
@@ -1327,14 +1370,22 @@ function generate(input, ctx) {
   const gpu = resolveGpuTier(modalapp, value(input, "gpuTier") || defaults.gpuTier, ctx);
   const profileId = value(input, "profileId") || resolveProfileId(ctx, registry, modalapp);
   const refs = [];
-  const referenceIds = [];
+  const storedReferences = [];
   for (const item of collected) {
     try {
       const materialized = ctx.media.materialize(item.assetId);
       const ref = { path: materialized.path, name: materialized.name || item.assetId, mimeType: materialized.mimeType || "" };
       if (item.field) ref.field = item.field;
       refs.push(ref);
-      referenceIds.push(item.assetId);
+      // 连同 kind/mimeType/field 落库：右侧「运行参数」据此按真实类型渲染参考素材
+      //（音频/视频不再被当成参考图画成破图）。
+      storedReferences.push({
+        id: item.assetId,
+        kind: materialized.kind || kindFromMimeType(ref.mimeType) || "image",
+        mimeType: ref.mimeType,
+        field: item.field || "",
+        name: ref.name,
+      });
     } catch (_) { /* skip missing reference */ }
   }
   const id = outputID();
@@ -1346,7 +1397,7 @@ function generate(input, ctx) {
   const createdAt = new Date().toISOString();
   ctx.sqlite.execute(
     "insert into modal_generations (id, modalapp, function, model, capability, output_kind, mime_type, params_json, prompt, reference_asset_ids, output_path, width, height, duration, seed, gpu_tier, saved_asset_id, created_at, job_id, status, error) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, '', ?, '', 'queued', '')",
-    [id, modalapp.id, fn.id, modalapp.id, modalapp.capability || "image.generate", kind, mimeType, JSON.stringify(params), String(params.prompt || ""), JSON.stringify(referenceIds), outputPath, gpu, createdAt]
+    [id, modalapp.id, fn.id, modalapp.id, modalapp.capability || "image.generate", kind, mimeType, JSON.stringify(params), String(params.prompt || ""), JSON.stringify(storedReferences), outputPath, gpu, createdAt]
   );
   const tid = outputID();
   const paramsPath = taskParamsPath(tid);

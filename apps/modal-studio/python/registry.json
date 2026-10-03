@@ -10,10 +10,12 @@
       "appName": "recut-minimax-h3",
       "sourceDir": "modalapps/minimax-h3",
       "origin": "builtin",
-      "expose": {
-        "model": "minimax-h3",
-        "function": "reference-to-video"
-      },
+      "expose": [
+        {
+          "model": "minimax-h3",
+          "function": "reference-to-video"
+        }
+      ],
       "gpuTiers": {
         "default": "H200:4",
         "options": [
@@ -497,10 +499,12 @@
       "appName": "recut-minimax-h3-one",
       "sourceDir": "modalapps/minimax-h3-one",
       "origin": "builtin",
-      "expose": {
-        "model": "minimax-h3-one",
-        "function": "reference-to-video"
-      },
+      "expose": [
+        {
+          "model": "minimax-h3-one",
+          "function": "reference-to-video"
+        }
+      ],
       "gpuTiers": {
         "default": "RTX-PRO-6000",
         "options": [
@@ -992,10 +996,12 @@
       "appName": "recut-minimax-h3-turbo",
       "sourceDir": "modalapps/minimax-h3-turbo",
       "origin": "builtin",
-      "expose": {
-        "model": "minimax-h3-turbo",
-        "function": "reference-to-video"
-      },
+      "expose": [
+        {
+          "model": "minimax-h3-turbo",
+          "function": "reference-to-video"
+        }
+      ],
       "gpuTiers": {
         "default": "RTX-PRO-6000",
         "options": [
@@ -1539,13 +1545,30 @@
       "appName": "recut-qwen-image-21",
       "sourceDir": "modalapps/qwen-image-2.1",
       "origin": "builtin",
-      "expose": {
-        "model": "qwen-image",
-        "function": "image-edit",
-        "parameters": [
-          "resolution"
-        ]
-      },
+      "expose": [
+        {
+          "model": "qwen-image",
+          "name": {
+            "zh": "Qwen-Image-2.1 文生图",
+            "en": "Qwen-Image-2.1 text-to-image"
+          },
+          "function": "text-to-image",
+          "parameters": [
+            "resolution"
+          ]
+        },
+        {
+          "model": "qwen-image-edit",
+          "name": {
+            "zh": "Qwen-Image-2.1 图像编辑",
+            "en": "Qwen-Image-2.1 image edit"
+          },
+          "function": "image-edit",
+          "parameters": [
+            "resolution"
+          ]
+        }
+      ],
       "gpuTiers": {
         "default": "A100-80GB",
         "options": [
@@ -1854,10 +1877,12 @@
       "appName": "recut-sd-turbo",
       "sourceDir": "modalapps/sd-turbo",
       "origin": "builtin",
-      "expose": {
-        "model": "sd-turbo",
-        "function": "text-to-image"
-      },
+      "expose": [
+        {
+          "model": "sd-turbo",
+          "function": "text-to-image"
+        }
+      ],
       "gpuTiers": {
         "default": "T4",
         "options": [

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖选中任务详情（modal.task.get）、生成产物（modal.generation.complete）、运行参数（modal.task.params）、持久日志（modal.task.logs）、shadcn Badge/Button/Progress 与 recut.media.preview 全屏预览
- * [OUTPUT]: Right 面板：任务头（状态/取消）+ 生成预览（按 output.kind 渲染图片/视频/音频；图片可全屏预览并含「以此为参考图运行」「重新调整参数」入口）+ **常驻「运行参数」section（始终回显全部参数，参考图带尺寸标注、点击经 asset modal 全屏预览）** + **常驻「运行日志」section（成功任务同样展示完整日志，不再因成功而隐藏；生成过程中新日志到达时自动贴底滚动，用户上滚查看时不打扰）**
+ * [OUTPUT]: Right 面板：任务头（状态/取消）+ 生成预览（按 output.kind 渲染图片/视频/音频；图片可全屏预览并含「以此为参考图运行」「重新调整参数」入口）+ **常驻「运行参数」section（始终回显全部参数；参考素材按真实类型渲染——图带尺寸标注、点击经 asset modal 全屏预览，视频/音频内联播放，多类型时按 参考图/参考视频/参考音频 分组）** + **常驻「运行日志」section（成功任务同样展示完整日志，不再因成功而隐藏；生成过程中新日志到达时自动贴底滚动，用户上滚查看时不打扰）**
  * [POS]: Right 的统一生产预览 / 参数 / 日志面；参数与日志各自独立成节、恒定可见
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -84,10 +84,40 @@ function ParamRow({ label, value, mono = true }: { label: string; value: string;
   );
 }
 
-// 参考图缩略：点击经宿主 asset modal 全屏预览（mediaContentURL 指向素材内容），
-// 图下标注真实像素尺寸——排查「输入图过小」一类失败时一眼能看到输入到底是什么。
-function RefThumb({ id, name, locale }: { id: string; name?: string; locale: Locale }) {
+// 参考素材类型归一：历史任务或未知值一律按图片回落。
+function referenceKind(kind?: string): "image" | "video" | "audio" {
+  return kind === "video" || kind === "audio" ? kind : "image";
+}
+
+const REFERENCE_KIND_ORDER = ["image", "video", "audio"] as const;
+const REFERENCE_KIND_LABEL: Record<string, string> = {
+  image: "preview.params-refs-image",
+  video: "preview.params-refs-video",
+  audio: "preview.params-refs-audio",
+};
+
+// 参考素材缩略：按真实类型渲染——图片给缩略图（点击经宿主 asset modal 全屏预览，图下标注真实像素尺寸，
+// 排查「输入图过小」一类失败时一眼就能看到输入到底是什么）；视频给静音首帧；音频给可播放控件。
+// 宿主的全屏预览（image.preview → ImageLightbox）只认图片，故视频/音频只内联播放、不走上层预览。
+function RefMedia({ id, name, kind, locale }: { id: string; name?: string; kind?: string; locale: Locale }) {
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const resolved = referenceKind(kind);
+  if (resolved === "audio") {
+    return (
+      <div className="grid w-56 gap-1">
+        <audio className="h-9 w-full" src={mediaContentPath(id)} controls preload="metadata" />
+        <span className="truncate text-center font-mono text-[9px] text-muted-foreground" title={name || id}>{name || id}</span>
+      </div>
+    );
+  }
+  if (resolved === "video") {
+    return (
+      <div className="grid w-24 gap-1">
+        <video className="h-14 w-24 rounded-md border bg-muted object-cover" src={mediaContentPath(id)} controls muted playsInline preload="metadata" />
+        <span className="truncate text-center font-mono text-[9px] text-muted-foreground" title={name || id}>{name || id}</span>
+      </div>
+    );
+  }
   const label = size ? `${size.w}×${size.h}` : name || id;
   return (
     <div className="grid w-14 gap-1">
@@ -113,6 +143,10 @@ function ParamsPanel({ params, locale }: { params: GenerationParams | null; loca
   if (!params) return null;
   const missing = params.referenceAssetIds.filter((item) => item.available === false).length;
   const entries = Object.entries(params.values ?? {});
+  // 按类型分组（图/视频/音频），只保留非空组：参考音频不再被归到「参考图」下。
+  const referenceGroups = REFERENCE_KIND_ORDER
+    .map((kind) => ({ kind, items: params.referenceAssetIds.filter((item) => referenceKind(item.kind) === kind) }))
+    .filter((group) => group.items.length > 0);
   return (
     <div className="grid gap-2 rounded-lg border border-border/70 bg-secondary/30 p-3">
       <ParamRow label={t(locale, "preview.params-model")} value={`${params.modalapp} / ${params.function}`} />
@@ -127,16 +161,24 @@ function ParamsPanel({ params, locale }: { params: GenerationParams | null; loca
         {params.referenceAssetIds.length === 0 ? (
           <span className="text-[11px] text-muted-foreground">{t(locale, "preview.params-refs-none")}</span>
         ) : (
-          <div className="flex flex-wrap items-start gap-2">
-            {params.referenceAssetIds.map((item) => (
-              item.available === false ? (
-                <div key={item.id} className="grid w-14 gap-1 opacity-40">
-                  <div className="grid size-14 place-items-center rounded-md border bg-muted px-1 text-center text-[9px] text-muted-foreground">{t(locale, "preview.params-refs-none")}</div>
-                  <span className="truncate text-center font-mono text-[9px] text-muted-foreground" title={item.id}>{item.id}</span>
+          <div className="grid gap-1.5">
+            {referenceGroups.map(({ kind, items }) => (
+              <div key={kind} className="grid gap-1">
+                {/* 只有多种类型同时存在时才逐类标注，纯图片任务不额外加一层标签。 */}
+                {referenceGroups.length > 1 ? <span className="text-[10px] text-muted-foreground">{t(locale, REFERENCE_KIND_LABEL[kind])}</span> : null}
+                <div className="flex flex-wrap items-start gap-2">
+                  {items.map((item) => (
+                    item.available === false ? (
+                      <div key={item.id} className="grid w-14 gap-1 opacity-40">
+                        <div className="grid size-14 place-items-center rounded-md border bg-muted px-1 text-center text-[9px] text-muted-foreground">{t(locale, "preview.params-refs-none")}</div>
+                        <span className="truncate text-center font-mono text-[9px] text-muted-foreground" title={item.id}>{item.id}</span>
+                      </div>
+                    ) : (
+                      <RefMedia key={item.id} id={item.id} name={item.name} kind={item.kind} locale={locale} />
+                    )
+                  ))}
                 </div>
-              ) : (
-                <RefThumb key={item.id} id={item.id} name={item.name} locale={locale} />
-              )
+              </div>
             ))}
           </div>
         )}

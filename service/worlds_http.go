@@ -549,6 +549,28 @@ func (s *Server) getCanvasDocument(w http.ResponseWriter, r *http.Request) {
 //   - patch:true: field-level merge (RFC 2026-10-03) — elements are partial and
 //     removed lists deletions explicitly, so concurrent writers that touch
 //     different fields compose instead of overwriting each other.
+// publishCanvasChanged broadcasts one user (HTTP) canvas write as a coarse world.changed
+// notification so other tabs on the same world re-fetch. Only called when the write
+// materially changed the document (WorldCanvasDocument.Changed) — idempotent / derived
+// writes (e.g. re-writing the same coverAspect) must not trigger cross-tab reloads.
+// clientId is the originating tab (echoed from the request body) so the writer can skip
+// its own event; it is omitted when empty.
+func (s *Server) publishCanvasChanged(worldID, contextID string, version int, clientID string) {
+	data := map[string]any{
+		"event":     "world.changed",
+		"worldId":   worldID,
+		"key":       worldID,
+		"tool":      "canvas.save",
+		"source":    "web",
+		"contextId": contextID,
+		"version":   version,
+	}
+	if clientID != "" {
+		data["clientId"] = clientID
+	}
+	s.publishWorldEvent(worldID, data)
+}
+
 func (s *Server) saveCanvasDocument(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ContextID       string          `json:"contextId"`
@@ -556,6 +578,7 @@ func (s *Server) saveCanvasDocument(w http.ResponseWriter, r *http.Request) {
 		Removed         []string        `json:"removed"`
 		Patch           bool            `json:"patch"`
 		ExpectedVersion int             `json:"version"`
+		ClientID        string          `json:"clientId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
@@ -575,6 +598,9 @@ func (s *Server) saveCanvasDocument(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeWorldsError(w, err)
 			return
+		}
+		if doc.Changed {
+			s.publishCanvasChanged(worldID, input.ContextID, doc.Version, input.ClientID)
 		}
 		writeJSON(w, http.StatusOK, doc)
 		return
@@ -596,6 +622,9 @@ func (s *Server) saveCanvasDocument(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeWorldsError(w, err)
 		return
+	}
+	if doc.Changed {
+		s.publishCanvasChanged(worldID, input.ContextID, doc.Version, input.ClientID)
 	}
 	writeJSON(w, http.StatusOK, doc)
 }

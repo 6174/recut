@@ -22,13 +22,9 @@ import (
 
 var errAtlasVideoOutputMissing = errors.New("Atlas Cloud completed without a video output")
 
-const (
-	atlasDownloadAttempts = 5
-	// One attempt must finish within this budget; a slow body read retries on
-	// a fresh connection instead of holding one for minutes.
-	atlasDownloadTimeout = 60 * time.Second
-	atlasDownloadDelay   = 2 * time.Second
-)
+// atlasDownloadTimeout bounds one output download attempt; a slow body read
+// retries on a fresh connection instead of holding one for minutes.
+const atlasDownloadTimeout = 60 * time.Second
 
 const atlasPollingRetryLimit = 5
 
@@ -472,8 +468,11 @@ func (m *MediaService) bindRunningAtlasPrediction(jobID, assetID, remoteID, poll
 }
 
 // RetryAssetDownload re-collects the output of a failed generated asset whose
-// remote prediction may already be completed (e.g. the image download timed
-// out after Atlas Cloud finished). The remote task itself is never resubmitted.
+// remote prediction was checkpointed. When Atlas already finished, the output is
+// downloaded inline; when the prediction is still running the task is handed
+// back to the durable reconciler instead of being failed again — our own budget
+// running out says nothing about the remote task. The prediction is never
+// resubmitted.
 func (m *MediaService) RetryAssetDownload(assetID string) (MediaAsset, error) {
 	db, err := m.database()
 	if err != nil {
@@ -518,49 +517,23 @@ func (m *MediaService) RetryAssetDownload(assetID string) (MediaAsset, error) {
 		m.failRemoteAsset(job.ID, asset.ID, cause.Error())
 		return MediaAsset{}, cause
 	}
-	content, mimeType, err := m.redownloadAtlasOutput(task)
+	// Advance exactly one state through the shared reconciler. A completed
+	// prediction is collected inline; a still-running one resumes durable
+	// polling rather than being re-failed on the spot.
+	if terminal, _ := m.reconcileAtlasTask(task); !terminal {
+		m.startAtlasPolling(job.ID)
+	}
+	updated, err := m.getAsset(asset.ID)
 	if err != nil {
-		m.failRemoteAsset(job.ID, asset.ID, err.Error())
 		return MediaAsset{}, err
 	}
-	return m.completeRemoteAsset(job.ID, asset.ID, content, mimeType)
-}
-
-// redownloadAtlasOutput re-fetches a completed prediction's output with
-// bounded retries. Only transport errors and 5xx responses retry; 3xx/4xx
-// failures are terminal.
-func (m *MediaService) redownloadAtlasOutput(task atlasTask) ([]byte, string, error) {
-	prediction, err := atlas.Poll(atlasPollingHTTPClient, apiBaseFor(task.credential), task.secret, atlas.Prediction{ID: task.asset.RemoteID, PollURL: task.pollURL})
-	if err != nil {
-		return nil, "", err
-	}
-	if prediction.Failed() {
-		return nil, "", errors.New("Atlas Cloud image generation failed: " + prediction.FailureMessage())
-	}
-	if !prediction.Completed() {
-		return nil, "", errors.New("Atlas Cloud prediction is not completed yet")
-	}
-	url := prediction.FirstOutput()
-	if url == "" {
-		return nil, "", errors.New("Atlas Cloud prediction completed without an output URL")
-	}
-	var lastErr error
-	for attempt := 0; attempt < atlasDownloadAttempts; attempt++ {
-		if attempt > 0 {
-			time.Sleep(atlasDownloadDelay)
+	if updated.Status == "failed" {
+		if updated.Error == "" {
+			updated.Error = "远端任务恢复失败"
 		}
-		client := *mediaHTTPClient
-		client.Timeout = atlasDownloadTimeout
-		content, mimeType, err := fetchMediaDetect(&client, url)
-		if err == nil {
-			return content, mimeType, nil
-		}
-		lastErr = err
-		if strings.HasPrefix(err.Error(), "media download returned 2") || strings.HasPrefix(err.Error(), "media download returned 3") || strings.HasPrefix(err.Error(), "media download returned 4") {
-			return nil, "", err
-		}
+		return MediaAsset{}, errors.New(updated.Error)
 	}
-	return nil, "", lastErr
+	return updated, nil
 }
 
 func fetchMediaDetect(client *http.Client, url string) ([]byte, string, error) {

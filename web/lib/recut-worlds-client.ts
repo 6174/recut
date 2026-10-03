@@ -478,7 +478,7 @@ export type RecutWorldsClient = {
   };
   canvas: {
     get(input: { worldId: string; contextId?: string }): Promise<WorldCanvasDocument>;
-    save(input: { worldId: string; contextId?: string; elements: CanvasSaveElement[]; removed?: string[]; patch?: boolean; version: number }): Promise<WorldCanvasDocument>;
+    save(input: { worldId: string; contextId?: string; elements: CanvasSaveElement[]; removed?: string[]; patch?: boolean; version: number; clientId?: string }): Promise<WorldCanvasDocument>;
     docs(input: { worldId: string }): Promise<Array<{ contextId: string; version: number; updatedAt: string; elementCount: number }>>;
     docUpdate(input: { worldId: string; contextId?: string; ops: CanvasDocOp[] }): Promise<WorldCanvasDocument>;
     promote(input: { worldId: string; elementId: string; typeId?: string; fromRole?: string; toRole?: string; relationType?: string; title?: string; expectedRevisionId?: string }): Promise<CanvasPromoteResult>;
@@ -604,7 +604,7 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
         const query = contextId ? `?contextId=${encodeURIComponent(contextId)}` : "";
         return requestJSON<WorldCanvasDocument>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/doc${query}`);
       },
-      save: ({ worldId, contextId, elements, removed, patch, version }) =>
+      save: ({ worldId, contextId, elements, removed, patch, version, clientId }) =>
         requestJSON<WorldCanvasDocument>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/doc`, {
           method: "POST",
           body: {
@@ -612,6 +612,7 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
             elements,
             ...(removed && removed.length ? { removed } : {}),
             ...(patch ? { patch: true } : {}),
+            ...(clientId ? { clientId } : {}),
             version,
           },
         }),

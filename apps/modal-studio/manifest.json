@@ -151,9 +151,6 @@
                   "maxAudios": 3
                 }
               ],
-              "referenceImage": {
-                "maxEdge": 1024
-              },
               "localized": {
                 "zh": {
                   "name": "MiniMax-H3 视频+音频（文/首尾帧/参考）"
@@ -252,9 +249,6 @@
                   "maxAudios": 3
                 }
               ],
-              "referenceImage": {
-                "maxEdge": 1024
-              },
               "localized": {
                 "zh": {
                   "name": "MiniMax-H3 单卡（文/首尾帧/参考，GPU 快照）"
@@ -353,9 +347,6 @@
                   "maxAudios": 3
                 }
               ],
-              "referenceImage": {
-                "maxEdge": 1024
-              },
               "localized": {
                 "zh": {
                   "name": "MiniMax-H3 极速版（Turbo 文/首尾帧；参考走 base）"
@@ -367,7 +358,74 @@
             },
             {
               "id": "qwen-image",
-              "name": "Qwen-Image-2.1 文生图/参考生图",
+              "name": "Qwen-Image-2.1 文生图",
+              "capability": "image.generate",
+              "runtime": "modal",
+              "sizeGb": 33,
+              "inputModes": [
+                "text"
+              ],
+              "parameters": [
+                {
+                  "name": "prompt",
+                  "type": "string"
+                },
+                {
+                  "name": "aspectRatio",
+                  "type": "string",
+                  "enum": [
+                    "1:1",
+                    "16:9",
+                    "9:16",
+                    "4:3",
+                    "3:4",
+                    "3:2",
+                    "2:3"
+                  ],
+                  "default": "1:1"
+                },
+                {
+                  "name": "resolution",
+                  "type": "string",
+                  "enum": [
+                    "2752",
+                    "2048",
+                    "1536",
+                    "1024"
+                  ],
+                  "default": "2752"
+                },
+                {
+                  "name": "steps",
+                  "type": "number",
+                  "default": 40,
+                  "min": 1,
+                  "max": 100
+                },
+                {
+                  "name": "seed",
+                  "type": "number",
+                  "default": -1
+                }
+              ],
+              "referenceFields": [],
+              "weights": {
+                "huggingFace": "Qwen/Qwen-Image-2.1",
+                "modelScope": "Qwen/Qwen-Image-2.1",
+                "revision": "main"
+              },
+              "localized": {
+                "zh": {
+                  "name": "Qwen-Image-2.1 文生图"
+                },
+                "en": {
+                  "name": "Qwen-Image-2.1 text-to-image"
+                }
+              }
+            },
+            {
+              "id": "qwen-image-edit",
+              "name": "Qwen-Image-2.1 图像编辑",
               "capability": "image.generate",
               "runtime": "modal",
               "sizeGb": 33,
@@ -434,15 +492,12 @@
                   "maxImages": 10
                 }
               ],
-              "referenceImage": {
-                "maxEdge": 1024
-              },
               "localized": {
                 "zh": {
-                  "name": "Qwen-Image-2.1 文生图/参考生图"
+                  "name": "Qwen-Image-2.1 图像编辑"
                 },
                 "en": {
-                  "name": "Qwen-Image-2.1 t2i/edit"
+                  "name": "Qwen-Image-2.1 image edit"
                 }
               }
             },

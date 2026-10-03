@@ -17,7 +17,7 @@ import { MediaAssetEventsProvider } from "@/components/use-media-asset-events";
 import type { ContextRef, WorkFocusContext } from "@/components/agent-panel-types";
 import { useAgentPanelContext } from "@/lib/agent-panel-context";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
-import { scheduleWorldReload, setCanvasAiLocked, useWorldCanvasStore, WORLD_ELEMENT_ID } from "./canvas-store";
+import { canvasClientId, scheduleWorldReload, setCanvasAiLocked, useWorldCanvasStore, WORLD_ELEMENT_ID } from "./canvas-store";
 import { useWorldCanvasTopBarStore } from "./canvas-top-bar";
 import { CanvasDetailPanel } from "./canvas-detail-panel";
 import { CanvasDialogs } from "./canvas-dialogs";
@@ -165,6 +165,10 @@ export default function WorldCanvas({ apiBase, worldId, worldName, readOnly, rev
           setCanvasAiLocked(true);
           return;
         }
+        // echo 抑制：本页自己的写不回拉自己（服务端在事件里回填发起方 clientId）。
+        if (typeof data.clientId === "string" && data.clientId === canvasClientId) return;
+        // 只回拉当前画布层：事件带 contextId 且与本页归属层不同则忽略（别的上下文 / 别的层）。
+        if (typeof data.contextId === "string" && data.contextId !== useWorldCanvasStore.getState().elementsContextId) return;
         scheduleWorldReload();
         return;
       }

@@ -5,13 +5,30 @@
     "en": "Qwen-Image-2.1 t2i/edit"
   },
   "capability": "image.generate",
-  "expose": {
-    "model": "qwen-image",
-    "function": "image-edit",
-    "parameters": [
-      "resolution"
-    ]
-  },
+  "expose": [
+    {
+      "model": "qwen-image",
+      "name": {
+        "zh": "Qwen-Image-2.1 文生图",
+        "en": "Qwen-Image-2.1 text-to-image"
+      },
+      "function": "text-to-image",
+      "parameters": [
+        "resolution"
+      ]
+    },
+    {
+      "model": "qwen-image-edit",
+      "name": {
+        "zh": "Qwen-Image-2.1 图像编辑",
+        "en": "Qwen-Image-2.1 image edit"
+      },
+      "function": "image-edit",
+      "parameters": [
+        "resolution"
+      ]
+    }
+  ],
   "engine": {
     "appName": "recut-qwen-image-21",
     "sourceDir": "modalapps/qwen-image-2.1",
