@@ -480,37 +480,39 @@ func TestAtlasSyncImageGenerationRunsNativePrediction(t *testing.T) {
 	}
 }
 
-func TestAtlasImageRetryResumesRunningPrediction(t *testing.T) {
+func TestAtlasImageTransientPollErrorDoesNotFailJob(t *testing.T) {
 	var mu sync.Mutex
-	pollStatus := "error"
+	polls := 0
+	submits := 0
 
 	var atlas *httptest.Server
 	atlas = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/model/generateImage":
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-				"id":     "image-retry",
-				"status": "processing",
-				"urls":   map[string]any{"get": atlas.URL + "/api/v1/model/prediction/image-retry"},
-			}})
-		case "/api/v1/model/prediction/image-retry":
 			mu.Lock()
-			status := pollStatus
+			submits++
 			mu.Unlock()
-			switch status {
-			case "error":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id":     "image-transient",
+				"status": "processing",
+				"urls":   map[string]any{"get": atlas.URL + "/api/v1/model/prediction/image-transient"},
+			}})
+		case "/api/v1/model/prediction/image-transient":
+			mu.Lock()
+			polls++
+			n := polls
+			mu.Unlock()
+			if n <= 2 {
 				http.Error(w, "temporary poll failure", http.StatusInternalServerError)
-			case "processing":
-				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "image-retry", "status": "processing"}})
-			default:
-				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-					"id": "image-retry", "status": "completed",
-					"outputs": []string{atlas.URL + "/recovered.png"},
-				}})
+				return
 			}
-		case "/recovered.png":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id": "image-transient", "status": "completed",
+				"outputs": []string{atlas.URL + "/transient.png"},
+			}})
+		case "/transient.png":
 			w.Header().Set("Content-Type", "image/png")
-			_, _ = w.Write([]byte("recovered image"))
+			_, _ = w.Write([]byte("transient image"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -523,7 +525,75 @@ func TestAtlasImageRetryResumesRunningPrediction(t *testing.T) {
 		Prompt:         "a landscape",
 		ModelID:        "atlas-cloud/openai/gpt-image-2",
 		CredentialID:   credentialID,
-		IdempotencyKey: "atlas-image-retry",
+		IdempotencyKey: "atlas-image-transient",
+	})
+	if err != nil || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued image job = %#v, %v", job, err)
+	}
+	assetID := job.AssetIDs[0]
+	stop := media.StartReconciler(10 * time.Millisecond)
+	defer stop()
+
+	completed := waitForMediaJobStatus(t, media, job.ID, "completed")
+	if len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != assetID {
+		t.Fatalf("recovered image job = %#v", completed)
+	}
+	asset, err := media.GetAsset(assetID)
+	if err != nil || asset.Status != "completed" || asset.SizeBytes == 0 {
+		t.Fatalf("recovered image asset = %#v, %v", asset, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if submits != 1 {
+		t.Fatalf("poll errors must not resubmit, submits = %d", submits)
+	}
+	if polls < 3 {
+		t.Fatalf("expected transient poll retries, polls = %d", polls)
+	}
+}
+
+func TestAtlasImageSyncResumesCheckpointedPrediction(t *testing.T) {
+	var mu sync.Mutex
+	outputReady := false
+
+	var atlas *httptest.Server
+	atlas = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/model/generateImage":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id": "image-sync", "status": "processing",
+				"urls": map[string]any{"get": atlas.URL + "/api/v1/model/prediction/image-sync"},
+			}})
+		case "/api/v1/model/prediction/image-sync":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"id": "image-sync", "status": "completed",
+				"outputs": []string{atlas.URL + "/synced.png"},
+			}})
+		case "/synced.png":
+			mu.Lock()
+			ready := outputReady
+			mu.Unlock()
+			if !ready {
+				// Terminal download failure: retrying the same prediction must
+				// recover it in place, and must never resubmit the generation.
+				http.Error(w, "output not ready", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("synced image"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer atlas.Close()
+
+	media, credentialID := newAtlasVideoMediaService(t, atlas.URL)
+	job, err := media.Generate(GenerateMediaInput{
+		Capability:     ImageGenerate,
+		Prompt:         "a landscape",
+		ModelID:        "atlas-cloud/openai/gpt-image-2",
+		CredentialID:   credentialID,
+		IdempotencyKey: "atlas-image-sync",
 	})
 	if err != nil || len(job.AssetIDs) != 1 {
 		t.Fatalf("queued image job = %#v, %v", job, err)
@@ -534,30 +604,22 @@ func TestAtlasImageRetryResumesRunningPrediction(t *testing.T) {
 
 	waitForMediaJobStatus(t, media, job.ID, "failed")
 	failed, err := media.GetAsset(assetID)
-	if err != nil || failed.Status != "failed" || failed.RemoteID != "image-retry" {
+	if err != nil || failed.Status != "failed" || failed.RemoteID != "image-sync" {
 		t.Fatalf("failed image asset = %#v, %v", failed, err)
 	}
 
-	// Atlas is still working: the retry must resume polling instead of failing
-	// the asset again because our own budget ran out.
+	// The remote prediction is still valid: manual sync must re-collect it
+	// without resubmitting.
 	mu.Lock()
-	pollStatus = "processing"
+	outputReady = true
 	mu.Unlock()
-	resumed, err := media.RetryAssetDownload(assetID)
-	if err != nil || resumed.Status != "running" {
-		t.Fatalf("retry of a still-running prediction = %#v, %v", resumed, err)
-	}
-
-	mu.Lock()
-	pollStatus = "completed"
-	mu.Unlock()
-	completed := waitForMediaJobStatus(t, media, job.ID, "completed")
-	if len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != assetID {
-		t.Fatalf("recovered image job = %#v", completed)
+	resumed, err := media.RetryRemoteJob(assetID)
+	if err != nil || resumed.Status != "completed" {
+		t.Fatalf("sync of a checkpointed prediction = %#v, %v", resumed, err)
 	}
 	asset, err := media.GetAsset(assetID)
 	if err != nil || asset.Status != "completed" || asset.SizeBytes == 0 {
-		t.Fatalf("recovered image asset = %#v, %v", asset, err)
+		t.Fatalf("synced image asset = %#v, %v", asset, err)
 	}
 }
 

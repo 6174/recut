@@ -331,6 +331,61 @@ func TestBriefDeclaresVoiceReferenceRole(t *testing.T) {
 	}
 }
 
+func TestBriefDeclaresCardReferenceRoles(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	const id = "pgc.cards"
+	cases := []struct {
+		entityID string
+		typeID   string
+		key      string
+		role     string
+		name     string
+	}{
+		{"adan", "character", "character_reference", "character", "阿蛋"},
+		{"room", "location", "location_reference", "environment", "深夜客厅"},
+		{"mirror", "prop", "prop_reference", "prop", "铜镜"},
+	}
+	entities := []any{}
+	for _, tc := range cases {
+		entities = append(entities, map[string]any{
+			"id": tc.entityID, "typeId": tc.typeID, "name": tc.name,
+			"attrs": []any{
+				map[string]any{"key": tc.key, "label": "卡", "type": "media", "value": map[string]any{"url": "https://cdn.example.test/" + tc.key + ".png", "kind": "image"}},
+			},
+		})
+	}
+	manifest := map[string]any{
+		"manifestVersion": 2,
+		"world": map[string]any{
+			"id": id, "name": "Card World", "type": "character_ip",
+			"description": "desc", "skillMd": "## cards",
+		},
+		"entityTypes": []any{},
+		"entities":    entities,
+		"relations":   []any{},
+		"canvases":    []any{},
+		"provenance":  map[string]any{"author": "recut", "license": "MIT", "repository": "https://github.com/recut/test"},
+	}
+	materializeTest(t, worlds, id, manifest)
+	brief, err := worlds.Brief(BriefInput{WorldID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]WorldBriefReference{}
+	for _, ref := range brief.References {
+		byName[ref.EntityName] = ref
+	}
+	for _, tc := range cases {
+		ref, ok := byName[tc.name]
+		if !ok {
+			t.Fatalf("missing reference for %s: %#v", tc.name, brief.References)
+		}
+		if ref.Role != tc.role || ref.RoleInferred {
+			t.Fatalf("card field %s must declare role=%s: %#v", tc.key, tc.role, ref)
+		}
+	}
+}
+
 func catalogEntry(id, kind, version, sha string, status string, base string) map[string]any {
 	return map[string]any{"id": id, "kind": kind, "publisher": "recut", "version": version, "manifestUrl": base + "/" + id + "/world.json", "sha256": sha, "status": status, "order": 1}
 }

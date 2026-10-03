@@ -31,7 +31,7 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 **素材 = media 属性（唯一通道）**：实体挂图片/视频/音频，就是一条 `type:"media"` 的 attr，值为 `{assetId, name?, kind?, segment?}`。不复制二进制，只引用素材库 `assetId`，`segment` 保留「只引用某一段」的能力。
 
-**预设类型字段（locked）**：`work`（作品，交付单位）背景 media（成片是按需 media 属性）；`character`（**角色**）外貌与标志/性格/声音与说话方式/**声线参考（`voice_reference`，media/audio）**/不可变特征；`location`（场景）描述/氛围；`prop`（**道具**）描述/外观与标志/**道具参考图（`prop_reference`，media/image）**；`script`（视频脚本）一句话概括/节拍/口播/目标时长/画幅/目标平台/分镜表。每类另带一个 **unlocked `background`（media）** 字段。`voice_reference` 是角色的**声线参考**（role `voice`）、`prop_reference` 是道具的**参考图**（role `prop`）——`references[]` 直接按字段声明 role，不再靠 label 推断。
+**预设类型字段（locked）**：`work`（作品，交付单位）背景 media（成片是按需 media 属性）；`character`（**角色**）外貌与标志/性格/声音与说话方式/**声线参考（`voice_reference`，media/audio）**/**角色卡（`character_reference`，media/image）**/不可变特征；`location`（场景）描述/氛围/**场景卡（`location_reference`，media/image）**；`prop`（**道具**）描述/外观与标志/**道具卡（`prop_reference`，media/image）**；`script`（视频脚本）一句话概括/节拍/口播/目标时长/画幅/目标平台/分镜表。每类另带一个 **unlocked `background`（media）** 字段——它只是实体卡的**装饰背景**（封面轮播的覆盖项），**不是生成参考**，别把角色卡/场景卡塞进它。**每个锚点实体的核心参考写进它自己的语义卡字段**：`character_reference`（role `character`）/ `location_reference`（role `environment`）/ `prop_reference`（role `prop`），`voice_reference` 是角色的**声线参考**（role `voice`）——`references[]` 直接按字段声明 role（`roleInferred=false`），其余 media 字段才靠推断。
 
 **默认集之外的是「世界级属性」，不是实体**：**风格**写 `world.identity.style`（一个世界一个 STYLE LOCK），**规则**写 `world.identity.constraints`（`{ always, never, prefer }`）。它们是世界的属性，不是对象——做成可无限添加的实体类型反而制造冲突（多个风格互相打架、规则散成卡片）。需要更多类型用 `recut.worlds.entityType` 自建即可——但**关键道具不用自建，`prop` 已是默认预设**。
 
@@ -172,9 +172,9 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 **硬规则（生图 / 生视频 / 配音通用，未过不提交）**：任何世界语境下的 `recut.image.generate` / `recut.video.generate` / `recut.speech.generate`，提交前必须先取参考，不许「纯文本直出」：
 
 1. 先 `recut.worlds.get({ worldId })` 读 `references[]`（或 `world.get` 的实体 media 锚点），逐条对照本次画面/声音。
-2. 画面会出现主角色 → 必须带该角色参考图，`role="character"`。
-3. 画面出现**关键道具**（反复出现 / 承担关键动作）→ 必须带该道具参考图，`role="prop"`（取实体 `prop_reference` 字段，`references[]` 已声明其 role）。
-4. 世界已有场景 / 风格 / 色卡锚点 → 按 `role="environment" / "style-ref" / "color-card"` 传入，不堆无关图。
+2. 画面会出现主角色 → 必须带该角色参考图，`role="character"`（取实体 **`character_reference` 角色卡** 字段，`references[]` 已声明其 role）。
+3. 画面出现**关键道具**（反复出现 / 承担关键动作）→ 必须带该道具参考图，`role="prop"`（取实体 **`prop_reference` 道具卡** 字段，`references[]` 已声明其 role）。
+4. 世界已有场景 / 风格 / 色卡锚点 → 按 `role="environment" / "style-ref" / "color-card"` 传入（场景图取实体 **`location_reference` 场景卡** 字段），不堆无关图。`background` 不是参考，不要把它当场景/角色锚点传入。
 5. **角色有台词 / 内心独白** → 必须带该角色**声线参考**，`role="voice"`（取实体 `voice_reference` 字段，`references[]` 已声明其 role）。角色不说话的纯环境/静默镜头不必带 voice。
 6. **视频提交口径**：用 `references:[{id,kind,role,label}]` 传参考（含 audio role），需要模型发声时传 `audioAssetIds`，并让 `generateAudio` 与「本段是否说话」一致；**不要**只传 `imageAssetIds` 而丢掉 role 与声线。
 7. 只有**明确不出现任何角色**的纯空场景，才允许不带任何参考；缺任一应有锚点（角色/场景/道具/声线）即停下补齐，「我忘了读」不是理由。
@@ -194,7 +194,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 4. **执行**：
    - **视频**：调用 `recut.video.generate` 得到**待用户确认**的 `assetId`，把它写进画布媒体元素；由用户在画布上确认后才真正生成（见下）。
    - **图片 / 语音**：直接调用 `recut.image.generate` / `recut.speech.generate`。返回的 `assetIds` **立即可用**，务必**提交即落位**（见下「生成中节点 + 属性边」），不要用 `recut.job.wait` 把落位堵在终态之后。
-5. **落位**：图片 / 语音拿到 `assetId` 就**立即**在画布上落一个**图片节点**，并用**属性边**把它连到目标实体——「节点 + 边」才是实体的一条**可见属性**（如「环境卡」）；只写实体 attrs 不会在画布上出现节点。`assetStatus:"generating"` 让画布先显示等待态。
+5. **落位**：图片 / 语音拿到 `assetId` 就**立即**在画布上落一个**图片节点**，并用**属性边**把它连到目标实体——「节点 + 边」才是实体的一条**可见属性**（核心参考写进「角色卡」/「场景卡」/「道具卡」对应字段）；只写实体 attrs 不会在画布上出现节点。`assetStatus:"generating"` 让画布先显示等待态。
 6. **可追溯**：`references` 就是「这次生成引用了什么、各自什么 role」的绑定记录，随节点保存，可重生成、可回溯 Canon。
 
 ### 图片 / 语音：拿到 assetId 就落位（生成中节点 + 属性边）
@@ -217,10 +217,10 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
       "element": {
         "id": "shape:attr-<唯一后缀>",
         "kind": "attr",
-        "name": "属性 · 环境卡",
+        "name": "属性 · 场景卡",
         "props": {
           "media": "image",
-          "label": "环境卡",
+          "label": "场景卡",
           "assetId": "<recut.image.generate 返回的 assetId>",
           "assetStatus": "generating"
         },
@@ -232,7 +232,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
       "element": {
         "id": "shape:arrow-<唯一后缀>",
         "kind": "arrow",
-        "name": "属性边 · 环境卡",
+        "name": "属性边 · 场景卡",
         "props": {
           "fromElementId": "shape:<entityId>",
           "toElementId": "shape:attr-<唯一后缀>",
@@ -250,16 +250,16 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 - **摆位贴着要连的对象**：落节点前先用 `recut.worlds.doc` 读该层已有元素的 `geometry`，把新节点显式放在**它要连的那个元素旁边**（如实体卡右侧 320px、纵向对齐），给出 `geometry.x/y`。不传 x/y 时服务端只会把元素贴到已有内容的右侧兜底，仍可能离目标对象很远——那就是画布上「内容飞很远、边拉很长」的成因。
 - **节点 + 边缺一不可**：只有 `kind="attr"` 图片节点、没有属性边，它只是画布上的孤立图片；只有边、没有节点，边无所指。二者一起才把图片接成实体的属性。
 - 三笔都在**同一个 `contextId` 层**：属性边只能连同层实体元素；根画布用 `contextId:""`，实体容器用该实体 id。不确定先用 `recut.worlds.doc`/`docs` 读该层已有元素与 id。
-- `props.label` 就是属性名（这里「环境卡」）。边标签会显示「属性 · 环境卡」；`name` 建议写成 `属性 · <label>`。
+- `props.label` 就是属性名（这里「场景卡」）。边标签会显示「属性 · 场景卡」；`name` 建议写成 `属性 · <label>`。
 - `props.assetStatus` 只写 `"generating"` 表示「落位时素材未就绪」；`"ready"` / `"failed"` 由平台按素材真实状态流转，**不要手写**，也不要为了切到结果态而回写节点。
 - 语音（`props.media="audio"`）与图片同策略：拿到 `assetId` 立即落节点、`assetStatus:"generating"`，不等终态。
 - 加载态由素材状态自动驱动：**Agent 不轮询、不回写、不等 `recut.job.wait`**；只有在下一步依赖产物内容（要读图/听声再决策）时才等待。落位即可在结尾如实告诉用户「已放上节点，素材就绪后会自动显示」。
-- **这条属性属于实体时，画布与 Canon 都要写**：用 `recut.worlds.entity` op=`update` + `attrPatch` 写同名 media 属性，让设置视图 / 实体卡封面 / readiness 也认这条属性：
+- **这条属性属于实体时，画布与 Canon 都要写**：用 `recut.worlds.entity` op=`update` + `attrPatch` 写同名 media 属性，让设置视图 / 实体卡封面 / readiness 也认这条属性。**核心参考用语义字段 key**（角色→`character_reference`、场景→`location_reference`、道具→`prop_reference`；这些 key 命中类型 schema 的 locked 字段，`references[]` 据此声明 role），其它补充素材才用自建 key（`a_<唯一后缀>`）：
   ```json
   { "op": "update", "entityId": "<entityId>", "expectedRevisionId": "<当前 revision>",
-    "attrPatch": [{ "key": "a_<唯一后缀>", "label": "环境卡", "type": "media", "value": { "assetId": "<assetId>", "kind": "image" } }] }
+    "attrPatch": [{ "key": "location_reference", "label": "场景卡", "type": "media", "value": { "assetId": "<assetId>", "kind": "image" } }] }
   ```
-  只写 Canon 不落节点 = 用户看不到节点（本次要修的反例）；只落节点不写 Canon = 设置视图看不到它。Canon 写需用户授权，`label` 与节点 `props.label` 必须一致。
+  只写 Canon 不落节点 = 用户看不到节点（本次要修的反例）；只落节点不写 Canon = 设置视图看不到它。Canon 写需用户授权，`label` 与节点 `props.label` 必须一致；**不要把核心参考写成 `background`**（那只是卡片装饰背景，不声明 role）。
 - **Canon media 属性接受未就绪的 `assetId`**：`proposed` / `queued` / `running` 都能写进 media 属性（只有 `failed` / `deleted` 会被拒绝）。所以「画布节点 + 属性边」与「实体 media 属性」可以**一起落位、不必等终态**；assetId 稳定不变，产物就绪后画布/设置视图自动显示。
 - 若用户只要「画布上先看着」、暂不沉淀为设定，则只落「节点 + 边」，Canon 留待用户确认。
 
@@ -269,7 +269,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 
 | 产物 | 参考集（role） |
 |---|---|
-| 场景 / 环境卡 / establishing 全景 | 目标场景 media（`environment`）+ **主角色参考图（`character`，画面出现主角色时必带）** + 风格或版式范例（`style-ref`） |
+| 场景 / 场景卡 / establishing 全景 | 目标场景 media（`environment`，取 `location_reference`）+ **主角色参考图（`character`，画面出现主角色时必带）** + 风格或版式范例（`style-ref`） |
 | 关键道具 / 道具特写 | 该道具参考图（`prop`，跨镜一致）+ 场景（`environment`）+ 主角色（`character`，画面出现时）+ 风格（`style-ref`） |
 | 角色设定 / 表情版 / 情绪九宫格 | 该角色参考图（`character`）+ 风格（`style-ref`） |
 | 分镜关键帧 | 该镜场景（`environment`）+ 主角色（`character`）+ 风格（`style-ref`） |
@@ -335,6 +335,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 - **忘记 `expectedRevisionId`**：并发写会静默覆盖，必须带乐观锁。
 - **替用户确认视频生成**：视频由平台落为待确认资产；自行确认、把直生当默认、或自行轮询采纳都是越权；确认只属于用户。
 - **世界生图/生视频不带参考图**：不先读 `references[]` 就纯文本直出，是最严重的误用——主角色会漂、场景/风格会串。画面可能出现主角色而没有 `role="character"` 参考图时**必须停下补齐**，只有明确无角色的纯空场景才可省略。
+- **把核心参考塞进 `background`**：`background`（背景）只是实体卡的装饰背景/封面覆盖项，**不声明任何生成 role**；角色卡/场景卡/道具卡要写进 `character_reference` / `location_reference` / `prop_reference` 语义字段，`references[]` 才会带正确 role 派发。
 - **角色说话却不带声线参考**：只传 `imageAssetIds`、丢掉 `references`/`audioAssetIds`，或让 VO 走默认音色——角色的声音会与 Canon 不一致；有台词的镜头必须带 `role="voice"`。
 - **等生成成功才落位**：图片 / 视频 / 音频拿到 `assetId` 就应**立刻**落节点（`assetStatus:"generating"`；视频含待确认态）；用 `recut.job.wait` 把落位堵在终态之后、或轮询后回写节点，都会让用户干等、失去耐心——违背无限画布的即时反馈（门禁 8）。
 - **只写实体属性、不落画布节点**：用户要的是画布上的「图片节点 + 属性边」（实体的一条可见属性）；只写实体 attrs 不会在画布上出现节点。两者都要做时，节点与边的 `label` 保持一致。

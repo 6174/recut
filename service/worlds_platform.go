@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"regexp"
 	"strings"
@@ -933,6 +934,17 @@ type WorldContext struct {
 	// Readiness carries level/score/scenarioId + the same actionable gaps the
 	// onboarding UI shows (merged; the standalone readiness tool was removed).
 	Readiness WorldReadiness `json:"readiness"`
+	// Paths exposes the World's stable absolute locations, the World analogue of
+	// a Project's paths in recut.project_context. Both fields are empty for
+	// non-local (read-only) Worlds. Agents write PLAN.md and working docs under
+	// Paths.FilesRoot instead of the shared files/plans/ bucket.
+	Paths WorldPaths `json:"paths"`
+}
+
+// WorldPaths is the stable filesystem footprint of a local World.
+type WorldPaths struct {
+	Dir       string `json:"dir,omitempty"`
+	FilesRoot string `json:"filesRoot,omitempty"`
 }
 
 // GetWorldContext merges GetWorldGraph (current graph), Brief (revision
@@ -951,6 +963,13 @@ func (w *WorldStore) GetWorldContext(input BriefInput, scenarioID string) (World
 	if err != nil {
 		return WorldContext{}, err
 	}
+	paths := WorldPaths{}
+	if graph.Origin == WorldLocal {
+		if filesRoot, rootErr := w.store.WorldFilesRoot(input.WorldID); rootErr == nil {
+			paths.Dir = w.store.worldDir(input.WorldID)
+			paths.FilesRoot = filesRoot
+		}
+	}
 	return WorldContext{
 		WorldDetail: graph,
 		Facts:       brief.Facts,
@@ -958,6 +977,7 @@ func (w *WorldStore) GetWorldContext(input BriefInput, scenarioID string) (World
 		Evidence:    brief.Evidence,
 		References:  brief.References,
 		Readiness:   readiness,
+		Paths:       paths,
 	}, nil
 }
 
@@ -1759,6 +1779,9 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 		return WorldDetail{}, err
 	}
 	_ = w.EnsurePresetEntityTypes(newWorldID)
+	if _, err := w.store.WorldFilesRoot(newWorldID); err != nil {
+		log.Printf("WARN create world files root for %s: %v", newWorldID, err)
+	}
 	logWorldEvent("world.forked", map[string]string{"fromWorldId": input.WorldID, "toWorldId": newWorldID, "fromRevisionId": revisionID})
 	return w.GetWorld(newWorldID)
 }

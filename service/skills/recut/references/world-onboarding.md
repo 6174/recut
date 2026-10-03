@@ -35,6 +35,9 @@ recut.worlds.get({ worldId, scenarioId? })
 
 - 消化产物先对齐蓝图目标形态（如 novel-adaptation：`character`（角色）卡含 appearance/personality/voice/
   invariants；`script`（视频脚本）含 logline/beats；`location`（场景）含 description；关键 `prop`（道具）含 description/appearance）。
+- **核心参考卡字段**：角色图写 `character_reference`（角色卡，role=character）、场景图写 `location_reference`
+  （场景卡，role=environment）、道具图写 `prop_reference`（道具卡，role=prop）——它们是各自的**核心参考锚点**，
+  `references[]` 按字段声明 role。`background` 只是卡片装饰背景，**不要把参考图写进 `background`**。
 - 原文与产出可追溯：角色卡字段尽量保留原文依据；用户追问时能指出出处。
 - 世界定位（identity）：从用户目的与素材归纳一句话定位，放入提案请用户确认。
 

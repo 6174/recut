@@ -1784,6 +1784,17 @@ func materializeWorkSurfaceContext(m *AgentManager, payload json.RawMessage) (co
 			return contextMaterial{}, errors.New("work surface world is unavailable")
 		}
 		lines = append(lines, "Target: worldId="+world.ID+"; revisionId="+world.CurrentRevisionID)
+		// A World has a stable working directory, parallel to a Project's
+		// projectFilesRoot: Agent working docs (PLAN.md, research notes) live
+		// here so they persist across sessions and stay with the World instead
+		// of the shared files/plans/ bucket.
+		if originOrDefault(world.Origin) == WorldLocal {
+			if filesRoot, rootErr := m.store.WorldFilesRoot(world.ID); rootErr == nil {
+				lines = append(lines, "World files root: "+filesRoot+" — write PLAN.md and other working docs here (not files/plans/).")
+			}
+		} else {
+			lines = append(lines, "This World is read-only ("+originOrDefault(world.Origin)+"); to write, propose recut.worlds.fork and work in the local copy.")
+		}
 	case "app_scope":
 		if surface.Target.AppID == "" || surface.Target.ScopeID == "" {
 			return contextMaterial{}, errors.New("app scope work surface requires appId and scopeId")

@@ -92,7 +92,8 @@ export function normalizeMediaEventAsset(value: unknown): MediaEventAsset | null
   const metadata = record(source.metadata) ?? {};
   const status = assetStatus(source.status, jobId);
   // 生成态超过上限即超时：与 normalizeAsset 同一判定，避免 SSE 缓存绕过超时规则。
-  const timedOut = isGenerationTimedOut(status, metadata.generationStartedAt ?? source.createdAt);
+  // 手动同步写入 generationResumedAt 后，超时窗口从同步时刻重算。
+  const timedOut = isGenerationTimedOut(status, metadata.generationResumedAt ?? metadata.generationStartedAt ?? source.createdAt);
   const error = typeof source.error === "string" ? source.error : undefined;
   return {
     id,

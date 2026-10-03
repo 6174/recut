@@ -102,7 +102,7 @@ test("entity action text emits a creation_entity chip", () => {
   const action = actionsFor(ctx).find((item) => item.id === "character.sheet")!;
   const text = buildActionText(action, ctx);
   assert.ok(text.includes('<creation_entity worldid="w1" entityid="e1"'));
-  assert.ok(text.includes("人物卡"));
+  assert.ok(text.includes("角色卡"));
 });
 
 test("card actions are ordered by inferred purpose", () => {

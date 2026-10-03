@@ -49,6 +49,7 @@ func TestSessionGuideIsPlatformOnlyAndVoxSkillIsDiscoverable(t *testing.T) {
 		"## 技能路由",
 		"## 复杂任务先出计划（Plan-first）",
 		"files/plans/",
+		"有目标 World",
 		"## 动态配置",
 		"## 当前系统信息",
 		`"skills"`,

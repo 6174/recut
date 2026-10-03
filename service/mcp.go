@@ -691,6 +691,7 @@ func capabilitySnapshot(bridge *AgentBridge, media *MediaService, session AgentS
 			"dataRoot":         bridge.store.root,
 			"appsDir":          filepath.Join(bridge.store.root, "apps"),
 			"projectsDir":      filepath.Join(bridge.store.root, "projects"),
+			"worldsDir":        filepath.Join(bridge.store.root, "worlds"),
 			"filesDir":         filepath.Join(bridge.store.root, "files"),
 			"sessionWorkspace": bridge.store.SessionWorkspaceDir(session.ID),
 			"mediaDir":         filepath.Join(bridge.store.root, "media"),

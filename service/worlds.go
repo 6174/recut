@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -799,6 +800,11 @@ func (w *WorldStore) CreateWorld(input CreateWorldInput) (WorldDetail, error) {
 	// Seed the per-world preset entity type directory (best-effort; the type
 	// surface lazily re-seeds on first access if this ever races).
 	_ = w.EnsurePresetEntityTypes(worldID)
+	// Materialize the World's stable working directory (worlds/<worldId>/files)
+	// so Agent working docs (PLAN.md) have a home from the first session.
+	if _, err := w.store.WorldFilesRoot(worldID); err != nil {
+		log.Printf("WARN create world files root for %s: %v", worldID, err)
+	}
 	logWorldEvent("world.created", map[string]string{"worldId": worldID})
 	return w.GetWorld(worldID)
 }
@@ -1882,6 +1888,15 @@ func (w *WorldStore) DeleteWorld(input DeleteWorldInput) (WorldDeleteResult, err
 	}
 	if err := tx.Commit(); err != nil {
 		return WorldDeleteResult{}, err
+	}
+	// The World's stable working directory goes with it; media Assets are
+	// unaffected (they are content-addressed and never live under worlds/).
+	// Guard the path join: IDs are generated today, but RemoveAll must never
+	// be able to escape worlds/ on a malformed one.
+	if validWorldDirID(input.WorldID) {
+		if err := os.RemoveAll(w.store.worldDir(input.WorldID)); err != nil {
+			log.Printf("WARN remove world files for %s: %v", input.WorldID, err)
+		}
 	}
 	// Drop any advisory AI canvas lock and tell open clients the world is gone.
 	w.releaseCanvasLock(input.WorldID, "")

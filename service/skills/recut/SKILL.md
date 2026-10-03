@@ -48,7 +48,8 @@ Plan 至少写清：
 **Plan 文件写在哪**：
 
 - 有目标 Project（`workflow.context` / `recut.project_context` 给出 `paths.projectFilesRoot`）→ 写在项目目录内（如 `PLAN.md`），随项目续跑、与项目共存；
-- 无项目的通用计划 → 写在通用目录 `files/plans/<name>.md`（即 `.recut/files/plans/`），可跨项目复用。
+- 有目标 World（world work surface / `recut.worlds.get` 给出 `paths.filesRoot`）→ 写在该 World 的稳定目录内（如 `PLAN.md`，即 `worlds/<worldId>/files/`），随 World 续跑、与 World 共存；
+- 既无 Project 也无 World 的通用计划 → 写在通用目录 `files/plans/<name>.md`（即 `.recut/files/plans/`），可跨项目复用。
 
 **执行纪律**：Plan 先呈报用户、可改；每完成一步就回填 Plan（assetId / 版本 / 下一步）；结构变更先改 Plan 再动下游。领域技能给出更细的计划格式——`recut-clone` 的 `BRIEF.md`/`TREATMENT.md`/`PLAN.md`/`PROGRESS.md`、`recut-worlds` 的 onboarding 缺口清单、`recut-director` 的链与门——Plan-first 要求在任何执行前先有这份可审阅计划，但不替代它们的领域格式。
 
@@ -149,9 +150,10 @@ World 分三类来源（`origin`）：`local`（用户自建，可编辑）、`p
   apps/<appId>/skills/<skillId>/SKILL.md + references/
   projects/<projectId>/files/  项目文件（projectFilesRoot，owner App 私有）
   projects/<projectId>/files/workspace/  每项目工程（如 Remotion workspace）
+  worlds/<worldId>/files/      World 的稳定工作目录（recut.worlds.get 的 paths.filesRoot；PLAN.md 等工作文档写这里）
   appstate/<appId>/            App 全局状态（sqlite + files；不读他人 App 的 DB）
   sessions/agent-bridge/<sessionId>/workspace/  当前会话工作区（CLI cwd）
-  files/plans/                 无项目归属的通用计划文件（有项目时计划写项目目录内）
+  files/plans/                 既无 Project 也无 World 归属的通用计划文件（有项目/World 时计划写其目录内）
   media/  models/
 ```
 

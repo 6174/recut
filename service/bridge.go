@@ -613,6 +613,8 @@ func sessionLayout(snapshot map[string]any) string {
 		"  projects/                                    "+str("projectsDir"),
 		"  projects/<projectId>/files/",
 		"  projects/<projectId>/files/workspace/",
+		"  worlds/                                      "+str("worldsDir"),
+		"  worlds/<worldId>/files/                      (World-scoped working files, e.g. PLAN.md)",
 		"  files/                                       "+str("filesDir"),
 		"  files/cdn/                                   (remote fetch cache)",
 		"  files/reference/<assetId>/                   (global reference working files)",

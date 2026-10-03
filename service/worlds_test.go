@@ -649,6 +649,62 @@ func TestDeleteWorldRequiresExactNameAndRemovesEverything(t *testing.T) {
 	}
 }
 
+// TestWorldFilesRootIsStableAndScoped verifies a World has a stable working
+// directory (worlds/<worldId>/files) that survives across calls, is exposed to
+// the Agent via recut.worlds.get paths, and is removed with the World.
+func TestWorldFilesRootIsStableAndScoped(t *testing.T) {
+	worlds, store, _ := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "工作台", Type: WorldCustom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := store.WorldFilesRoot(world.ID)
+	if err != nil {
+		t.Fatalf("WorldFilesRoot = %v", err)
+	}
+	want := filepath.Join(store.root, "worlds", world.ID, "files")
+	if root != want {
+		t.Fatalf("WorldFilesRoot = %q, want %q", root, want)
+	}
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		t.Fatalf("world files root not materialized: %v", err)
+	}
+	// A working doc written here is stable across later calls.
+	planPath := filepath.Join(root, "PLAN.md")
+	if err := os.WriteFile(planPath, []byte("# plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	again, err := store.WorldFilesRoot(world.ID)
+	if err != nil || again != root {
+		t.Fatalf("second WorldFilesRoot = %q, %v", again, err)
+	}
+	// recut.worlds.get exposes the same stable path to the Agent.
+	context, err := worlds.GetWorldContext(BriefInput{WorldID: world.ID}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if context.Paths.FilesRoot != root || context.Paths.Dir != filepath.Join(store.root, "worlds", world.ID) {
+		t.Fatalf("WorldContext paths = %#v", context.Paths)
+	}
+	if _, err := worlds.DeleteWorld(DeleteWorldInput{WorldID: world.ID, ConfirmName: "工作台"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("world files root survived delete: %v", err)
+	}
+}
+
+// TestWorldFilesRootRejectsTraversal guards the worlds/<worldId> join against
+// IDs that would escape the data root.
+func TestWorldFilesRootRejectsTraversal(t *testing.T) {
+	_, store, _ := newTestWorldStore(t)
+	for _, id := range []string{"", ".", "..", "../escape", "a/b"} {
+		if _, err := store.WorldFilesRoot(id); err == nil {
+			t.Fatalf("WorldFilesRoot(%q) accepted an unsafe id", id)
+		}
+	}
+}
+
 // entityAttrValue returns one attr's value from an entity's ordered attr list.
 func entityAttrValue(entity WorldEntity, key string) any {
 	for _, attr := range entity.Attrs {

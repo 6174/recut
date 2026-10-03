@@ -188,6 +188,14 @@ type EntityTypeField struct {
 // preset carries unlocked: when set it overrides the entity card's default
 // media-attrs carousel background (RFC 统一 Entity 模型 §背景).
 //
+// Every production anchor (character/location/prop) also carries a **declared
+// core-reference field** — 角色卡(`character_reference`) / 场景卡
+// (`location_reference`) / 道具卡(`prop_reference`). These are the canonical
+// anchor a generation should consume; the field key declares the role (via
+// `declaredMediaFieldRoles`) so `references[]` reads the role off the schema
+// instead of guessing from the label. They are distinct from `background`,
+// which is only the card's decorative background and is never a reference.
+//
 // The default set is deliberately minimal, accurate and runnable (生产层 RFC §5):
 // 谁(character) / 在哪(location) / 拍什么(script). Everything else is the user's
 // to add:
@@ -208,20 +216,24 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 		{Key: "personality", Label: "性格", Type: "textarea", Locked: true},
 		{Key: "voice", Label: "声音与说话方式", Type: "textarea", Locked: true},
 		{Key: "voice_reference", Label: "声线参考", Type: "media", Options: []string{"audio"}, Locked: true},
+		// 角色卡 = 角色的核心参考锚点（多视图/表情/服装等），declared role=character。
+		{Key: "character_reference", Label: "角色卡", Type: "media", Options: []string{"image"}, Locked: true},
 		{Key: "invariants", Label: "不可变特征", Type: "textarea", Invariant: true, Locked: true},
 		{Key: "background", Label: "背景", Type: "media"},
 	},
 	"location": {
 		{Key: "description", Label: "描述", Type: "textarea", Locked: true},
 		{Key: "atmosphere", Label: "氛围", Type: "textarea", Locked: true},
+		// 场景卡 = 场景的核心参考锚点（establishing 全景/机位/氛围），declared role=environment。
+		{Key: "location_reference", Label: "场景卡", Type: "media", Options: []string{"image"}, Locked: true},
 		{Key: "background", Label: "背景", Type: "media"},
 	},
 	// 道具 = 现实制作里必备的锚点实体（关键道具跨镜一致）：描述 + 外观标志
-	// （颜色/材质/边角特征，连续性关键）+ 道具参考图（declared role=prop）。
+	// （颜色/材质/边角特征，连续性关键）+ 道具卡（核心参考图，declared role=prop）。
 	"prop": {
 		{Key: "description", Label: "描述", Type: "textarea", Locked: true},
 		{Key: "appearance", Label: "外观与标志", Type: "textarea", Locked: true},
-		{Key: "prop_reference", Label: "道具参考图", Type: "media", Options: []string{"image"}, Locked: true},
+		{Key: "prop_reference", Label: "道具卡", Type: "media", Options: []string{"image"}, Locked: true},
 		{Key: "background", Label: "背景", Type: "media"},
 	},
 	"script": {

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -756,6 +757,9 @@ func (w *WorldStore) ImportWorldBundle(data []byte, nameOverride, createdBy stri
 	}
 	if err := tx.Commit(); err != nil {
 		return WorldDetail{}, err
+	}
+	if _, err := w.store.WorldFilesRoot(worldID); err != nil {
+		log.Printf("WARN create world files root for %s: %v", worldID, err)
 	}
 	logWorldEvent("world.imported", map[string]string{"worldId": worldID})
 	return w.GetWorld(worldID)

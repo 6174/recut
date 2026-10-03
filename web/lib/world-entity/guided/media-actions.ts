@@ -49,14 +49,31 @@ function subjectRef(ctx: GuidedPromptContext): string {
   return tag ?? `「${mediaLabel(ctx)}」`;
 }
 
-function writebackLine(s: GuidedMediaSubject, label: string, role: string): string {
+function writebackLine(s: GuidedMediaSubject, label: string, role: string, field?: string): string {
+  const target = field ? `核心参考字段 ${field}（label「${label}」，role=${role}）` : `media 属性（label「${label}」，role=${role}）`;
   return s.owningEntity
-    ? `产出写回「${s.owningEntity.name}」的 media 属性（label「${label}」，role=${role}），并记录参考绑定；只新增素材，不改其它设定。`
+    ? `产出写回「${s.owningEntity.name}」的${target}，并记录参考绑定；只新增素材，不改其它设定。`
     : `产出作为新的 media 元素（label「${label}」，role=${role}）；只新增素材。`;
 }
 
+// 核心参考卡的语义字段由所属实体类型决定（与类型 schema 的 locked 字段同名）；
+// 未挂实体时返回 undefined，回退为普通 media 属性。
+function cardFieldFor(s: GuidedMediaSubject): string | undefined {
+  switch (s.owningEntity?.typeId) {
+    case "character":
+      return "character_reference";
+    case "location":
+      return "location_reference";
+    case "prop":
+    case "object":
+      return "prop_reference";
+    default:
+      return undefined;
+  }
+}
+
 export const MEDIA_ACTIONS: GuidedAiAction[] = [
-  // 三类「设定卡」是 AI 生成里最常见的产出：不依赖推断，永远靠前（人物卡 / 环境卡 / 物体卡）
+  // 三类「设定卡」是 AI 生成里最常见的产出：不依赖推断，永远靠前（角色卡 / 场景卡 / 道具卡）
   {
     id: "media.card.character",
     subject: "media",
@@ -74,7 +91,7 @@ export const MEDIA_ACTIONS: GuidedAiAction[] = [
 ${CHARACTER_CARD_LAYOUT}
 
 ${stylePreamble(ctx.styleLock)}
-${writebackLine(s, "人物卡", "character")}`;
+${writebackLine(s, "角色卡", "character", cardFieldFor(s))}`;
     },
   },
   {
@@ -94,7 +111,7 @@ ${writebackLine(s, "人物卡", "character")}`;
 ${ENVIRONMENT_CARD_LAYOUT}
 
 ${stylePreamble(ctx.styleLock)}
-${writebackLine(s, "环境卡", "environment")}`;
+${writebackLine(s, "场景卡", "environment", cardFieldFor(s))}`;
     },
   },
   {
@@ -103,18 +120,18 @@ ${writebackLine(s, "环境卡", "environment")}`;
     category: "sheet",
     output: { kind: "media", modality: "image", gate: "direct" },
     icon: "package",
-    label: "生成物体卡",
+    label: "生成道具卡",
     desc: "一张图：信息栏 + 多角度 + 细节 + 尺寸参照 + 状态变体",
     modalities: ["image"],
     priority: (ctx) => cardPriority(ctx, PROP_PURPOSES, 60),
     build: (ctx) => {
       const s = mediaOf(ctx);
-      return `生成一张物体卡（object card）。参考素材 ${subjectRef(ctx)}。
+      return `生成一张道具卡（prop card）。参考素材 ${subjectRef(ctx)}。
 
 ${OBJECT_CARD_LAYOUT}
 
 ${stylePreamble(ctx.styleLock)}
-${writebackLine(s, "物体卡", "prop")}`;
+${writebackLine(s, "道具卡", "prop", cardFieldFor(s))}`;
     },
   },
   {

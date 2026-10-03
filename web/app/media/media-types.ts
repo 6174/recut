@@ -35,6 +35,7 @@ export type Asset = {
     generationCompletedAt?: unknown;
     generationDurationMs?: unknown;
     generationStartedAt?: unknown;
+    generationResumedAt?: unknown;
     modelId?: unknown;
     output?: Record<string, unknown>;
     referenceIds?: unknown;
@@ -163,9 +164,10 @@ const assetStatuses: AssetStatus[] = ["proposed", "queued", "running", "complete
 // 生成态的最长等待：超过此时长即判定超时。服务端 job 卡死时前端不再无限「生成中」
 // （曾出现 90+ 小时仍显示生成中的素材卡），统一转为可重试的失败态。
 export const GENERATION_TIMEOUT_MS = 3 * 60 * 60 * 1000;
-export const GENERATION_TIMEOUT_ERROR = "生成超时（超过 3 小时），请重试。";
+export const GENERATION_TIMEOUT_ERROR = "生成超时（超过 3 小时）。";
 
-// 仅对 queued/running 生效：以生成开始时间为准，缺失时回退素材创建时间。
+// 仅对 queued/running 生效：以最近一次生成开始/手动同步时间为准，缺失时回退素材创建时间。
+// 手动同步会刷新 generationResumedAt，避免刚同步完就被旧的开始时间重新判超时。
 export function isGenerationTimedOut(status: string | undefined, startedAt: unknown, now = Date.now()): boolean {
   if (status !== "queued" && status !== "running") return false;
   if (typeof startedAt !== "string" || !startedAt.trim()) return false;
@@ -186,7 +188,7 @@ export function normalizeAsset(value: Partial<Asset> & { id?: string }): Asset {
   const baseStatus = reportedStatus !== "proposed" && (reportedStatus === "queued" || reportedStatus === "running") && !hasJob
     ? "completed"
     : reportedStatus;
-  const timedOut = isGenerationTimedOut(baseStatus, value.metadata?.generationStartedAt ?? value.createdAt);
+  const timedOut = isGenerationTimedOut(baseStatus, value.metadata?.generationResumedAt ?? value.metadata?.generationStartedAt ?? value.createdAt);
   return {
     id: typeof value.id === "string" ? value.id : "",
     kind: value.kind ?? "image",

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -172,6 +173,60 @@ func TestAtlasImageSurfacesProviderFailure(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "insufficient balance") {
 		t.Fatalf("atlas failure error = %v", err)
+	}
+}
+
+func TestAtlasImageRetriesTransientPollError(t *testing.T) {
+	var polls int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v1/model/generateImage":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id":     "pred-transient",
+				"status": "processing",
+				"urls":   map[string]any{"get": server.URL + "/api/v1/model/prediction/pred-transient"},
+			}})
+		case "/api/v1/model/prediction/pred-transient":
+			if atomic.AddInt32(&polls, 1) == 1 {
+				// A truncated status body (e.g. a connection cut mid-response)
+				// must not be mistaken for a terminal provider result.
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = writer.Write([]byte(`{"data":`))
+				return
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id":      "pred-transient",
+				"status":  "completed",
+				"outputs": []string{server.URL + "/transient.png"},
+			}})
+		case "/transient.png":
+			writer.Header().Set("Content-Type", "image/png")
+			_, _ = writer.Write([]byte("transient-png"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	result, err := (atlasCloudProvider{}).GenerateImage(ImageInput{
+		Model:      "openai/gpt-image-2/text-to-image",
+		Prompt:     "a fox",
+		APIBase:    server.URL,
+		Secret:     "atlas-key",
+		HTTPClient: client,
+		PollClient: client,
+		PollBudget: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("transient poll error must not fail the generation: %v", err)
+	}
+	if string(result.Content) != "transient-png" {
+		t.Fatalf("atlas transient result = %#v", result)
+	}
+	if got := atomic.LoadInt32(&polls); got != 2 {
+		t.Fatalf("expected one retry after the dropped poll, polled %d times", got)
 	}
 }
 

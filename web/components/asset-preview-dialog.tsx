@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, ChevronUp, Copy, Download, ExternalLink, FileText, Link2, LoaderCircle, Maximize2, Minimize2, Music2, Pencil, Plus, RotateCcw, Trash2, Video, X, ZoomIn } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Copy, Download, ExternalLink, FileText, Link2, LoaderCircle, Maximize2, Minimize2, Music2, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Video, X, ZoomIn } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
@@ -1134,31 +1134,36 @@ function PendingAssetContent({ apiBase, asset, status }: { apiBase: string; asse
   return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-muted-foreground" : "text-foreground"}`}>{status === "failed" ? "生成失败" : proposed ? "待确认生成" : "生成中"}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{proposed ? "这是一条生成提案；确认后才提交生成并消耗额度。" : "素材引用已经建立；完成后会在这里原位可预览。"}</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryGenerationButton apiBase={apiBase} asset={asset} />}</div></div>;
 }
 
-// 失败重试：重新执行同一任务的生成（原位复用 assetId），而不是只重新下载远端产物。
-// Atlas 远端仅下载失败的场景由服务端 /retry 内部回退到下载恢复。
+// 失败/超时恢复：只要已经拿到远端任务 ID（remoteId），就说明这一次已经付费提交，只能“手动同步”
+// 复取（强制轮询一次远端任务），绝不重发；只有提交阶段就失败（没有 remoteId，大概率未计费）才给“重试”重新提交。
 function RetryGenerationButton({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
   const { upsertAsset } = useMediaAssetEvents();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   if (!asset.jobId) return null;
-  async function retry() {
+  const remoteRecoverable = !!asset.remoteId;
+  const action = remoteRecoverable ? "sync" : "retry";
+  const idleLabel = remoteRecoverable ? "手动同步" : "重试";
+  const busyLabel = remoteRecoverable ? "正在同步…" : "正在重试…";
+  const failedLabel = remoteRecoverable ? "同步失败，请稍后重试。" : "重试失败，请稍后重试。";
+  async function run() {
     setPending(true);
     setError("");
     try {
-      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/retry`, { method: "POST" });
+      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/${action}`, { method: "POST" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || "重试失败，请稍后重试。");
+        throw new Error(payload?.error || failedLabel);
       }
       const updated = await response.json().catch(() => null);
       if (updated) upsertAsset(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "重试失败，请稍后重试。");
+      setError(err instanceof Error ? err.message : failedLabel);
     } finally {
       setPending(false);
     }
   }
-  return <div className="grid gap-1.5"><button className="mx-auto flex h-8 items-center gap-1.5 rounded-xs border px-3 text-xs hover:bg-muted disabled:opacity-60" disabled={pending} onClick={() => void retry()} type="button">{pending ? <LoaderCircle className="size-3.5 animate-spin text-primary" /> : <RotateCcw className="size-3.5" />}{pending ? "正在重试…" : "重试"}</button>{error && <p className="text-xs text-destructive">{error}</p>}</div>;
+  return <div className="grid gap-1.5"><button className="mx-auto flex h-8 items-center gap-1.5 rounded-xs border px-3 text-xs hover:bg-muted disabled:opacity-60" disabled={pending} onClick={() => void run()} type="button">{pending ? <LoaderCircle className="size-3.5 animate-spin text-primary" /> : remoteRecoverable ? <RefreshCw className="size-3.5" /> : <RotateCcw className="size-3.5" />}{pending ? busyLabel : idleLabel}</button>{error && <p className="text-xs text-destructive">{error}</p>}</div>;
 }
 
 function ReferencePreview({ apiBase, reference }: { apiBase: string; reference: PreviewAsset }) {

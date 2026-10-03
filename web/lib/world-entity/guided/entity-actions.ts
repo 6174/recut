@@ -136,7 +136,7 @@ ${s.entity.detail || "（空）"}
         return `为世界《${ctx.worldName}》的${s.typeLabel}「${s.entity.name}」生成一张最能代表它的参考图：
 - 简介：${s.entity.intro || "（空）"}
 - 设定：${s.entity.attrs.map((a) => `${a.label}=${typeof a.value === "object" ? "[媒体]" : String(a.value ?? "")}`).join("；") || "（空）"}
-沿用世界风格。产出写回该实体的一条 media 属性（label 描述其用途，role 按类型推断）；只新增素材。`;
+沿用世界风格。产出写回该实体的核心参考卡字段（角色→character_reference，场景→location_reference，道具→prop_reference；其它类型按类型推断 role 的 media 属性）；不要写进 background。只新增素材。`;
       },
     },
     {
@@ -162,15 +162,15 @@ const characterActions: GuidedAiAction[] = [
     category: "sheet",
     output: { kind: "media", modality: "image", gate: "direct" },
     icon: "sparkles",
-    label: "生成人物卡",
+    label: "生成角色卡",
     desc: "一张图：信息栏 + 主视觉 + 三视图 + 细节/表情/剪影研究",
     typeIds: ["character"],
     priority: () => 70,
     build: (ctx) => {
       const s = entityOf(ctx);
-      return `为世界《${ctx.worldName}》的人物生成一张人物卡（character card）。
+      return `为世界《${ctx.worldName}》的角色生成一张角色卡（character card）。
 
-人物设定（来自该设定卡）：
+角色设定（来自该设定卡）：
 - 角色定位：${s.entity.intro || "（未填）"}
 - 核心情绪 / 性格：${attrText(s.entity, "personality") || "（未填）"}
 - 视觉标志 / 外貌：${attrText(s.entity, "appearance") || "（未填）"}
@@ -181,7 +181,7 @@ ${CHARACTER_CARD_LAYOUT}
 
 ${stylePreamble(ctx.styleLock)}
 ${cardRefsLine(s.mediaRefs)}
-产出后写回该实体的一条 media 属性，label「人物卡」（role=character）；只新增素材，不改其它设定。世界只读时先提议 Fork。`;
+产出后写回该角色的核心参考字段 character_reference（角色卡，role=character）；只新增素材，不改其它设定。世界只读时先提议 Fork。`;
     },
   },
   {
@@ -346,13 +346,13 @@ const locationActions: GuidedAiAction[] = [
     category: "sheet",
     output: { kind: "media", modality: "image", gate: "direct" },
     icon: "mountain-snow",
-    label: "生成环境卡",
+    label: "生成场景卡",
     desc: "一张图：信息栏 + 全景 + 机位 + 细节 + 光影 + 色卡",
     typeIds: ["location"],
     priority: () => 70,
     build: (ctx) => {
       const s = entityOf(ctx);
-      return `为世界《${ctx.worldName}》的场景生成一张环境卡（environment card）。
+      return `为世界《${ctx.worldName}》的场景生成一张场景卡（environment card）。
 
 场景设定：
 - 场景定位 / 描述：${attrText(s.entity, "description") || "（未填）"}
@@ -363,7 +363,7 @@ ${ENVIRONMENT_CARD_LAYOUT}
 
 ${stylePreamble(ctx.styleLock)}
 ${cardRefsLine(s.mediaRefs)}
-产出后写回该实体的一条 media 属性，label「环境卡」（role=environment）；色卡如需单独保存另记 role=color-card。只新增素材，不改其它设定。`;
+产出后写回该场景的核心参考字段 location_reference（场景卡，role=environment）；色卡如需单独保存另记 role=color-card。只新增素材，不改其它设定。`;
     },
   },
   {
@@ -556,7 +556,7 @@ ${cardRefsLine(s.mediaRefs)}
   },
 ];
 
-// 道具（prop）是默认锚点实体（关键道具跨镜一致），字段为 描述 / 外观与标志 / 道具参考图(prop_reference, role=prop)。
+// 道具（prop）是默认锚点实体（关键道具跨镜一致），字段为 描述 / 外观与标志 / 道具卡(prop_reference, role=prop)。
 // 不套用「物件」动作集——那套硬编码了 object 的 material/origin/usage 字段，会引用不存在的字段。
 function propActions(): GuidedAiAction[] {
   return [
@@ -582,7 +582,7 @@ ${OBJECT_CARD_LAYOUT}
 
 ${stylePreamble(ctx.styleLock)}
 ${cardRefsLine(s.mediaRefs)}
-产出后写回该实体的一条 media 属性，label「道具参考图」（role=prop）；只新增素材，不改其它设定。`;
+产出后写回该道具的核心参考字段 prop_reference（道具卡，role=prop）；只新增素材，不改其它设定。`;
       },
     },
     {

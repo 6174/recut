@@ -29,9 +29,13 @@ const (
 	generationStartedAtMetadataKey   = "generationStartedAt"
 	generationCompletedAtMetadataKey = "generationCompletedAt"
 	generationDurationMsMetadataKey  = "generationDurationMs"
-	generationPollErrorCountKey      = "generationPollErrorCount"
-	generationLastPollErrorKey       = "generationLastPollError"
-	generationLastPollErrorAtKey     = "generationLastPollErrorAt"
+	// generationResumedAtMetadataKey marks the last manual remote sync. Clients
+	// restart their generation-timeout window from it so a long-running remote
+	// task is not re-marked timed-out the moment it resumes.
+	generationResumedAtMetadataKey = "generationResumedAt"
+	generationPollErrorCountKey    = "generationPollErrorCount"
+	generationLastPollErrorKey     = "generationLastPollError"
+	generationLastPollErrorAtKey   = "generationLastPollErrorAt"
 )
 
 const atlasPollingDiagnosticPrefix = "Atlas Cloud reconciliation retry"

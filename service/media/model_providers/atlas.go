@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Atlas 协议适配器的图片提交与 prediction 轮询
- * [OUTPUT]: Atlas Cloud 原生图片生成策略：提交 generateImage → 轮询 prediction → 下载 outputs[0]
+ * [OUTPUT]: Atlas Cloud 原生图片生成策略：提交 generateImage → 轮询 prediction（任何状态查询错误都在墙钟预算内自动重试，绝不因一次 poll 失败误判任务）→ 下载 outputs[0]
  * [POS]: media/model_providers 的 atlas-cloud 实现；负责把 ImageInput 归一化为 Atlas 协议并取回最终字节
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -72,26 +72,47 @@ func (atlasCloudProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 	// last sleep is capped at the remaining budget so a spent budget returns
 	// immediately instead of sleeping one more interval first.
 	deadline := time.Now().Add(budget)
+	pollErrorAttempt := 0
 	for attempt := 0; ; attempt++ {
-		prediction, err = atlas.Poll(pollClient, input.APIBase, input.Secret, prediction)
-		if err != nil {
-			return ImageResult{}, err
-		}
-		if prediction.Failed() {
-			return ImageResult{}, errors.New("Atlas Cloud image generation failed: " + prediction.FailureMessage())
-		}
-		if prediction.Completed() {
-			url := prediction.FirstOutput()
-			if url == "" {
-				return ImageResult{}, errors.New("Atlas Cloud image completed without an output URL")
+		next, pollErr := atlas.Poll(pollClient, input.APIBase, input.Secret, prediction)
+		if pollErr != nil {
+			// A status read can fail without saying anything about the remote
+			// prediction: a dropped keep-alive connection, a gateway 5xx, or a
+			// truncated body all surface here. The prediction is already
+			// checkpointed and paid for, so never fail it on one poll error —
+			// keep re-reading within the wall-clock budget. Only Atlas explicitly
+			// reporting the prediction failed, or the budget running out, ends it.
+			err = pollErr
+			pollErrorAttempt++
+		} else {
+			err = nil
+			pollErrorAttempt = 0
+			prediction = next
+			if prediction.Failed() {
+				return ImageResult{}, errors.New("Atlas Cloud image generation failed: " + prediction.FailureMessage())
 			}
-			return downloadImage(client, url)
+			if prediction.Completed() {
+				url := prediction.FirstOutput()
+				if url == "" {
+					return ImageResult{}, errors.New("Atlas Cloud image completed without an output URL")
+				}
+				return downloadImage(client, url)
+			}
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
+			if err != nil {
+				return ImageResult{}, err
+			}
 			break
 		}
-		if delay := atlasPollDelay(attempt); delay < remaining {
+		delay := atlasPollDelay(attempt)
+		if pollErrorAttempt > 0 {
+			// A read blip is not a queueing signal: probe again promptly
+			// instead of waiting a full poll interval while status is unknown.
+			delay = atlasTransientPollDelay(pollErrorAttempt)
+		}
+		if delay < remaining {
 			time.Sleep(delay)
 		} else {
 			time.Sleep(remaining)
@@ -103,6 +124,19 @@ func (atlasCloudProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 func atlasPollDelay(attempt int) time.Duration {
 	delay := 2 * time.Second
 	for i := 0; i < attempt && delay < 30*time.Second; i++ {
+		delay *= 2
+	}
+	if delay > 30*time.Second {
+		return 30 * time.Second
+	}
+	return delay
+}
+
+// atlasTransientPollDelay backs off consecutive transient read failures starting
+// from a short base so a merely dropped connection is retried promptly.
+func atlasTransientPollDelay(attempt int) time.Duration {
+	delay := 250 * time.Millisecond
+	for i := 1; i < attempt && delay < 30*time.Second; i++ {
 		delay *= 2
 	}
 	if delay > 30*time.Second {

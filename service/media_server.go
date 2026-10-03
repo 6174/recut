@@ -549,6 +549,20 @@ func (s *Server) retryMediaAssetDownload(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, asset)
 }
 
+// syncMediaAssetRemote forces an immediate reconciliation of a failed/running
+// asset's already-checkpointed remote job without resubmitting it. This is the
+// manual "sync" affordance for a paid remote task whose local tracking gave up
+// (including the UI's own generation timeout); generation "retry" is a separate,
+// resubmitting path that is only correct when no remote ID exists.
+func (s *Server) syncMediaAssetRemote(w http.ResponseWriter, r *http.Request) {
+	asset, err := s.media.RetryRemoteJob(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, asset)
+}
+
 // retryMediaAssetGeneration re-runs a failed generation asset in place, so the
 // canvas/timeline keeps the same assetId. Atlas download-only failures are
 // delegated to the remote recovery path.

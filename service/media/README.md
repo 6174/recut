@@ -17,7 +17,7 @@ jobs_atlas.go: Atlas 视频 prediction 提交、短超时轮询、输出回收�
 jobs_skymind.go: Skymind Token API（视频网关）统一任务协议：参考素材经临时公网分享发布为 URL 后提交，queued 提交结果与远端 task id 同事务原子绑定（预扣费上游，未知提交只查询不重发），状态轮询与输出回收优先 `/content` 端点、回退 `video_url`；只由已获租约的 Daemon 调用。
 shares.go: 平台级临时公网分享：`media_shares` 账本（128bit 随机 token、内容哈希去重复用、7 天 TTL、显式吊销与素材删除级联）+ 无第三方 SDK 的 R2/S3 SigV4 客户端（`share/` 前缀）；分享 URL 只用于喂给要求公网地址的上游，不替代 Asset 交付路径。
 jobs_scheduler.go: 常驻 Daemon 的 durable job 扫描、SQLite lease、外部调用 checkpoint、重启恢复、凭据诊断及 queued Asset 的原子 claim；one-request Provider 将提交检查点与 `running` 状态一次事务写入，杜绝本地事务竞争被伪装为供应商未知结果；未知提交失败以 job/asset 身份记入 service 日志，MCP 不启动此循环。
-model_providers/: 按 Provider ID 分派的图片生成策略；`atlas-cloud` 走 Atlas 原生预测协议（提交 generateImage → 按墙钟预算轮询 prediction → 下载 outputs[0]），`openai` / `openai-compatible` / `skymind-token`（`/v1/images/generations` + b64_json）走 OpenAI 兼容 `/images/generations`（有引用时 multipart `/images/edits`）；策略只负责线协议与取回最终字节，不接触工作区 SQLite、密钥存储或 Asset 持久化。
+model_providers/: 按 Provider ID 分派的图片生成策略；`atlas-cloud` 走 Atlas 原生预测协议（提交 generateImage → 按墙钟预算轮询 prediction（瞬时传输/解码错误按短退避重试，不误判为 provider 终态）→ 下载 outputs[0]），`openai` / `openai-compatible` / `skymind-token`（`/v1/images/generations` + b64_json）走 OpenAI 兼容 `/images/generations`（有引用时 multipart `/images/edits`）；策略只负责线协议与取回最终字节，不接触工作区 SQLite、密钥存储或 Asset 持久化。
 providers/: 第三方媒体协议适配器（atlas、skymind）；只负责请求、轮询和供应商响应归一化，不接触工作区 SQLite、密钥存储或 Asset 持久化。
 
 依赖边界

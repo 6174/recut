@@ -62,6 +62,7 @@ func TestRecutSkillOutputFormatIsURLOnly(t *testing.T) {
 		"recut.apps.install",
 		"复杂任务先出计划（Plan-first）",
 		"files/plans/",
+		"有目标 World",
 	} {
 		if !bytes.Contains(recutSkillBody, []byte(required)) {
 			t.Fatalf("Recut Skill is missing third-party URL output guidance %q", required)

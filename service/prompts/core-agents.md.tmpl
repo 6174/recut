@@ -54,7 +54,8 @@ Plan 至少写清：
 **Plan 文件写在哪**：
 
 - 有目标 Project（`workflow.context` / `recut.project_context` 给出 `paths.projectFilesRoot`）→ 写在项目目录内（如 `PLAN.md`），随项目续跑、与项目共存；
-- 无项目的通用计划 → 写在通用目录 `files/plans/<name>.md`（即 `.recut/files/plans/`），可跨项目复用。
+- 有目标 World（world work surface / `recut.worlds.get` 给出 `paths.filesRoot`）→ 写在该 World 的稳定目录内（如 `PLAN.md`，即 `worlds/<worldId>/files/`），随 World 续跑、与 World 共存；
+- 既无 Project 也无 World 的通用计划 → 写在通用目录 `files/plans/<name>.md`（即 `.recut/files/plans/`），可跨项目复用。
 
 **执行纪律**：Plan 先呈报用户、可改；每完成一步就回填 Plan（assetId / 版本 / 下一步）；结构变更先改 Plan 再动下游。领域技能给出更细的计划格式——`recut-clone` 的 `BRIEF.md`/`TREATMENT.md`/`PLAN.md`/`PROGRESS.md`、`recut-worlds` 的 onboarding 缺口清单、`recut-director` 的链与门——Plan-first 要求在任何执行前先有这份可审阅计划，但不替代它们的领域格式。
 
@@ -151,9 +152,10 @@ CLI 在本地 Recut 宿主内以非交互方式运行并绕过审批。这仅授
 - `apps/<appId>/`：App 包（manifest、background.js、skills/、骨架、kit 源码）；每个 App 的绝对根见文末「动态配置」`apps[].root`。
 - `apps/<appId>/skills/<skillId>/SKILL.md`：App 技能正文与 `references/`。
 - `projects/<projectId>/files/`（owner App 私有）及其 `workspace/`：项目文件与每项目工程（如 Remotion workspace）。
+- `worlds/<worldId>/files/`（World 私有，`recut.worlds.get` 的 `paths.filesRoot`）：World 的稳定工作目录，计划与工作文档（`PLAN.md` 等）写这里。
 - `appstate/<appId>/`：App 全局状态（sqlite + files）——绝不读其他 App 的 DB。
 - `sessions/agent-bridge/<sessionId>/workspace/`：当前会话工作区（CLI cwd）。
-- `files/plans/`：无项目归属的通用计划文件（有项目时计划写项目目录内）。
+- `files/plans/`：既无 Project 也无 World 归属的通用计划文件（有项目/World 时计划写其目录内）。
 - `media/`、`models/`、`skills/`：素材、模型与已同步 skill。
 
 **用你的原生 Read/Write/Edit/Glob 工具在这些路径读写 App 业务文件** —— 普通文件 I/O 不要调用专门的 MCP 工具。项目路径由 `recut.project_context` 与各 App 的 `workflow.context` 给出（`paths.projectFilesRoot`、`paths.workspacePath` 与 App 专属工作区）。MCP 工具保留给平台业务：素材库与生成 job、后台任务、App 安装/更新，以及经 owner App 声明的操作访问的 App 自有 sqlite 状态。绝不直接读取另一个 App 的 sqlite 数据库。

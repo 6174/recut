@@ -32,9 +32,11 @@ const jobColumns = `id, capability, status, prompt, model_id, project_id, refere
 // polling a submitted prediction before it is reported as failed. The budget is
 // wall-clock, not a retry count: Atlas accepts the job immediately and queues it
 // upstream for as long as it needs, so the only thing we own is how long we
-// wait. Spending the budget leaves the Asset failed while the prediction ID
-// stays checkpointed, so the retry affordance re-pulls the same prediction
-// (RetryAssetDownload) instead of paying for a second generation.
+// wait. Transient status-read failures (a dropped keep-alive connection, a
+// truncated body) are retried by the strategy within this budget instead of
+// failing the paid task. Spending the budget leaves the Asset failed while the
+// prediction ID stays checkpointed, so the retry affordance re-pulls the same
+// prediction (RetryAssetDownload) instead of paying for a second generation.
 const atlasImagePollBudget = 2 * time.Hour
 
 // imageEditRouteID is the image route used for edit/reference submissions (a
@@ -544,9 +546,12 @@ func (m *MediaService) RetryGeneration(assetID string) (MediaAsset, error) {
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	// Atlas 远端任务若已提交成功、只是取回失败，仍走下载恢复。
-	if job.RemoteID != "" && strings.HasPrefix(job.ModelID, "atlas-cloud/") {
-		return m.RetryAssetDownload(assetID)
+	// A checkpointed remote ID means the paid call already happened: recover the
+	// existing remote task (poll/collect) instead of resubmitting it. This is the
+	// provider-agnostic invariant — resubmission is only ever allowed when no
+	// remote ID exists, i.e. the submission itself never reached the provider.
+	if job.RemoteID != "" {
+		return m.RetryRemoteJob(assetID)
 	}
 	if len(job.AssetIDs) != 1 || job.AssetIDs[0] != asset.ID {
 		return MediaAsset{}, errors.New("该素材不是任务的待完成产物，无法原位重试")

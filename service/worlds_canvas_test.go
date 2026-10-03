@@ -160,12 +160,37 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 			continue
 		}
 		mediaKeys[field.Key] = true
-		if field.Key != "background" && field.Key != "voice_reference" {
+		if field.Key != "background" && field.Key != "voice_reference" && field.Key != "character_reference" {
 			t.Fatalf("unexpected media field %q", field.Key)
 		}
 	}
 	if !mediaKeys["voice_reference"] {
 		t.Fatal("character preset must declare a voice_reference media field")
+	}
+	// Every production anchor carries a declared core-reference card field:
+	// 角色卡 / 场景卡 / 道具卡. These are the canonical generation anchors,
+	// distinct from the unlocked decorative `background`.
+	cardFields := map[string]string{
+		"character": "character_reference",
+		"location":  "location_reference",
+		"prop":      "prop_reference",
+	}
+	for typeID, key := range cardFields {
+		var card *EntityTypeField
+		for index := range byID[typeID].Fields {
+			if byID[typeID].Fields[index].Key == key {
+				card = &byID[typeID].Fields[index]
+			}
+		}
+		if card == nil {
+			t.Fatalf("preset %q must declare the core reference card field %q: %#v", typeID, key, byID[typeID].Fields)
+		}
+		if card.Type != "media" || !card.Locked {
+			t.Fatalf("card field %q must be a locked media field: %#v", key, *card)
+		}
+		if len(card.Options) != 1 || card.Options[0] != "image" {
+			t.Fatalf("card field %q options = %#v, want [image]", key, card.Options)
+		}
 	}
 	for _, field := range character.Fields {
 		if field.Key == "voice_reference" {

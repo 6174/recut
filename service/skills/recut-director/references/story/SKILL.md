@@ -87,9 +87,9 @@ description: 决定「讲什么、怎么编排、剧情类怎么生产」——�
 
 | 本技能合同 | Recut 实体 | 约束 |
 |---|---|---|
-| `Cxx` 角色资产 | `character`（**角色**，含人物/动物/生物） | 外观锁定特征、状态变体与审查版本对应 `appearance` 等字段；`C01b` 版本演进对应 World revision |
-| `Sxx` 场景资产 | `location`（场景/地点）；剧情「场次」是 `scene`（生产实体，另一层） | 世界位置、通道、门窗、家具、光源方位对应 `description` / `atmosphere` |
-| `Pxx` 道具资产 | `prop`（**道具**，默认预设锚点） | 持有人、位置、状态与来源镜头对应 `description` / `appearance` / 道具参考图（`prop_reference`，role=prop） |
+| `Cxx` 角色资产 | `character`（**角色**，含人物/动物/生物） | 外观锁定特征、状态变体与审查版本对应 `appearance` 等字段；核心参考图写 `character_reference`（角色卡，role=character）；`C01b` 版本演进对应 World revision |
+| `Sxx` 场景资产 | `location`（场景/地点）；剧情「场次」是 `scene`（生产实体，另一层） | 世界位置、通道、门窗、家具、光源方位对应 `description` / `atmosphere`；核心参考图写 `location_reference`（场景卡，role=environment） |
+| `Pxx` 道具资产 | `prop`（**道具**，默认预设锚点） | 持有人、位置、状态与来源镜头对应 `description` / `appearance` / 道具卡（`prop_reference`，role=prop） |
 | 分镜表/格清单 | `script`（视频脚本） | 节拍、口播、时长、画幅与「分镜表」媒体属性（一张 N 宫格）对应 `beats / vo / durationSec / aspectRatio / storyboard` |
 | 调度图世界坐标 | 世界地图 | 人物/道具/摄影机的世界位置与轴线复用同一世界坐标系 |
 | 布光图实体光源 | 世界的光源锚点 | 光源的世界位置/方向/色温需能在世界里找到实体依据 |
