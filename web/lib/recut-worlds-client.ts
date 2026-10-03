@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 service 的 /v1/worlds REST facade 与结构化错误信封
- * [OUTPUT]: 对外提供浏览器端 recut.worlds 契约的唯一传输适配器：World/Entity 分页读取、创建/修改/Reference/Resolve
+ * [OUTPUT]: 对外提供浏览器端 recut.worlds 契约的唯一传输适配器：World/Entity 分页读取、创建/修改（含世界封面
+ * coverAssetId 与实体一等封面 cover；entity cover 传 null = 清空）/Reference/Resolve
  * 与项目 World Context 读写的类型化方法；只被原生 Recut 页面（/worlds、Studio、Chat attachment picker）使用，App iframe 永不经它
  * [POS]: web/lib 的 Creation Worlds HTTP 客户端；请求/响应与全局 SDK 及 MCP 同构，错误统一解包为
  * RecutWorldsError，绝不把 Go error 字符串当作稳定契约
@@ -453,7 +454,7 @@ export type RecutWorldsClient = {
   };
   get(input: { worldId: string }): Promise<WorldDetail>;
   create(input: { name: string; type: WorldKind; description?: string; identity?: Record<string, unknown>; coverAssetId?: string }): Promise<WorldDetail>;
-  update(input: { worldId: string; name?: string; description?: string; identity?: Record<string, unknown>; skillMd?: string; expectedRevisionId?: string }): Promise<WorldDetail>;
+  update(input: { worldId: string; name?: string; description?: string; identity?: Record<string, unknown>; skillMd?: string; coverAssetId?: string; expectedRevisionId?: string }): Promise<WorldDetail>;
   fork(input: { worldId: string; name?: string }): Promise<WorldDetail>;
   archive(input: { worldId: string; expectedRevisionId?: string }): Promise<void>;
   /** 永久删除本地世界：name 必须与 world.name 完全一致（防误删二次确认）。素材库不受影响。 */
@@ -466,7 +467,7 @@ export type RecutWorldsClient = {
   entities: {
     list(input: { worldId: string; typeId?: EntityKind; text?: string; cursor?: string; limit?: number; includeProvisional?: boolean }): Promise<Page<WorldEntitySummary>>;
     get(input: { worldId: string; entityId: string }): Promise<WorldEntity>;
-    upsert(input: { worldId: string; entityId?: string; typeId?: EntityKind; name: string; intro?: string; detail?: string; attrs?: EntityAttr[] | null; parentId?: string; containerRole?: string; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
+    upsert(input: { worldId: string; entityId?: string; typeId?: EntityKind; name: string; intro?: string; detail?: string; cover?: EntityAttrMediaValue | null; attrs?: EntityAttr[] | null; parentId?: string; containerRole?: string; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
     children(input: { worldId: string; entityId: string; typeId: EntityKind; name: string; containerRole?: string; intro?: string; detail?: string; attrs?: EntityAttr[]; isProvisional?: boolean; expectedRevisionId?: string }): Promise<WorldEntity>;
     promote(input: { worldId: string; entityId: string; expectedRevisionId?: string }): Promise<WorldEntity>;
     /** 软删除设定（归档子图 + 关系入墓碑）；底层 Media Asset 不受影响。 */
@@ -581,11 +582,14 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
         return requestJSON<Page<WorldEntitySummary>>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities${query.size ? `?${query}` : ""}`);
       },
       get: ({ worldId, entityId }) => requestJSON<WorldEntity>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities/${encodeURIComponent(entityId)}`),
-      upsert: ({ worldId, entityId, ...rest }) => {
+      upsert: ({ worldId, entityId, cover, ...rest }) => {
         const url = entityId
           ? `${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities/${encodeURIComponent(entityId)}`
           : `${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities`;
-        return requestJSON<WorldEntity>(url, { method: entityId ? "PATCH" : "POST", body: rest });
+        // cover 为一等字段：undefined = 不动；null = 清空（发 {}，后端 encodeEntityCover 落空串）；
+        // 其余 = 显式设置（assetId|url 双源）。
+        const body = cover === undefined ? rest : { ...rest, cover: cover === null ? {} : cover };
+        return requestJSON<WorldEntity>(url, { method: entityId ? "PATCH" : "POST", body });
       },
       children: ({ worldId, entityId, ...rest }) =>
         requestJSON<WorldEntity>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/entities/${encodeURIComponent(entityId)}/children`, { method: "POST", body: rest }),

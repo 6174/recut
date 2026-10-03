@@ -1,7 +1,8 @@
 /*
  * [INPUT]: 依赖 Zustand 与 recut-worlds-client（entities/canvas/relations/entityTypes 传输适配器）
  * [OUTPUT]: 对外提供 Recursive World Canvas 的单一数据源（含 T1 增量投影：语义写后合并返回对象而非
- * load(true)；T2 面板动作 saveEntityField/confirmEntity/deleteEntity/updateWorldMeta；T3 创建系统
+ * load(true)；T2 面板动作 saveEntityField（含实体一等封面 cover，null=清空）/confirmEntity/deleteEntity/
+ * updateWorldMeta（含世界封面 coverAssetId，空串=清除）；T3 创建系统
  * createEntity/createChildEntity 草稿化 + 命名态 + 创建/右键菜单状态；T4 就地编辑 inlineEdit；T6 容器
  * 视图默认包含容器自身 entity（load 时把 context 实体 unshift 进 entities）：会话配置（open）、当前上下文的实体/画布元素/关系/
  * 类型目录、视图状态（缩放/选中节点/连线草稿/对话框，含属性面板显隐与 dock 内大纲 panel 高度 outlineHeight（按浏览器持久化）；
@@ -55,6 +56,7 @@ import {
   createRecutWorldsClient,
   isRetiredEntityKind,
   type EntityAttr,
+  type EntityAttrMediaValue,
   type EntityKind,
   type WorldCanvasElement,
   type WorldEntity,
@@ -976,6 +978,8 @@ type WorldCanvasState = {
       name?: string;
       intro?: string;
       detail?: string;
+      /** 一等封面字段：undefined=不动；null=清空；对象=显式设置。 */
+      cover?: EntityAttrMediaValue | null;
       attrKey?: string;
       attrLabel?: string;
       attrType?: EntityAttr["type"];
@@ -998,7 +1002,7 @@ type WorldCanvasState = {
   // 撤销设定删除：复位归档标记并把关系墓碑原样重建，随后重载当前层
   restoreEntity: (entityId: string) => Promise<void>;
   // World 名称/简介编辑（World 态面板）
-  updateWorldMeta: (patch: { name?: string; description?: string; skillMd?: string }) => Promise<void>;
+  updateWorldMeta: (patch: { name?: string; description?: string; skillMd?: string; coverAssetId?: string }) => Promise<void>;
   setDeleteTarget: (entity: WorldEntity | null) => void;
   // 打开/关闭多选删除确认弹框
   setDeleteSelectionIds: (ids: string[] | null) => void;
@@ -2553,6 +2557,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         name,
         intro,
         detail,
+        ...(patch.cover !== undefined ? { cover: patch.cover } : {}),
         attrs,
         expectedRevisionId: revisionId,
       });
@@ -2567,13 +2572,17 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         elements: state.elements.map((element) =>
           element.refKind === "entity" && element.refId === saved.id ? { ...element, name: saved.name } : element,
         ),
+        // 面板渲染读 selection.entity：保存后同步为最新快照，字段（含封面）立即反映
+        selection: state.selection?.type === "entity" && state.selection.entity.id === saved.id ? { type: "entity", entity: saved } : state.selection,
         dataVersion: state.dataVersion + 1,
       }));
       // 语义撤销（T12）：单字段回写旧值；attr 新建撤销 = 旧值 undefined
-      const undoPatch: { name?: string; intro?: string; detail?: string; attrKey?: string; attrLabel?: string; attrType?: EntityAttr["type"]; attrOptions?: string[]; value?: unknown; attrRename?: string; attrRemove?: boolean; attrClear?: boolean } = {};
+      const undoPatch: { name?: string; intro?: string; detail?: string; cover?: EntityAttrMediaValue | null; attrKey?: string; attrLabel?: string; attrType?: EntityAttr["type"]; attrOptions?: string[]; value?: unknown; attrRename?: string; attrRemove?: boolean; attrClear?: boolean } = {};
       if (patch.name !== undefined) undoPatch.name = entity.name;
       if (patch.intro !== undefined) undoPatch.intro = entity.intro;
       if (patch.detail !== undefined) undoPatch.detail = entity.detail;
+      // 撤销封面 = 写回旧值；原本无封面 → null（清空回退到 media 属性推断）
+      if (patch.cover !== undefined) undoPatch.cover = entity.cover ?? null;
       if (patch.attrKey !== undefined) {
         const before = entity.attrs?.find((attr) => attr.key === patch.attrKey);
         undoPatch.attrKey = patch.attrKey;

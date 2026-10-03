@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖统一 Workspace 壳、agent-panel-context、worlds-store 缓存、recut-worlds-client 与 World 详情展示/编辑分区
- * [OUTPUT]: 对外提供面向创作者的 World 设定页：World 技能（首个 Tab）、结构化设定分类（卡片可点开详情与图片画廊）、独立非结构化资源库、从故事创建视频与 local 世界的 Onboarding 引导卡（readiness 驱动）
+ * [OUTPUT]: 对外提供面向创作者的 World 设定页：世界封面（coverAssetId，头部缩略图悬浮设置/更换/清除）、World 技能（首个 Tab）、结构化设定分类（卡片可点开详情与图片画廊）、独立非结构化资源库、从故事创建视频与 local 世界的 Onboarding 引导卡（readiness 驱动）
  * [POS]: web/app/worlds/[worldID] 的产品编排层；将底层 Entity/Revision 转译为“创作设定/World 资源”，写入委托给领域表单
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -135,6 +135,8 @@ function WorldDetailContent() {
   const [deleteNameInput, setDeleteNameInput] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
   const [exportingWorld, setExportingWorld] = useState(false);
+  const [coverPicker, setCoverPicker] = useState(false);
+  const [savingCover, setSavingCover] = useState(false);
 
   useReportWorkSurface(
     useMemo(
@@ -360,6 +362,22 @@ function WorldDetailContent() {
     }
   }
 
+  // 世界封面（一等字段 coverAssetId）：选图设置 / 空串清除；成功后回填 detail 并失效缓存
+  async function saveCover(assetId: string) {
+    if (savingCover) return;
+    setSavingCover(true);
+    setNotice("");
+    try {
+      const next = await createRecutWorldsClient(apiBase).update({ worldId: worldId, coverAssetId: assetId, expectedRevisionId: detail?.revision.id ?? "" });
+      setDetail(next);
+      invalidate(worldId);
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : t("worlds.detail.save.failed"));
+    } finally {
+      setSavingCover(false);
+    }
+  }
+
   async function reloadWorld() {
     invalidate(worldId);
     const [next, grouped] = await Promise.all([
@@ -427,9 +445,40 @@ function WorldDetailContent() {
           <Network className="size-4" />
         </button>
         <div className="flex min-w-0 items-start gap-4">
-          <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-muted text-muted-foreground">
-            <Globe2 className="size-7" />
-          </span>
+          <div className="group relative size-16 shrink-0">
+            <span className="grid size-16 place-items-center overflow-hidden rounded-2xl bg-muted text-muted-foreground">
+              {detail.coverAssetId ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img alt={interpolate(t("worlds.card.cover.alt"), { name: detail.name })} className="h-full w-full object-cover" src={`${apiBase}/v1/media/assets/${encodeURIComponent(detail.coverAssetId)}/content`} />
+              ) : (
+                <Globe2 className="size-7" />
+              )}
+            </span>
+            {!readOnly && (
+              <>
+                <button
+                  aria-label={detail.coverAssetId ? "更换封面" : "设置封面"}
+                  className="absolute inset-0 grid place-items-center rounded-2xl bg-foreground/45 text-[10px] font-medium text-background opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-50"
+                  disabled={savingCover}
+                  onClick={() => setCoverPicker(true)}
+                  type="button"
+                >
+                  {savingCover ? "保存中…" : detail.coverAssetId ? "更换" : "设置封面"}
+                </button>
+                {detail.coverAssetId && (
+                  <button
+                    aria-label="清除封面"
+                    className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-destructive group-hover:opacity-100 disabled:opacity-50"
+                    disabled={savingCover}
+                    onClick={() => void saveCover("")}
+                    type="button"
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
+              </>
+            )}
+          </div>
           <div className="min-w-0 flex-1 pt-1">
             {editingMeta ? (
               <div className="space-y-2">
@@ -594,6 +643,16 @@ function WorldDetailContent() {
           }}
         />
       )}
+      <PlatformMediaPicker
+        apiBase={apiBase}
+        onCancel={() => setCoverPicker(false)}
+        onPick={(asset) => {
+          const picked = Array.isArray(asset) ? asset[0] : asset;
+          setCoverPicker(false);
+          if (picked) void saveCover(picked.id);
+        }}
+        request={coverPicker ? { kinds: ["image"], selectedIDs: detail.coverAssetId ? [detail.coverAssetId] : [] } : null}
+      />
       {archiveConfirm && (
         <div aria-modal="true" className="fixed inset-0 z-[60] grid place-items-center bg-foreground/30 p-6" role="dialog">          <div className="w-full max-w-md rounded-md border bg-card p-5 shadow-2xl">
             <h3 className="text-base font-semibold">{interpolate(t("worlds.detail.archive.confirm.title"), { name: detail.name })}</h3>

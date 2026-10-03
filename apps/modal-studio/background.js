@@ -25,6 +25,10 @@ const ACTIONS = new Set(["prepare", "deploy", "install", "generate", "teardown"]
 const RECORD_TABLES = { generate: "modal_generations" };
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled", "interrupted"]);
+// 认领（queued→running）与回填 shell_job_id 之间的瞬态窗口宽限期：每次 op 调用都新建一个 goja runtime，
+// 并发提交会让多个 pumpQueue 几乎同时跑 settleAllJobs；若立即把「running 但尚无 shell_job_id」判为启动失败，
+// 会把仍在 ctx.python.run 中（甚至云端已开跑）的任务误杀。超过该时长仍无 shell_job_id 才当作崩溃残留回收。
+const DISPATCH_GRACE_MS = 60000;
 const GENERATION_KINDS = new Set(["image", "video", "audio"]);
 const PROFILES_PATH = "modal/profiles.json";
 const SECRET_PATH = "modal/pending-secret.json";
@@ -570,10 +574,13 @@ function settleTaskRow(ctx, row) {
 
 function settleAllJobs(ctx) {
   ensureSchema(ctx);
-  const rows = ctx.sqlite.query("select id, shell_job_id, action, record_id, state, created_at from modal_tasks where state in ('queued','running')");
+  const rows = ctx.sqlite.query("select id, shell_job_id, action, record_id, state, created_at, started_at from modal_tasks where state in ('queued','running')");
   for (const row of rows) {
     if (row.state !== "running") continue;
     if (!row.shell_job_id) {
+      // 仍在派发窗口内：dispatchTask 已认领但尚未回填 shell_job_id，跳过，交给拥有它的那次调用收尾。
+      const startedAt = Date.parse(row.started_at || row.created_at || "");
+      if (Number.isFinite(startedAt) && Date.now() - startedAt < DISPATCH_GRACE_MS) continue;
       const message = tr(ctx, "任务未能成功启动。", "The task did not start successfully.");
       ctx.sqlite.execute("update modal_tasks set state = 'failed', error = ?, resolved_at = ? where id = ? and state = 'running' and shell_job_id = ''", [message, new Date().toISOString(), row.id]);
       markFailed(ctx, row.action, row.record_id, message);
@@ -607,7 +614,10 @@ function buildJobSpec(ctx, action, row, payload) {
 
 function dispatchTask(ctx, row) {
   const now = new Date().toISOString();
-  ctx.sqlite.execute("update modal_tasks set state = 'running', started_at = ? where id = ? and state = 'queued'", [now, row.id]);
+  // 条件认领：并发 op 的 pumpQueue 可能选中同一条 queued 行，只有真正把它翻成 running 的调用才继续派发，
+  // 否则会重复启动同一任务（各自写一次 shell_job_id，云端跑两份）。
+  const claim = ctx.sqlite.execute("update modal_tasks set state = 'running', started_at = ? where id = ? and state = 'queued'", [now, row.id]);
+  if (claim && claim.rowsAffected === 0) return;
   let payload = {};
   try { payload = JSON.parse(row.payload_json || "{}"); } catch (_) { payload = {}; }
   try {

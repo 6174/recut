@@ -2,6 +2,8 @@
  * [INPUT]: 依赖 Store 的 workspace.sqlite、MediaService 的 Asset 校验与标准库 SQLite/JSON 能力
  * [OUTPUT]: 对外提供 Creation Worlds 的平台拥有 WorldStore：World/Entity/Relation/AssetRef/Revision 的读写、
  * 分页与乐观并发、确定性 Canon 序列化与 SHA-256 哈希、CreationContext 投影、Project/Job 绑定与结构化 WorldsError；
+ * World 封面 coverAssetId 在 create/update 均可写（update 空串=清除，非空须为就绪 Asset）；
+ * 实体一等封面 cover 在 entity.upsert 可写（含空对象=清除）；
  * 创建不再 seed 模板空壳实体（Onboarding RFC），新世界从空开始由 readiness 驱动引导
  * [POS]: service 的 Creation Worlds 存储边界；world_* 与 creation_context_bindings 表归平台 WorldStore 独占，
  * 普通 App 的 ctx.sqlite 永远看不到它们；所有跨 App 读取必须经 WorldsFacade（HTTP/MCP/ctx.worlds）
@@ -924,6 +926,20 @@ func (w *WorldStore) UpdateWorld(input UpdateWorldInput) (WorldDetail, error) {
 	}
 	if input.SkillMd != nil {
 		if _, err := tx.Exec("update worlds set skill_md = ?, updated_at = ? where id = ?", *input.SkillMd, now, input.WorldID); err != nil {
+			return WorldDetail{}, err
+		}
+		changed = true
+	}
+	if input.CoverAssetID != nil {
+		coverAssetID := strings.TrimSpace(*input.CoverAssetID)
+		// Empty clears the cover (falls back to preview/entity media inference);
+		// a non-empty id must be a ready media asset.
+		if coverAssetID != "" {
+			if _, _, err := w.validateEvidenceAsset(coverAssetID); err != nil {
+				return WorldDetail{}, err
+			}
+		}
+		if _, err := tx.Exec("update worlds set cover_asset_id = ?, updated_at = ? where id = ?", coverAssetID, now, input.WorldID); err != nil {
 			return WorldDetail{}, err
 		}
 		changed = true
@@ -3305,6 +3321,7 @@ type UpdateWorldInput struct {
 	Description        *string
 	Identity           map[string]any
 	SkillMd            *string
+	CoverAssetID       *string
 	ExpectedRevisionID string
 	CreatedBy          string
 }

@@ -37,7 +37,15 @@ const recutMock = { operation: { register: (name, fn) => { ops[name] = fn; } } }
 function makeWorld({ withFastApp = false, filesText = {}, execArgs = [], cancelled = [] } = {}) {
   const db = new DatabaseSync(":memory:");
   const sqlite = {
-    execute: (sql, params = []) => { try { db.prepare(sql).run(...params); } catch (e) { if (!String(e.message).includes("duplicate column")) throw e; } },
+    execute: (sql, params = []) => {
+      try {
+        const info = db.prepare(sql).run(...params);
+        return { rowsAffected: Number(info && info.changes != null ? info.changes : 0) };
+      } catch (e) {
+        if (!String(e.message).includes("duplicate column")) throw e;
+        return { rowsAffected: 0 };
+      }
+    },
     query: (sql, params = []) => db.prepare(sql).all(...params),
   };
   let seq = 0;
@@ -170,6 +178,22 @@ const check = (name, cond) => { if (cond) console.log(`  ok  ${name}`); else { f
   w.pump();
   const s = w.states();
   check("S7b running prepare 期间不重复派发", s.p0 === "running" && s.p1 === "queued");
+}
+
+// S10：running 但尚无 shell_job_id 的瞬态窗口不得被并发结算误杀（回归：并发提交时任务仍在跑却被标失败）
+{
+  const w = makeWorld();
+  w.pump(); // ensureSchema
+  const fresh = new Date().toISOString();
+  const stale = new Date(Date.now() - 10 * 60000).toISOString();
+  const insertRunning = (id, startedAt) => w.db.prepare("insert into modal_tasks (id, shell_job_id, action, modalapp, function, record_id, source, submitted_by, state, progress, meta_json, payload_json, log_path, error, created_at, started_at, resolved_at) values (?, '', 'generate', 'sd-turbo', 'text-to-image', ?, 'manual', '', 'running', 0, '{}', '{}', ?, '', ?, ?, '')")
+    .run(id, `gen-${id}`, `tasks/${id}.log`, startedAt, startedAt);
+  insertRunning("t-fresh", fresh);
+  insertRunning("t-stale", stale);
+  w.pump();
+  const s = w.states();
+  check("S10 瞬态 running（窗口内无 shell_job_id）保持 running", s["t-fresh"] === "running");
+  check("S10 超期 running（无 shell_job_id）回收为 failed", s["t-stale"] === "failed");
 }
 
 // S8：运行中 generate 取消 → 先按落盘的调用 ID 直接取消云端，再终止本地 shell job

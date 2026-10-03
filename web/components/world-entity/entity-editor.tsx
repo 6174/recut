@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 react、recut-worlds-client 类型（EntityAttr/WorldEntityTypeField/WorldRelationType）、
  * world-entity/field-row
  * [OUTPUT]: 共享 EntityEditor（RFC 统一 Entity 模型 P1/P2「一套编辑器，两个宿主」）：身份区
- * （名称/简介/正文 FieldRow 即改即存）、字段区（type schema 字段 + schema 外属性直接续排同一渲染路径——媒体
+ * （名称/封面/简介/正文：封面为一等字段 cover，复用 AssetFieldRow 选图/预览/清除）、字段区（type schema 字段 + schema 外属性直接续排同一渲染路径——媒体
  * 属性与普通属性同一条渲染路径，不再有独立「参考素材」网格 + ＋添加属性（文本/长文本/数字/开关/
  * 素材（图片/视频/音频），通用「素材」选项已移除，媒体拍平经 options 携 kind）+ ＋添加字段（宿主
  * 接类型级对话框）+ 字段行管理 icon（FieldManageMenu：重命名 / 重置内容 / 删除字段——实例属性作用于
@@ -16,7 +16,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { createRecutWorldsClient, type EntityAttr, type EntityKind, type EntityTypeField, type WorldEntity, type WorldRelationType } from "@/lib/recut-worlds-client";
+import { createRecutWorldsClient, type EntityAttr, type EntityAttrMediaValue, type EntityKind, type EntityTypeField, type WorldEntity, type WorldRelationType } from "@/lib/recut-worlds-client";
 import { creationEntityContextPayload } from "@/components/agent-panel-types";
 import type { ContextOption } from "@/lib/context-catalog/types";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
@@ -32,6 +32,8 @@ export type EntitySavePatch = {
   name?: string;
   intro?: string;
   detail?: string;
+  /** 一等封面字段：undefined=不动；null=清空（回退到 media 属性推断）；对象=显式设置。 */
+  cover?: EntityAttrMediaValue | null;
   attrKey?: string;
   attrLabel?: string;
   attrType?: EntityAttr["type"];
@@ -187,7 +189,7 @@ export function EntityEditor({
         />
       )}
 
-      {/* 身份：名称 / 简介 / 正文 */}
+      {/* 身份：名称 / 封面 / 简介 / 正文 */}
       <PanelSection first={!(guided && entity)} title="身份">
         <FieldRow
           label="名称"
@@ -195,6 +197,16 @@ export function EntityEditor({
           onSave={(value) => (onRenameField ? onRenameField(String(value)) : saveField({ name: String(value) }))}
           readOnly={readOnly}
         />
+        {entity && (
+          <AssetFieldRow
+            apiBase={apiBase}
+            kinds={["image", "video"]}
+            label="封面"
+            onSave={(value) => saveField({ cover: value as EntityAttrMediaValue | null })}
+            readOnly={readOnly}
+            value={entity.cover ?? null}
+          />
+        )}
         <RichFieldRow apiBase={apiBase} label="简介" minRows={1} onSave={(value) => saveField({ intro: value })} pinnedOptions={pinnedOptions} placeholder="一句话简介…" readOnly={readOnly} value={entity?.intro ?? ""} />
         <RichFieldRow apiBase={apiBase} label="正文" minRows={4} onSave={(value) => saveField({ detail: value })} pinnedOptions={pinnedOptions} placeholder="详细内容…" readOnly={readOnly} value={entity?.detail ?? ""} />
       </PanelSection>
@@ -431,6 +443,7 @@ export function useEntityEditorSaver(input: {
         name,
         intro: patch.intro !== undefined ? patch.intro : (base?.intro ?? ""),
         detail: patch.detail !== undefined ? patch.detail : (base?.detail ?? ""),
+        ...(patch.cover !== undefined ? { cover: patch.cover } : {}),
         attrs: buildAttrs(),
         expectedRevisionId: revisionRef.current!,
       });

@@ -1,6 +1,7 @@
 /*
  * [INPUT]: 依赖 Store、WorldStore、MediaService 与标准库 net/http JSON 编码
- * [OUTPUT]: 对外提供 RESTful /v1/worlds 资源路由：World/Entity 分页读取、创建/修改/Reference/Resolve、
+ * [OUTPUT]: 对外提供 RESTful /v1/worlds 资源路由：World/Entity 分页读取、创建/修改（world.update 收 coverAssetId；
+ * entity upsert 收一等字段 cover）、Reference/Resolve、
  * readiness 就绪度投影（Onboarding RFC）与项目 World Context 的读与写；结构化 WorldsError 信封与 HTTP 状态映射；处理器只解码/校验/调用 store，不含 Canonical 逻辑
  * [POS]: service 的 Creation Worlds HTTP 传输层；路由拼写是 RESTful（/v1/worlds），SDK 与 MCP 用 recut.worlds.*
  * 命名能力；系统 Worlds UI 与 App 背景都经本 facade，绝不直接访问 world_* 表
@@ -82,6 +83,7 @@ func (s *Server) updateWorld(w http.ResponseWriter, r *http.Request) {
 		Description        *string        `json:"description"`
 		Identity           map[string]any `json:"identity"`
 		SkillMd            *string        `json:"skillMd"`
+		CoverAssetID       *string        `json:"coverAssetId"`
 		ExpectedRevisionID string         `json:"expectedRevisionId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -90,7 +92,8 @@ func (s *Server) updateWorld(w http.ResponseWriter, r *http.Request) {
 	}
 	world, err := s.worldsStore().UpdateWorld(UpdateWorldInput{
 		WorldID: r.PathValue("worldID"), Name: input.Name, Description: input.Description,
-		Identity: input.Identity, SkillMd: input.SkillMd, ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
+		Identity: input.Identity, SkillMd: input.SkillMd, CoverAssetID: input.CoverAssetID,
+		ExpectedRevisionID: input.ExpectedRevisionID, CreatedBy: "http",
 	})
 	if err != nil {
 		writeWorldsError(w, err)
