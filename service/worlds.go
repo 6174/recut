@@ -218,15 +218,28 @@ var attrMediaKinds = map[string]bool{"image": true, "video": true, "audio": true
 
 // WorldEntitySummary is the list-row projection of an entity.
 type WorldEntitySummary struct {
-	ID            string `json:"id"`
-	WorldID       string `json:"worldId"`
-	TypeID        string `json:"typeId"`
-	Name          string `json:"name"`
-	Intro         string `json:"intro"`
-	ParentID      string `json:"parentId,omitempty"`
-	ContainerRole string `json:"containerRole,omitempty"`
-	IsProvisional bool   `json:"isProvisional,omitempty"`
-	UpdatedAt     string `json:"updatedAt"`
+	ID            string            `json:"id"`
+	WorldID       string            `json:"worldId"`
+	TypeID        string            `json:"typeId"`
+	Name          string            `json:"name"`
+	Intro         string            `json:"intro"`
+	ParentID      string            `json:"parentId,omitempty"`
+	ContainerRole string            `json:"containerRole,omitempty"`
+	Cover         *WorldEntityCover `json:"cover,omitempty"`
+	IsProvisional bool              `json:"isProvisional,omitempty"`
+	UpdatedAt     string            `json:"updatedAt"`
+}
+
+// WorldEntityCover is the entity's first-class cover: a single media reference
+// {assetId|url, name?, kind?} that pins the card face. It is a basic field
+// (like name/intro/detail), not a dynamic attr, so it is never renamed or
+// deleted; only its value changes. When unset, the cover falls back to the
+// first image (then video) media attr.
+type WorldEntityCover struct {
+	AssetID string `json:"assetId,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Kind    string `json:"kind,omitempty"`
 }
 
 // WorldEntityCard is the compact entity node world.get returns as part of the
@@ -239,6 +252,7 @@ type WorldEntityCard struct {
 	Name          string             `json:"name"`
 	Intro         string             `json:"intro"`
 	ParentID      string             `json:"parentId,omitempty"`
+	Cover         *WorldEntityCover  `json:"cover,omitempty"`
 	IsProvisional bool               `json:"isProvisional,omitempty"`
 	Media         []WorldEntityMedia `json:"media,omitempty"`
 	UpdatedAt     string             `json:"updatedAt"`
@@ -313,6 +327,7 @@ type WorldEvidence = WorldAssetReference
 type WorldEntity struct {
 	WorldEntitySummary
 	Detail     string                `json:"detail"`
+	Cover      *WorldEntityCover     `json:"cover,omitempty"`
 	Attrs      []EntityAttr          `json:"attrs"`
 	Relations  []WorldEntityRelation `json:"relations"`
 	References []WorldAssetReference `json:"references"`
@@ -642,7 +657,7 @@ func (w *WorldStore) getWorldDetail(db *sql.DB, worldID string, includeGraph boo
 // within the tool output budget; callers see GraphTruncated and page with
 // entities.list / entities.get instead.
 func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, []WorldEntityRelation, bool, error) {
-	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, attrs_json, parent_id, is_provisional, updated_at from world_entities where world_id = ? and archived_at is null order by coalesce(nullif(type_id, ''), kind), updated_at desc limit ?", worldID, worldGraphEntityMax+1)
+	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, cover_json, attrs_json, parent_id, is_provisional, updated_at from world_entities where world_id = ? and archived_at is null order by coalesce(nullif(type_id, ''), kind), updated_at desc limit ?", worldID, worldGraphEntityMax+1)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -650,13 +665,14 @@ func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, 
 	entities := make([]WorldEntityCard, 0)
 	for rows.Next() {
 		var card WorldEntityCard
-		var attrsJSON string
+		var coverJSON, attrsJSON string
 		var parentID sql.NullString
 		var provisional int
-		if err := rows.Scan(&card.ID, &card.TypeID, &card.Name, &card.Intro, &attrsJSON, &parentID, &provisional, &card.UpdatedAt); err != nil {
+		if err := rows.Scan(&card.ID, &card.TypeID, &card.Name, &card.Intro, &coverJSON, &attrsJSON, &parentID, &provisional, &card.UpdatedAt); err != nil {
 			return nil, nil, false, err
 		}
 		card.ParentID = nullStringValue(parentID)
+		card.Cover = decodeEntityCover(coverJSON)
 		card.IsProvisional = provisional != 0
 		card.Media = entityMediaAnchors(attrsJSON)
 		entities = append(entities, card)
@@ -694,6 +710,59 @@ func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, 
 		relations = relations[:worldGraphRelationMax]
 	}
 	return entities, relations, truncated, nil
+}
+
+// decodeEntityCover parses a stored cover_json into the first-class cover
+// value; empty/unparseable input yields nil (fall back to attr inference).
+func decodeEntityCover(coverJSON string) *WorldEntityCover {
+	if strings.TrimSpace(coverJSON) == "" {
+		return nil
+	}
+	var cover WorldEntityCover
+	if err := json.Unmarshal([]byte(coverJSON), &cover); err != nil {
+		return nil
+	}
+	if strings.TrimSpace(cover.AssetID) == "" && strings.TrimSpace(cover.URL) == "" {
+		return nil
+	}
+	return &cover
+}
+
+// encodeEntityCover serializes a cover value for storage; nil or an all-empty
+// cover becomes "" (cleared).
+func encodeEntityCover(cover *WorldEntityCover) (string, error) {
+	if cover == nil {
+		return "", nil
+	}
+	if strings.TrimSpace(cover.AssetID) == "" && strings.TrimSpace(cover.URL) == "" {
+		return "", nil
+	}
+	data, err := json.Marshal(cover)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// coverFromCanonical decodes a cover value embedded in a canonical entity
+// record (map[string]any from decoded JSON) back into the stored cover.
+func coverFromCanonical(raw any) *WorldEntityCover {
+	record, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return nil
+	}
+	var cover WorldEntityCover
+	if err := json.Unmarshal(data, &cover); err != nil {
+		return nil
+	}
+	if strings.TrimSpace(cover.AssetID) == "" && strings.TrimSpace(cover.URL) == "" {
+		return nil
+	}
+	return &cover
 }
 
 // entityMediaAnchors projects an entity's attrs_json into compact media anchors.
@@ -1001,11 +1070,12 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 	var entity WorldEntity
 	var detail string
 	var attrsJSON string
+	var coverJSON string
 	var createdAt, updatedAt string
 	var parentID, containerRole sql.NullString
 	var provisional int
-	row := db.QueryRow("select id, coalesce(nullif(type_id, ''), kind), title, summary, detail, attrs_json, parent_id, container_role, is_provisional, created_at, updated_at from world_entities where id = ? and world_id = ? and archived_at is null", entityID, worldID)
-	if err := row.Scan(&entity.ID, &entity.TypeID, &entity.Name, &entity.Intro, &detail, &attrsJSON, &parentID, &containerRole, &provisional, &createdAt, &updatedAt); err != nil {
+	row := db.QueryRow("select id, coalesce(nullif(type_id, ''), kind), title, summary, detail, cover_json, attrs_json, parent_id, container_role, is_provisional, created_at, updated_at from world_entities where id = ? and world_id = ? and archived_at is null", entityID, worldID)
+	if err := row.Scan(&entity.ID, &entity.TypeID, &entity.Name, &entity.Intro, &detail, &coverJSON, &attrsJSON, &parentID, &containerRole, &provisional, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return WorldEntity{}, worldsError(WorldsErrEntityNotFound, "entity not found in world")
 		}
@@ -1013,6 +1083,7 @@ func (w *WorldStore) getEntity(db *sql.DB, worldID, entityID string) (WorldEntit
 	}
 	entity.WorldID = worldID
 	entity.Detail = detail
+	entity.Cover = decodeEntityCover(coverJSON)
 	entity.UpdatedAt = updatedAt
 	entity.ParentID = nullStringValue(parentID)
 	entity.ContainerRole = nullStringValue(containerRole)
@@ -1167,6 +1238,21 @@ func (w *WorldStore) upsertEntityTx(tx *sql.Tx, input UpsertEntityInput, existin
 	if err != nil {
 		return "", nil, err
 	}
+	// Cover is a first-class field: on update, nil keeps the stored value (the
+	// MCP layer always passes the pre-read cover so "omitted = unchanged" holds);
+	// a provided value is validated against the platform asset library just like
+	// a media attr (proposed/queued/running accepted, failed/deleted rejected).
+	cover := existing.Cover
+	if input.Cover != nil {
+		if err := w.validateEntityCover(input.Cover); err != nil {
+			return "", nil, err
+		}
+		cover = input.Cover
+	}
+	coverJSON, err := encodeEntityCover(cover)
+	if err != nil {
+		return "", nil, err
+	}
 	entityID := input.EntityID
 	provisional := 0
 	if input.IsProvisional {
@@ -1177,8 +1263,8 @@ func (w *WorldStore) upsertEntityTx(tx *sql.Tx, input UpsertEntityInput, existin
 		if err != nil {
 			return "", nil, err
 		}
-		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
-			entityID, input.WorldID, input.TypeID, input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, string(attrsJSON), nullIfEmpty(input.ParentID), input.ContainerRole, provisional, now, now); err != nil {
+		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, cover_json, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
+			entityID, input.WorldID, input.TypeID, input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, coverJSON, string(attrsJSON), nullIfEmpty(input.ParentID), input.ContainerRole, provisional, now, now); err != nil {
 			return "", nil, err
 		}
 		// Production chain (作品→脚本→场次→镜头): a production entity created under
@@ -1188,8 +1274,8 @@ func (w *WorldStore) upsertEntityTx(tx *sql.Tx, input UpsertEntityInput, existin
 			return "", nil, err
 		}
 	} else {
-		if _, err := tx.Exec("update world_entities set type_id = ?, title = ?, summary = ?, detail = ?, attrs_json = ?, updated_at = ? where id = ? and world_id = ?",
-			input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, string(attrsJSON), now, entityID, input.WorldID); err != nil {
+		if _, err := tx.Exec("update world_entities set type_id = ?, title = ?, summary = ?, detail = ?, cover_json = ?, attrs_json = ?, updated_at = ? where id = ? and world_id = ?",
+			input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, coverJSON, string(attrsJSON), now, entityID, input.WorldID); err != nil {
 			return "", nil, err
 		}
 	}
@@ -1340,6 +1426,27 @@ func (w *WorldStore) validateAttrValue(attr EntityAttr) error {
 		if strings.TrimSpace(assetID) == "" {
 			return worldsError(WorldsErrContextInvalid, fmt.Sprintf("media attr %q needs an assetId", attr.Key))
 		}
+		if err := w.validateMediaAttrAsset(assetID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateEntityCover checks a first-class cover value. It accepts exactly the
+// same dual-source shape as a media attr: an assetId (any status the media
+// library accepts: completed/proposed/queued/running) or an absolute url. An
+// all-empty cover is valid and means "clear" (fall back to attr inference).
+func (w *WorldStore) validateEntityCover(cover *WorldEntityCover) error {
+	if cover == nil {
+		return nil
+	}
+	assetID := strings.TrimSpace(cover.AssetID)
+	url := strings.TrimSpace(cover.URL)
+	if assetID == "" && url == "" {
+		return nil
+	}
+	if assetID != "" {
 		if err := w.validateMediaAttrAsset(assetID); err != nil {
 			return err
 		}
@@ -2102,7 +2209,7 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 	_ = json.Unmarshal([]byte(identityJSON), &identity)
 
 	entities := map[string][]map[string]any{}
-	rows, err := tx.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, detail, attrs_json, parent_id from world_entities where world_id = ? and archived_at is null and is_provisional = 0 order by coalesce(nullif(type_id, ''), kind), id", worldID)
+	rows, err := tx.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, detail, cover_json, attrs_json, parent_id from world_entities where world_id = ? and archived_at is null and is_provisional = 0 order by coalesce(nullif(type_id, ''), kind), id", worldID)
 	if err != nil {
 		return "", "", err
 	}
@@ -2126,9 +2233,9 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 		return "", "", err
 	}
 	for rows.Next() {
-		var id, typeID, name, intro, detail, attrsJSON string
+		var id, typeID, name, intro, detail, coverJSON, attrsJSON string
 		var parentID sql.NullString
-		if err := rows.Scan(&id, &typeID, &name, &intro, &detail, &attrsJSON, &parentID); err != nil {
+		if err := rows.Scan(&id, &typeID, &name, &intro, &detail, &coverJSON, &attrsJSON, &parentID); err != nil {
 			rows.Close()
 			return "", "", err
 		}
@@ -2149,6 +2256,9 @@ func (w *WorldStore) computeCanonicalTx(tx *sql.Tx, worldID string) (string, str
 		}
 		record := map[string]any{"id": id, "name": name, "intro": intro, "detail": detail,
 			"typeId": typeID, "baseKind": baseKind, "attrs": decodedAttrs}
+		if cover := decodeEntityCover(coverJSON); cover != nil {
+			record["cover"] = cover
+		}
 		if parentID.Valid && parentID.String != "" {
 			record["parentId"] = parentID.String
 		}
@@ -3004,18 +3114,22 @@ func (w *WorldStore) RevertToRevision(worldID, revisionID, expectedRevisionID, c
 			if err != nil {
 				return WorldDetail{}, err
 			}
+			coverJSON, err := encodeEntityCover(coverFromCanonical(record["cover"]))
+			if err != nil {
+				return WorldDetail{}, err
+			}
 			// 软删除模型：已存在的行只做「标记调整 + 字段复位」（保留 is_provisional/container_role/created_at），
 			// 仅历史遗留（早期回滚物理删过）的缺失 id 才真正 INSERT 补行。
-			res, err := tx.Exec("update world_entities set type_id = ?, kind = ?, title = ?, summary = ?, detail = ?, attrs_json = ?, parent_id = ?, archived_at = null, archive_batch_id = null, updated_at = ? where id = ? and world_id = ?",
-				rowTypeID, rowTypeID, name, intro, detail, string(attrs), nullIfEmpty(parentID), now, id, worldID)
+			res, err := tx.Exec("update world_entities set type_id = ?, kind = ?, title = ?, summary = ?, detail = ?, cover_json = ?, attrs_json = ?, parent_id = ?, archived_at = null, archive_batch_id = null, updated_at = ? where id = ? and world_id = ?",
+				rowTypeID, rowTypeID, name, intro, detail, coverJSON, string(attrs), nullIfEmpty(parentID), now, id, worldID)
 			if err != nil {
 				return WorldDetail{}, err
 			}
 			if affected, err := res.RowsAffected(); err != nil {
 				return WorldDetail{}, err
 			} else if affected == 0 {
-				if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at, archived_at, archive_batch_id) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, '', 0, ?, ?, null, null)",
-					id, worldID, rowTypeID, rowTypeID, name, intro, detail, string(attrs), nullIfEmpty(parentID), now, now); err != nil {
+				if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, cover_json, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at, archived_at, archive_batch_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, '', 0, ?, ?, null, null)",
+					id, worldID, rowTypeID, rowTypeID, name, intro, detail, coverJSON, string(attrs), nullIfEmpty(parentID), now, now); err != nil {
 					return WorldDetail{}, err
 				}
 			}
@@ -3201,18 +3315,19 @@ type UpdateWorldInput struct {
 // from agents); a non-nil list replaces it wholesale (panel/canvas always hold
 // the full entity).
 type UpsertEntityInput struct {
-	WorldID            string       `json:"worldId"`
-	EntityID           string       `json:"entityId"`
-	TypeID             string       `json:"typeId"`
-	Name               string       `json:"name"`
-	Intro              string       `json:"intro"`
-	Detail             string       `json:"detail"`
-	Attrs              []EntityAttr `json:"attrs"`
-	ParentID           string       `json:"parentId"`
-	ContainerRole      string       `json:"containerRole"`
-	IsProvisional      bool         `json:"isProvisional"`
-	ExpectedRevisionID string       `json:"expectedRevisionId"`
-	CreatedBy          string       `json:"createdBy"`
+	WorldID            string            `json:"worldId"`
+	EntityID           string            `json:"entityId"`
+	TypeID             string            `json:"typeId"`
+	Name               string            `json:"name"`
+	Intro              string            `json:"intro"`
+	Detail             string            `json:"detail"`
+	Cover              *WorldEntityCover `json:"cover,omitempty"`
+	Attrs              []EntityAttr      `json:"attrs"`
+	ParentID           string            `json:"parentId"`
+	ContainerRole      string            `json:"containerRole"`
+	IsProvisional      bool              `json:"isProvisional"`
+	ExpectedRevisionID string            `json:"expectedRevisionId"`
+	CreatedBy          string            `json:"createdBy"`
 }
 
 // AttachReferenceInput is the typed input of reference.attach. Exactly one of

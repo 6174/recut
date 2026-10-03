@@ -54,10 +54,19 @@ func TestProductionTypeSchemasSeededOnUse(t *testing.T) {
 	for _, field := range shot.Fields {
 		keys[field.Key] = field.Type
 	}
-	for _, key := range []string{"no", "shotSize", "durationSec", "camera", "dialogue", "background"} {
+	for _, key := range []string{"no", "shotSize", "durationSec", "camera", "keyframe"} {
 		if _, ok := keys[key]; !ok {
 			t.Fatalf("shot schema missing field %q: %#v", key, shot.Fields)
 		}
+	}
+	// 镜头正文（画面/台词/构图等）写实体 detail，不再做 content/dialogue 正文属性。
+	for _, key := range []string{"content", "dialogue"} {
+		if _, ok := keys[key]; ok {
+			t.Fatalf("shot schema must NOT carry prose attr %q (write detail): %#v", key, shot.Fields)
+		}
+	}
+	if _, ok := keys["background"]; ok {
+		t.Fatalf("shot schema must not carry a background field: %#v", shot.Fields)
 	}
 	// 产物不设固定槽位：镜头不是首尾帧模式，产物是按需添加的 media 属性。
 	for _, key := range []string{"firstFrame", "lastFrame", "clip", "voice"} {

@@ -130,15 +130,25 @@ type WorldManifestEntityType struct {
 }
 
 type WorldManifestEntityV2 struct {
-	ID            string       `json:"id"`
-	TypeID        string       `json:"typeId"`
-	Name          string       `json:"name"`
-	Intro         string       `json:"intro"`
-	Detail        string       `json:"detail"`
-	ParentID      string       `json:"parentId,omitempty"`
-	ContainerRole string       `json:"containerRole,omitempty"`
-	IsProvisional bool         `json:"isProvisional,omitempty"`
-	Attrs         []EntityAttr `json:"attrs"`
+	ID            string              `json:"id"`
+	TypeID        string              `json:"typeId"`
+	Name          string              `json:"name"`
+	Intro         string              `json:"intro"`
+	Detail        string              `json:"detail"`
+	ParentID      string              `json:"parentId,omitempty"`
+	ContainerRole string              `json:"containerRole,omitempty"`
+	Cover         *WorldManifestCover `json:"cover,omitempty"`
+	IsProvisional bool                `json:"isProvisional,omitempty"`
+	Attrs         []EntityAttr        `json:"attrs"`
+}
+
+// WorldManifestCover is the portable entity cover on the wire: the same dual
+// source as a media attr (assetId|url), plus the optional human name/kind.
+type WorldManifestCover struct {
+	AssetID string `json:"assetId,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Kind    string `json:"kind,omitempty"`
 }
 
 type WorldManifestCanvas struct {
@@ -156,6 +166,35 @@ func manifestVersionOf(data []byte) int {
 		return 0
 	}
 	return header.ManifestVersion
+}
+
+// manifestCoverFromMedia converts an exported media value into the manifest
+// cover shape; a nil/empty value yields nil.
+func manifestCoverFromMedia(value map[string]any) *WorldManifestCover {
+	if value == nil {
+		return nil
+	}
+	cover := &WorldManifestCover{}
+	cover.AssetID, _ = value["assetId"].(string)
+	cover.URL, _ = value["url"].(string)
+	cover.Name, _ = value["name"].(string)
+	cover.Kind, _ = value["kind"].(string)
+	if cover.AssetID == "" && cover.URL == "" {
+		return nil
+	}
+	return cover
+}
+
+// coverFromManifest converts a manifest cover into the stored entity cover
+// value; a nil/empty cover yields nil.
+func coverFromManifest(cover *WorldManifestCover) *WorldEntityCover {
+	if cover == nil {
+		return nil
+	}
+	if strings.TrimSpace(cover.AssetID) == "" && strings.TrimSpace(cover.URL) == "" {
+		return nil
+	}
+	return &WorldEntityCover{AssetID: cover.AssetID, URL: cover.URL, Name: cover.Name, Kind: cover.Kind}
 }
 
 // worldMediaURLRef extracts the remote url from a media attr value ({url,...}).
@@ -695,12 +734,16 @@ func insertManifestV2Tx(tx *sql.Tx, worldID string, manifest *WorldManifestV2, n
 		if err != nil {
 			return err
 		}
+		coverJSON, err := encodeEntityCover(coverFromManifest(entity.Cover))
+		if err != nil {
+			return err
+		}
 		var parent any
 		if strings.TrimSpace(entity.ParentID) != "" {
 			parent = storedID(entity.ParentID)
 		}
-		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
-			storedID(entity.ID), worldID, entity.TypeID, entity.TypeID, strings.TrimSpace(entity.Name), strings.TrimSpace(entity.Intro), entity.Detail, string(attrsJSON), parent, entity.ContainerRole, provisional(entity.IsProvisional), now, now); err != nil {
+		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, cover_json, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
+			storedID(entity.ID), worldID, entity.TypeID, entity.TypeID, strings.TrimSpace(entity.Name), strings.TrimSpace(entity.Intro), entity.Detail, coverJSON, string(attrsJSON), parent, entity.ContainerRole, provisional(entity.IsProvisional), now, now); err != nil {
 			return err
 		}
 	}
@@ -1585,7 +1628,7 @@ func (w *WorldStore) ForkWorld(input ForkWorldInput) (WorldDetail, error) {
 			return WorldDetail{}, err
 		}
 		idMap[oldID] = newEntityID
-		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) select ?, ?, ?, ?, title, summary, ?, ?, '{}', ?, ?, ?, ?, ? from world_entities where id = ?",
+		if _, err := tx.Exec("insert into world_entities (id, world_id, type_id, kind, title, summary, detail, cover_json, attrs_json, content_json, parent_id, container_role, is_provisional, created_at, updated_at) select ?, ?, ?, ?, title, summary, ?, cover_json, ?, '{}', ?, ?, ?, ?, ? from world_entities where id = ?",
 			newEntityID, newWorldID, typeID, typeID, detail, attrsJSON, nullIfEmpty(parentID), containerRole, provisional, now, now, oldID); err != nil {
 			entityRows.Close()
 			return WorldDetail{}, err

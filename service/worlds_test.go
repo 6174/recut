@@ -1239,3 +1239,78 @@ func TestDeleteEntityNeverDeletesMediaAsset(t *testing.T) {
 		t.Fatalf("media attr should survive delete+restore: %#v", reloaded.Attrs)
 	}
 }
+
+// cover is a first-class entity field: explicit value wins and round-trips,
+// omitted keeps the stored value, empty clears it, and the world graph carries it.
+func TestEntityCoverIsFirstClassField(t *testing.T) {
+	worlds, _, media := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+	first := newTestAsset(t, media, "first.png")
+	second := newTestAsset(t, media, "second.png")
+
+	entity, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, TypeID: EntityTypeCharacter, Name: "Hero",
+		Cover: &WorldEntityCover{AssetID: first, Kind: "image"},
+		Attrs: []EntityAttr{{Key: "character_reference", Type: "media", Value: map[string]any{"assetId": second, "kind": "image"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entity.Cover == nil || entity.Cover.AssetID != first {
+		t.Fatalf("cover after create = %#v, want assetId %s", entity.Cover, first)
+	}
+
+	// Omitted cover on update keeps the stored value.
+	updated, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: entity.ID, TypeID: EntityTypeCharacter,
+		Name: entity.Name, Intro: entity.Intro, Detail: entity.Detail,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Cover == nil || updated.Cover.AssetID != first {
+		t.Fatalf("omitted cover changed stored value: %#v", updated.Cover)
+	}
+
+	// Explicit new value replaces it.
+	replaced, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: entity.ID, TypeID: EntityTypeCharacter,
+		Name: entity.Name, Cover: &WorldEntityCover{AssetID: second, Kind: "image"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replaced.Cover == nil || replaced.Cover.AssetID != second {
+		t.Fatalf("cover after replace = %#v, want assetId %s", replaced.Cover, second)
+	}
+
+	// The world graph projects the cover for list/card surfaces.
+	detail, err := worlds.GetWorldGraph(worldID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cardFound bool
+	for _, card := range detail.Entities {
+		if card.ID == entity.ID {
+			cardFound = true
+			if card.Cover == nil || card.Cover.AssetID != second {
+				t.Fatalf("graph card cover = %#v, want assetId %s", card.Cover, second)
+			}
+		}
+	}
+	if !cardFound {
+		t.Fatal("entity missing from world graph")
+	}
+
+	// Empty cover clears it (falls back to attr inference at read time).
+	cleared, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: entity.ID, TypeID: EntityTypeCharacter,
+		Name: entity.Name, Cover: &WorldEntityCover{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Cover != nil {
+		t.Fatalf("cover after empty value = %#v, want nil", cleared.Cover)
+	}
+}

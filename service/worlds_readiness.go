@@ -165,9 +165,11 @@ var scenarioBlueprints = map[string]scenarioBlueprint{
 // generic "any non-empty string" rule in entitySubstantive.
 var requiredFieldsByKind = map[string][]string{
 	EntityTypeCharacter: {"appearance", "personality", "voice", "invariants"},
-	EntityTypeScript:    {"logline", "beats"},
-	EntityTypeLocation:  {"description", "atmosphere"},
-	EntityTypeProp:      {"description", "appearance"},
+	// 脚本正文 = 内容本体（`body`/detail），在上面的 body 分支已判；这里只兜底
+	// 结构化 meta，不再要求已下线的 `beats`（正文写 detail，不写 attr）。
+	EntityTypeScript:   {"logline"},
+	EntityTypeLocation: {"description", "atmosphere"},
+	EntityTypeProp:     {"description", "appearance"},
 }
 
 // entityContentFields ignored when judging substance: structural metadata keys

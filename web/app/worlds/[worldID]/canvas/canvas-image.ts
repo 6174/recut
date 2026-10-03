@@ -2,15 +2,15 @@
  * [INPUT]: 依赖 recut-worlds-client（WorldEntity/WorldEvidence 类型）与 canvas/entity-attrs 辅助
  * [OUTPUT]: 对外提供 remoteProxySource（远程 URL 同源代理）、evidenceSource（旧证据 → 可渲染 URL，
  * references 为 legacy 只读投影仍可渲染）、entityImageUrls（旧证据图片 URL，B.6 封面规则）、
- * entityMediaUrls（media 属性 assetId → URL 列表，可按 kind 过滤）、entityCoverMedia（头图解析：显式 background media
- * 属性优先 → 其余 media 属性 kind=image → kind=video；返回含 assetId 供「生成中」等待态判定）与
- * entityPhotoUrls（资料网格 URL，仅图片，头图取自非 background 属性时剔除那张）
+ * entityMediaUrls（media 属性 assetId → URL 列表，可按 kind 过滤）、entityCoverMedia（头图解析：显式一等字段
+ * cover 优先 → 其余 media 属性 kind=image → kind=video；返回含 assetId 供「生成中」等待态判定）与
+ * entityPhotoUrls（资料网格 URL，仅图片，头图取自 media 属性时剔除那张）
  * [POS]: worlds/[worldID]/canvas 的画布图片辅助（canvas-pomelo.tsx 组装 attrs，EntityCardBlockV 渲染）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { WorldEntity, WorldEvidence } from "@/lib/recut-worlds-client";
 import { remoteProxySource, resolveMediaSrc } from "@/lib/world-media";
-import { attrMediaValueOf, attrOf, entityMediaAttrs } from "./entity-attrs";
+import { attrMediaValueOf, entityMediaAttrs } from "./entity-attrs";
 
 // url 行经同代理端点回源（RemoteFileCache 校验公网地址并缓存，内容寻址幂等）
 export { remoteProxySource };
@@ -52,23 +52,23 @@ export function entityMediaUrls(apiBase: string, entity: WorldEntity, kind?: "im
 export type CoverMedia = { url: string; kind: "image" | "video"; assetId?: string };
 
 // 实体卡资料网格 URL：仅图片（资料格按图片绘制，音频/视频交给渲染器会解码失败并触发请求风暴）；
-// 头图取自非 background 属性时剔除那张；background 封面不占资料格。
+// 首图封面（头图取自 media 属性时）剔除那张；显式 cover 不占资料格。
 export function entityPhotoUrls(apiBase: string, entity: WorldEntity): string[] {
   const cover = entityCoverMedia(apiBase, entity);
-  const background = attrOf(entity, "background");
   const urls = entityMediaUrls(apiBase, entity, "image");
-  if (cover && cover.kind === "image" && !background) return urls.filter((url) => url !== cover.url);
+  if (cover && cover.kind === "image" && !entity.cover) return urls.filter((url) => url !== cover.url);
   return urls;
 }
 
-// 实体头图解析（统一 Entity 模型）：① 显式 background media 属性 ② 其余 media 属性（image 先于 video）。
+// 实体头图解析（统一 Entity 模型）：① 显式一等字段 cover ② 其余 media 属性（image 先于 video）。
+// cover 是基础字段（非动态 attr），显式设置即锁定；缺省时动态从 media 属性推断。
 // 仅当命中的 media 值经统一解析得到非空 src 时返回；assetId|url 双源都支持。
 export function entityCoverMedia(apiBase: string, entity: WorldEntity): CoverMedia | null {
-  const background = attrMediaValueOf(entity, "background");
+  const explicit = entity.cover ?? null;
   const values = entityMediaAttrs(entity)
     .map((attr) => attrMediaValueOf(entity, attr.key))
     .filter((value): value is NonNullable<typeof value> => value !== null);
-  if (background) values.unshift(background);
+  if (explicit) values.unshift(explicit);
   const pick = (kind: "image" | "video") => values.find((value) => (value.kind ?? "image") === kind);
   const chosen = pick("image") ?? pick("video");
   if (!chosen) {

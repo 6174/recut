@@ -9,19 +9,29 @@ package main
 
 import "strings"
 
-// ProductionCreateShot is one shot in a batch create (description fields + attrs).
+// ProductionCreateShot is one shot in a batch create. A shot is a storyboard /
+// framed-reference unit used to detail and anchor the picture (景别/机位/关键帧),
+// NOT a per-shot video generation unit — the scene is. `Detail` is the shot's
+// full frame description (画面描述); products (keyframe/clip) are attached later
+// as media attrs.
 type ProductionCreateShot struct {
-	Name  string       `json:"name"`
-	Intro string       `json:"intro,omitempty"`
-	Attrs []EntityAttr `json:"attrs,omitempty"`
+	Name   string       `json:"name"`
+	Intro  string       `json:"intro,omitempty"`
+	Detail string       `json:"detail,omitempty"`
+	Attrs  []EntityAttr `json:"attrs,omitempty"`
 }
 
-// ProductionCreateScene is one scene in a batch create, with its shots.
+// ProductionCreateScene is one scene in a batch create, with its shots. A scene
+// is the VIDEO-GENERATION unit: `Detail` is its complete content (what happens,
+// who is present, environment/emotion/key action/dialogue), it owns the total
+// duration, and its finished video attaches to the scene. Shots under it are the
+// storyboard breakdown used for frame-level reference.
 type ProductionCreateScene struct {
-	Name  string                 `json:"name"`
-	Intro string                 `json:"intro,omitempty"`
-	Attrs []EntityAttr           `json:"attrs,omitempty"`
-	Shots []ProductionCreateShot `json:"shots,omitempty"`
+	Name   string                 `json:"name"`
+	Intro  string                 `json:"intro,omitempty"`
+	Detail string                 `json:"detail,omitempty"`
+	Attrs  []EntityAttr           `json:"attrs,omitempty"`
+	Shots  []ProductionCreateShot `json:"shots,omitempty"`
 }
 
 // ProductionCreateInput is the typed input of recut.worlds.production.create.
@@ -96,7 +106,7 @@ func (w *WorldStore) CreateProduction(input ProductionCreateInput) (ProductionCr
 	for _, sceneSpec := range input.Scenes {
 		sceneID, _, err := w.upsertEntityTx(tx, UpsertEntityInput{
 			WorldID: input.WorldID, TypeID: ProductionTypeScene, Name: sceneSpec.Name,
-			Intro: sceneSpec.Intro, Attrs: sceneSpec.Attrs, ParentID: parent.ID, CreatedBy: createdBy,
+			Intro: sceneSpec.Intro, Detail: sceneSpec.Detail, Attrs: sceneSpec.Attrs, ParentID: parent.ID, CreatedBy: createdBy,
 		}, WorldEntity{})
 		if err != nil {
 			return ProductionCreateResult{}, err
@@ -106,7 +116,7 @@ func (w *WorldStore) CreateProduction(input ProductionCreateInput) (ProductionCr
 		for _, shotSpec := range sceneSpec.Shots {
 			shotID, _, err := w.upsertEntityTx(tx, UpsertEntityInput{
 				WorldID: input.WorldID, TypeID: ProductionTypeShot, Name: shotSpec.Name,
-				Intro: shotSpec.Intro, Attrs: shotSpec.Attrs, ParentID: sceneID, CreatedBy: createdBy,
+				Intro: shotSpec.Intro, Detail: shotSpec.Detail, Attrs: shotSpec.Attrs, ParentID: sceneID, CreatedBy: createdBy,
 			}, WorldEntity{})
 			if err != nil {
 				return ProductionCreateResult{}, err

@@ -279,22 +279,24 @@ func (w *WorldStore) ExportWorldBundle(worldID string) ([]byte, string, error) {
 	// Entities
 	type entityRecord struct {
 		ID, TypeID, Name, Intro, Detail, ParentID, ContainerRole string
+		Cover                                                    *WorldEntityCover
 		IsProvisional                                            bool
 		Attrs                                                    []EntityAttr
 	}
-	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, detail, attrs_json, coalesce(parent_id, ''), container_role, is_provisional from world_entities where world_id = ? and archived_at is null order by created_at, id", worldID)
+	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, detail, cover_json, attrs_json, coalesce(parent_id, ''), container_role, is_provisional from world_entities where world_id = ? and archived_at is null order by created_at, id", worldID)
 	if err != nil {
 		return nil, "", err
 	}
 	var records []entityRecord
 	for rows.Next() {
 		var record entityRecord
-		var attrsJSON string
+		var attrsJSON, coverJSON string
 		var provisional int
-		if err := rows.Scan(&record.ID, &record.TypeID, &record.Name, &record.Intro, &record.Detail, &attrsJSON, &record.ParentID, &record.ContainerRole, &provisional); err != nil {
+		if err := rows.Scan(&record.ID, &record.TypeID, &record.Name, &record.Intro, &record.Detail, &coverJSON, &attrsJSON, &record.ParentID, &record.ContainerRole, &provisional); err != nil {
 			rows.Close()
 			return nil, "", err
 		}
+		record.Cover = decodeEntityCover(coverJSON)
 		record.IsProvisional = provisional != 0
 		if attrsJSON != "" {
 			if err := json.Unmarshal([]byte(attrsJSON), &record.Attrs); err != nil {
@@ -324,11 +326,19 @@ func (w *WorldStore) ExportWorldBundle(worldID string) ([]byte, string, error) {
 			}
 			attrs = append(attrs, attr)
 		}
-		entities = append(entities, WorldManifestEntityV2{
+		exported := WorldManifestEntityV2{
 			ID: sourceEntityID(worldID, record.ID), TypeID: record.TypeID, Name: record.Name, Intro: record.Intro,
 			Detail: record.Detail, ParentID: sourceEntityID(worldID, record.ParentID), ContainerRole: record.ContainerRole,
 			IsProvisional: record.IsProvisional, Attrs: attrs,
-		})
+		}
+		if record.Cover != nil {
+			resolved, mediaErr := exportMedia(map[string]any{"assetId": record.Cover.AssetID, "url": record.Cover.URL, "name": record.Cover.Name, "kind": record.Cover.Kind})
+			if mediaErr != nil {
+				return nil, "", mediaErr
+			}
+			exported.Cover = manifestCoverFromMedia(resolved)
+		}
+		entities = append(entities, exported)
 	}
 
 	// Relations
@@ -666,6 +676,7 @@ func (w *WorldStore) ImportWorldBundle(data []byte, nameOverride, createdBy stri
 			Detail        json.RawMessage `json:"detail"`
 			ParentID      string          `json:"parentId"`
 			ContainerRole string          `json:"containerRole"`
+			Cover         map[string]any  `json:"cover"`
 			IsProvisional bool            `json:"isProvisional"`
 			Attrs         []EntityAttr    `json:"attrs"`
 		}
@@ -688,10 +699,15 @@ func (w *WorldStore) ImportWorldBundle(data []byte, nameOverride, createdBy stri
 			}
 			attrs = append(attrs, attr)
 		}
+		var cover *WorldManifestCover
+		if bundleEntity.Cover != nil {
+			resolved := resolveMedia(bundleEntity.Cover)
+			cover = manifestCoverFromMedia(resolved)
+		}
 		manifest.Entities = append(manifest.Entities, WorldManifestEntityV2{
 			ID: bundleEntity.ID, TypeID: bundleEntity.TypeID, Name: bundleEntity.Name, Intro: bundleEntity.Intro,
 			Detail: detail, ParentID: bundleEntity.ParentID, ContainerRole: bundleEntity.ContainerRole,
-			IsProvisional: bundleEntity.IsProvisional, Attrs: attrs,
+			Cover: cover, IsProvisional: bundleEntity.IsProvisional, Attrs: attrs,
 		})
 	}
 

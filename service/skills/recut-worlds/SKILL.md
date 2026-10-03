@@ -12,15 +12,17 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 ## 核心模型：先懂这个，再调工具
 
-**Entity = 身份（name / intro / detail）+ 类型（typeId）+ 属性列表（attrs）+ 关系（edges）。**
+**Entity = 身份（name / intro / detail / cover）+ 类型（typeId）+ 属性列表（attrs）+ 关系（edges）。**
 
 | 概念 | 真相位置 | 说明 |
 |---|---|---|
-| 身份 | `name` / `intro` / `detail` | 名称、一句话简介、正文长文（`detail` 是一等字段，不是普通属性） |
+| 身份 | `name` / `intro` / `detail` / `cover` | 名称、一句话简介、正文长文（`detail` 是一等字段）、**封面（`cover` 一等字段）** |
 | 类型 | `world_entity_types` | 预设 **作品 / 角色 / 场景 / 道具 / 视频脚本** + 自定义（默认集精简可运行，其余按需自建）；决定默认字段 schema。`character` 是**角色**（人物/动物/生物），`prop` 是**道具**（关键道具锚点） |
-| 属性 | `entity.attrs`（有序 `{key,label,type,value}`） | 数组顺序即 UI 顺序，可排序 |
+| 属性 | `entity.attrs`（有序 `{key,label,type,value}`） | 数组顺序即 UI 顺序，可排序；**是动态属性，可删可改名** |
 | 关系 | `world_relations`（双向语义） | 受控词表 + 自定义 relationType |
 | 画布元素 | `world_canvas`（投影 / 表达） | 不产 revision、可重建 |
+
+**`cover` 是一等基础字段，不是 attr**：形状与 media 值一致 `{assetId|url, name?, kind?}`（assetId 允许未就绪 proposed/queued/running）。显式设置后卡片封面锁定为它；缺省时**动态回落**到 attrs 里第一条 image 媒体属性（其次 video）。因为它是基础字段，用户**不能改名/删除**，只能换值——这与可删可改名的动态 attr 是本质区别。**不要再把封面语义塞进任何 attr**（如旧的 `background`）：`background` 只是普通 unlocked attr，平台不对它做任何封面/生成识别，历史也不迁移。
 
 **属性两种粒度：**
 
@@ -29,15 +31,35 @@ World Canvas 是平台把「一个 App」第一公民化的产物：没有独立
 
 **属性类型**：`text / textarea / number / boolean / select / media`。
 
+**正文 vs 属性（meta）——最容易犯、也最该先记住的错**：`detail`（正文）是**内容本体**，`attrs` 只放**真 meta**（时长 / 类型 / 画幅比例 / 镜号 / 景别等短字段）。**不要把正文写进 attr、让真正的正文空着**——那等于内容丢失。各类型的正文语义：
+
+| 类型 | 正文 `detail` 放什么 | attr 只放（真 meta） |
+|---|---|---|
+| 作品 `work` | 这部片的**基础 / 顶层设想**（想做什么、给谁、什么调性） | 无（封面走 `cover`） |
+| 视频脚本 `script` | **完整脚本内容细节**：故事脚本 / 旁白·台词 / 场景的初步规划 | 一句话概括 / 目标时长 / 画幅 / 目标平台 /（可选）整片分镜表 |
+| 场次 `scene` | **本场的细节文本化描述**（发生什么 / 谁在场 / 环境·情绪·关键动作·台词）——**后续生成提示词大量来自这里** | 总时长 `durationSec` / 场次分镜表 `storyboard` / 场成片 `video` / 一句话概括 |
+| 镜头 `shot` | **单镜细节**（画面 / 构图 / 景别 / 光线 / 动作 / 台词）——**生图提示词大多来自这里** | 镜号 `no` / 景别角度焦段 `shotSize` / 时长 `durationSec` / 镜头运动 `camera` / 关键帧 `keyframe` |
+
 **素材 = media 属性（唯一通道）**：实体挂图片/视频/音频，就是一条 `type:"media"` 的 attr，值为 `{assetId, name?, kind?, segment?}`。不复制二进制，只引用素材库 `assetId`，`segment` 保留「只引用某一段」的能力。
 
-**预设类型字段（locked）**：`work`（作品，交付单位）背景 media（成片是按需 media 属性）；`character`（**角色**）外貌与标志/性格/声音与说话方式/**声线参考（`voice_reference`，media/audio）**/**角色卡（`character_reference`，media/image）**/不可变特征；`location`（场景）描述/氛围/**场景卡（`location_reference`，media/image）**；`prop`（**道具**）描述/外观与标志/**道具卡（`prop_reference`，media/image）**；`script`（视频脚本）一句话概括/节拍/口播/目标时长/画幅/目标平台/分镜表。每类另带一个 **unlocked `background`（media）** 字段——它只是实体卡的**装饰背景**（封面轮播的覆盖项），**不是生成参考**，别把角色卡/场景卡塞进它。**每个锚点实体的核心参考写进它自己的语义卡字段**：`character_reference`（role `character`）/ `location_reference`（role `environment`）/ `prop_reference`（role `prop`），`voice_reference` 是角色的**声线参考**（role `voice`）——`references[]` 直接按字段声明 role（`roleInferred=false`），其余 media 字段才靠推断。
+**预设类型字段（locked）**：`work`（作品，交付单位，**无默认字段，内容全在正文 `detail`**）；`character`（**角色**）外貌与标志/性格/声音与说话方式/**声线参考（`voice_reference`，media/audio）**/**角色卡（`character_reference`，media/image）**/不可变特征；`location`（场景）描述/氛围/**场景卡（`location_reference`，media/image）**；`prop`（**道具**）描述/外观与标志/**道具卡（`prop_reference`，media/image）**；`script`（视频脚本）一句话概括/目标时长/画幅/目标平台/整片分镜表（可选）。**locked 字段只放真 meta 与一句话摘要；正文细节写 `detail`（见上「正文 vs 属性」）。****封面是实体的一等字段 `cover`（不是 attr、不进 schema）**；不要为封面另设 attr（如 `background` 只是普通可选装饰 attr，平台不识别其封面语义）。**每个锚点实体的核心参考写进它自己的语义卡字段**：`character_reference`（role `character`）/ `location_reference`（role `environment`）/ `prop_reference`（role `prop`），`voice_reference` 是角色的**声线参考**（role `voice`）——`references[]` 直接按字段声明 role（`roleInferred=false`），其余 media 字段才靠推断。
 
 **默认集之外的是「世界级属性」，不是实体**：**风格**写 `world.identity.style`（一个世界一个 STYLE LOCK），**规则**写 `world.identity.constraints`（`{ always, never, prefer }`）。它们是世界的属性，不是对象——做成可无限添加的实体类型反而制造冲突（多个风格互相打架、规则散成卡片）。需要更多类型用 `recut.worlds.entityType` 自建即可——但**关键道具不用自建，`prop` 已是默认预设**。
 
-**视频脚本与分镜**：`script`（视频脚本）是**可生成规格**——既承载叙事内核（一句话概括/节拍），又承载生成规格（口播/时长/画幅/平台/分镜表）；**交付单位是 `work`（作品）**，一个作品可挂多个脚本（见下）。分镜以**一张 N 宫格分镜表（storyboard sheet）**压缩生成（默认 5×5=25 格，每格标 `R{r}C{c}` 坐标与镜号），**默认整张直接作 `role="storyboard"` 参考驱动视频生成**（参考名额有限，整张只占一个），由模型据此展开分镜；仅当升级条件（模型吃 storyboard 参考弱/分辨率不足、需精确首尾帧端点、代表镜 proof 不过）才用 `recut.media.gridSlice` 按 rows×cols 等分切格、逐格细化关键帧。宫格图与单格都作 `role="storyboard"` 锚点。分镜表写回 `script.storyboard` 这条 locked media 属性。
+**视频脚本与分镜**：`script`（视频脚本）是**可生成规格**。**脚本正文（完整故事脚本 + 旁白/台词 + 场景的初步规划）写 `script.detail`（正文，一次写全）**——不要只填一句话概括、也不要直接跳去做一张分镜表（那是本末倒置）；locked 字段（一句话概括/目标时长/画幅/目标平台）只是**真 meta 与摘要**。**交付单位是 `work`（作品）**，一个作品可挂多个脚本（见下）。
 
-**生产层（作品 → 视频脚本 → 场次 → 镜头）**：`scene` / `shot` 是**容器内的实体**（`typeId=scene/shot`，**不进默认预设目录、不进 facts**，用到即建、自带 schema）。**树的真源是显式结构关系 `has_script` / `has_scene` / `has_shot`（全局、父→子），不是 `parentId`**——`parentId` 只是通用归属（Notion 式文件夹），改它 / 移动卡片不断链；建生产节点时服务端按"父子都是生产类型"**自动补这条链**（草稿实体 → 草稿链）。类型目录的 **`childTypes`** 声明容许的子类型（`work.childTypes=[script]`、`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory，只喂"默认建什么 / 默认连哪条链"；容器内新建入口就按它给）。**产物可挂在任一层**（镜头挂 关键帧/片段/配音，场次挂 场成片，**作品挂 成片**——`finalOutput` 就在这里），是**按需的 media 属性**（不设固定槽位、不预设生成方式，用 label 标角色）。整体排产用 `recut.worlds.production.create`（挂到 `parentId`，通常是脚本；**一次调用直接建出正式实体、一条 revision**，无草稿/转正），读回用 `recut.worlds.production`（沿结构链解析、环安全）；逐镜生成仍走 `recut.image/video/speech.generate`。
+分镜**分层**：整片级分镜表是 `script.storyboard`（可选）；**把戏拆成镜头用的是场次级 `scene.storyboard`（场次分镜表，默认存储位置）**——因为视频按场次生成，一个场次一张分镜表最自然。分镜以**一张 N 宫格分镜表（storyboard sheet）**压缩生成（**最多 3×3=9 格**，每格标 `R{r}C{c}` 坐标与镜号；格数越多每格越糊，不追求更多），**默认整张直接作 `role="storyboard"` 参考驱动该场视频生成**（参考名额有限，整张只占一个），由模型据此展开分镜；仅当升级条件（模型吃 storyboard 参考弱/分辨率不足、需精确首尾帧端点、代表镜 proof 不过）才用 `recut.media.gridSlice` 按 rows×cols 等分切格、逐格细化关键帧。宫格图与单格都作 `role="storyboard"` 锚点。
+
+**生产层（作品 → 视频脚本 → 场次 → 镜头）——四层职责是硬契约，不要串：**
+
+| 层 | 类型 | 是什么 | 关键字段 / 产物 |
+|---|---|---|---|
+| 作品 | `work` | **交付单位**（挂成片与总进度；一个作品可有多个脚本） | 成片（按需 media，label「成片」）；交付规格留在脚本 |
+| 视频脚本 | `script` | **完整脚本 + 可生成规格** | **正文 `detail` = 完整脚本内容细节**（故事脚本 / 旁白·台词 / 场景的初步规划，一次写全）；attr 只放真 meta：一句话概括/时长/画幅/平台 +（可选）整片分镜表 |
+| 场次 | `scene` | **一次视频生成的单位**（最合理粒度） | **正文 `detail` = 本场的细节文本化描述**（发生什么/谁在场/环境·情绪·关键动作·台词）——**后续生成提示词大量取自这里**；attr 只放：总时长 `durationSec`、场次分镜表 `storyboard`（拆 shot 用）、场成片 `video`、一句话概括 |
+| 镜头 | `shot` | **分镜 / 画面细节参考**（不是每镜一次视频生成） | **正文 `detail` = 单镜细节**（画面/构图/景别/光线/动作/台词）——**生图提示词大多取自这里**；attr 只放真 meta：镜号 `no`、景别角度焦段 `shotSize`、时长 `durationSec`、镜头运动 `camera`、关键帧 `keyframe` |
+
+`scene` / `shot` 是**容器内的实体**（`typeId=scene/shot`，**不进默认预设目录、不进 facts**，用到即建、自带 schema）。**树的真源是显式结构关系 `has_script` / `has_scene` / `has_shot`（全局、父→子），不是 `parentId`**——`parentId` 只是通用归属（Notion 式文件夹），改它 / 移动卡片不断链；建生产节点时服务端按"父子都是生产类型"**自动补这条链**（草稿实体 → 草稿链）。类型目录的 **`childTypes`** 声明容许的子类型（`work.childTypes=[script]`、`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory，只喂"默认建什么 / 默认连哪条链"；容器内新建入口就按它给）。**产物是任一层按需的 media 属性**（不设固定槽位、不预设生成方式，用 label 标角色）：镜头挂 关键帧/片段/配音，场次挂 场成片，**作品挂 成片**——`finalOutput` 就在作品层。整体排产用 `recut.worlds.production.create`（挂到 `parentId`，通常是脚本；**一次调用直接建出正式实体、一条 revision**，无草稿/转正），读回用 `recut.worlds.production`（沿结构链解析、环安全）；**视频按场次生成**（逐场走 `recut.video.generate`，场成片落回 `scene.video`），图片/语音走 `recut.image/speech.generate`。
 
 ## 画布层级纪律：无限画布 ≠ 文件夹（建任何实体前先读）
 
@@ -107,11 +129,11 @@ World Canvas 的价值是**无限画布**——内容摊在一层上，一眼看
 
 | 层 | 职责 | 显示什么 |
 |---|---|---|
-| **实体卡**（画布，略读） | 一眼识人 | 封面（第一条 image 属性）、相册（全部 image 属性）、背景（image/video 属性轮播；`background` 属性有值则锁定为它）、名称、简介（2 行）、至多 2 条已填 primitive 字段（`label: value`）、子设定/素材计数徽标 |
+| **实体卡**（画布，略读） | 一眼识人 | 封面（显式 `cover` 字段优先，否则第一条 image 属性）、相册（全部 image 属性）、名称、简介（2 行）、至多 2 条已填 primitive 字段（`label: value`）、子设定/素材计数徽标 |
 | **详情面板 EntityEditor**（精读 / 编辑） | 改内容 | 身份区（名称/简介/正文）+ 字段区（schema 字段 + schema 外属性**续排同一渲染路径**，media 属性与普通属性同一路径）+ 关系区；先读后写、blur 即存、行内「已保存」 |
 | **画布属性卡**（空间表达） | 把某个属性摆到画布上 | 一张 `kind="attr"` 元素卡，通过一条**属性边**关联到实体；编辑卡片正文即回写实体 |
 
-规则：**卡片只略读，不承载编辑**（编辑走面板或属性卡）；**长文不进卡片**；封面/相册/背景都从 media 属性派生，不要单独维护素材字段。
+规则：**卡片只略读，不承载编辑**（编辑走面板或属性卡）；**长文不进卡片**；封面用一等字段 `cover`（显式优先、否则从 media 属性推断）、相册/背景都从 media 属性派生，不要单独维护素材字段。
 
 ## 属性怎么关联：边即关联，值不复制
 
@@ -141,8 +163,8 @@ World Canvas 的价值是**无限画布**——内容摊在一层上，一眼看
 | 发现 / 读取世界 | `recut.worlds.list` / `recut.worlds.get` | `get` 是**单一入口**：一次返回概览 + world.md（`skillMd`）+ **实体图**（entities 带 media 锚点 + relations）+ **生产上下文**（`facts` 角色/场景/道具/作品/脚本/风格 + `constraints` + `references[]`）+ 就绪缺失 `readiness.missing`；不传 `selection` 即整库。 |
 | 读取内容 | `recut.worlds.entities.list` / `recut.worlds.entities.get` / `recut.worlds.entityTypes.list` | 只读；`entities.list` 支持 `typeId` / `parentId`（子设定）/ `text` 与 `includeProvisional`（草稿）；单个实体的 `relations` 由 `entities.get` 带出。 |
 | 读画布 | `recut.worlds.doc`（某层）/ `recut.worlds.docs`（层索引） | `contextId=""` 为根画布 |
-| 读生产层 | `recut.worlds.production` | **作品(work) → 视频脚本(script) → 场次(scene) → 镜头(shot)** 的树 + 派生状态（planned/generating/ready/failed）；产物可挂任一层（镜头产物 / 场成片 / 作品成片） |
-| 排产 | `recut.worlds.production.create` | 按「场次→镜头」**一次建出**并写入 `has_scene`/`has_shot` 结构链（**正式实体，无草稿/转正**，一条事务一条 revision）。**不生成素材**。树的真源是结构链，不是 `parentId` |
+| 读生产层 | `recut.worlds.production` | **作品(work) → 视频脚本(script) → 场次(scene) → 镜头(shot)** 的树 + 派生状态（planned/generating/ready/failed）。**场次=一次视频生成单位**（完整内容+总时长+场成片），**镜头=分镜/画面参考**（不是每镜一次生成）；产物可挂任一层（镜头产物 / 场成片 / 作品成片） |
+| 排产 | `recut.worlds.production.create` | 按「场次→镜头」**一次建出**并写入 `has_scene`/`has_shot` 结构链（**正式实体，无草稿/转正**，一条事务一条 revision）。场次 `detail` 写**本场完整内容**、`attrs.durationSec` 总时长、`attrs.storyboard` 场次分镜；镜头 `detail` 写**画面描述**。**不生成素材**。树的真源是结构链，不是 `parentId` |
 | 写内容（画布接口） | `recut.worlds.entity` | op：`create`（可带 `contextId` 自动落投影卡）/ `update`（只覆盖显式字段）/ `archive` / `restore` / `confirm`（草稿转正） |
 | | `recut.worlds.relation` | op：`create` / `update` / `archive` / `restore`；`scopeEntityId` 非空为局部关系 |
 | | `recut.worlds.entityType` | 定义/覆盖类型 schema（不产 revision） |
@@ -174,7 +196,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 1. 先 `recut.worlds.get({ worldId })` 读 `references[]`（或 `world.get` 的实体 media 锚点），逐条对照本次画面/声音。
 2. 画面会出现主角色 → 必须带该角色参考图，`role="character"`（取实体 **`character_reference` 角色卡** 字段，`references[]` 已声明其 role）。
 3. 画面出现**关键道具**（反复出现 / 承担关键动作）→ 必须带该道具参考图，`role="prop"`（取实体 **`prop_reference` 道具卡** 字段，`references[]` 已声明其 role）。
-4. 世界已有场景 / 风格 / 色卡锚点 → 按 `role="environment" / "style-ref" / "color-card"` 传入（场景图取实体 **`location_reference` 场景卡** 字段），不堆无关图。`background` 不是参考，不要把它当场景/角色锚点传入。
+4. 世界已有场景 / 风格 / 色卡锚点 → 按 `role="environment" / "style-ref" / "color-card"` 传入（场景图取实体 **`location_reference` 场景卡** 字段），不堆无关图。`cover` 与 `background` 不是参考，不要把它们当场景/角色锚点传入。
 5. **角色有台词 / 内心独白** → 必须带该角色**声线参考**，`role="voice"`（取实体 `voice_reference` 字段，`references[]` 已声明其 role）。角色不说话的纯环境/静默镜头不必带 voice。
 6. **视频提交口径**：用 `references:[{id,kind,role,label}]` 传参考（含 audio role），需要模型发声时传 `audioAssetIds`，并让 `generateAudio` 与「本段是否说话」一致；**不要**只传 `imageAssetIds` 而丢掉 role 与声线。
 7. 只有**明确不出现任何角色**的纯空场景，才允许不带任何参考；缺任一应有锚点（角色/场景/道具/声线）即停下补齐，「我忘了读」不是理由。
@@ -259,7 +281,7 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
   { "op": "update", "entityId": "<entityId>", "expectedRevisionId": "<当前 revision>",
     "attrPatch": [{ "key": "location_reference", "label": "场景卡", "type": "media", "value": { "assetId": "<assetId>", "kind": "image" } }] }
   ```
-  只写 Canon 不落节点 = 用户看不到节点（本次要修的反例）；只落节点不写 Canon = 设置视图看不到它。Canon 写需用户授权，`label` 与节点 `props.label` 必须一致；**不要把核心参考写成 `background`**（那只是卡片装饰背景，不声明 role）。
+  只写 Canon 不落节点 = 用户看不到节点（本次要修的反例）；只落节点不写 Canon = 设置视图看不到它。Canon 写需用户授权，`label` 与节点 `props.label` 必须一致；**不要把核心参考写成普通 attr**（那只是动态属性，不声明 role）——涉及封面时用一等字段 `cover`，参考图用 `character_reference` / `location_reference` / `prop_reference`。
 - **Canon media 属性接受未就绪的 `assetId`**：`proposed` / `queued` / `running` 都能写进 media 属性（只有 `failed` / `deleted` 会被拒绝）。所以「画布节点 + 属性边」与「实体 media 属性」可以**一起落位、不必等终态**；assetId 稳定不变，产物就绪后画布/设置视图自动显示。
 - 若用户只要「画布上先看着」、暂不沉淀为设定，则只落「节点 + 边」，Canon 留待用户确认。
 
@@ -331,11 +353,12 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 - **还在用「证据」概念**：素材唯一表示是 **media 属性**；不要创建独立素材层或 A 挂接线。
 - **在画布上复制属性值**：属性卡只连边、持投影；真相在 `entity.attrs`。
 - **把长文/编辑控件塞进实体卡**：卡片只略读，编辑走面板或属性卡。
+- **把正文写进 attr、让 `detail`（正文）空着**：这是最伤内容的误用——作品顶层设想、脚本细节、场次文本化描述、单镜细节**都是正文**，必须写 `detail`；attr 只放真 meta（时长/画幅/镜号/景别）。后续生成提示词（尤其场次/镜头）正是从这些正文里长出来的，正文空着等于没料。
 - **写 Canon 不等授权**：无用户明确请求就 upsert/promote 是越权。
 - **忘记 `expectedRevisionId`**：并发写会静默覆盖，必须带乐观锁。
 - **替用户确认视频生成**：视频由平台落为待确认资产；自行确认、把直生当默认、或自行轮询采纳都是越权；确认只属于用户。
 - **世界生图/生视频不带参考图**：不先读 `references[]` 就纯文本直出，是最严重的误用——主角色会漂、场景/风格会串。画面可能出现主角色而没有 `role="character"` 参考图时**必须停下补齐**，只有明确无角色的纯空场景才可省略。
-- **把核心参考塞进 `background`**：`background`（背景）只是实体卡的装饰背景/封面覆盖项，**不声明任何生成 role**；角色卡/场景卡/道具卡要写进 `character_reference` / `location_reference` / `prop_reference` 语义字段，`references[]` 才会带正确 role 派发。
+- **把封面塞进动态 attr**：封面是实体一等字段 `cover`（显式优先、否则从 media 属性推断），不是可删可改名的 attr；旧 `background` 只是普通装饰 attr，平台不识别其封面语义，别用它当封面或参考。
 - **角色说话却不带声线参考**：只传 `imageAssetIds`、丢掉 `references`/`audioAssetIds`，或让 VO 走默认音色——角色的声音会与 Canon 不一致；有台词的镜头必须带 `role="voice"`。
 - **等生成成功才落位**：图片 / 视频 / 音频拿到 `assetId` 就应**立刻**落节点（`assetStatus:"generating"`；视频含待确认态）；用 `recut.job.wait` 把落位堵在终态之后、或轮询后回写节点，都会让用户干等、失去耐心——违背无限画布的即时反馈（门禁 8）。
 - **只写实体属性、不落画布节点**：用户要的是画布上的「图片节点 + 属性边」（实体的一条可见属性）；只写实体 attrs 不会在画布上出现节点。两者都要做时，节点与边的 `label` 保持一致。
@@ -370,5 +393,6 @@ World 本身就是 **entities + relations**。只看计数、或只读目标那�
 - 产品：`docs/world-canvas-prd-v2.md`。
 - 层级纪律（2026-10-03）：新增《画布层级纪律》，约束 `parentId` 深度——锚点实体在根层、生产实体平铺在作品层（最多两层）；依据 `rfc/2026-10-02-world-canvas-production-layer.md`（`parentId` 只是文件夹，生产树真源是 `has_*` 链）。
 - 即时落位（2026-10-03）：门禁 8——图片/视频/音频一拿到 `assetId`（含 proposed/queued/running）立即落在所属画布层，不等生成成功；视频待确认态同样先落位。
+- 实体封面（2026-10-04）：`cover` 定为实体**一等基础字段**（同名/简介/正文同级，不可改名/删除），形状与 media 值一致；显式优先、缺省动态回落第一条 image（其次 video）media 属性。`background` 退化为普通可选 attr，平台不对其做封面/生成识别，历史不迁移。**规格以 `rfc/2026-09-09-unified-entity-model.md` 更新版为准。**
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

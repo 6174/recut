@@ -643,7 +643,7 @@ const storyActions: GuidedAiAction[] = [
     output: { kind: "media", modality: "image", gate: "direct" },
     icon: "layout-grid",
     label: "生成分镜表",
-    desc: "前提/时刻/情绪 → 一张 25 宫格分镜表（含坐标）",
+    desc: "前提/时刻/情绪 → 一张分镜表（最多 3×3，含坐标）",
     typeIds: ["story"],
     priority: () => 45,
     build: (ctx) => {
@@ -687,7 +687,7 @@ ${stylePreamble(ctx.styleLock)}
 - 关键时刻：${attrText(s.entity, "moment") || "无"}
 - 情绪：${attrText(s.entity, "emotion") || "无"}
 
-先给出脚本草案（字段：logline 一句话概括 / beats 节拍与叙事结构 / vo 逐字口播 / durationSec 目标时长 / aspectRatio 画幅 / platform 目标平台），并建议节拍如何分配到分镜格。我确认后再创建这条 script 实体，并建立「script_of → 本故事」的关系。不直接写入。`;
+先给出脚本草案：**完整脚本细节写实体正文 detail**（故事脚本 / 逐字旁白·口播 / 场景的初步规划，一次写全），attr 只放真 meta（logline 一句话概括 / durationSec 目标时长 / aspectRatio 画幅 / platform 目标平台），并建议如何把戏拆成场次/分镜。我确认后再创建这条 script 实体，并建立「script_of → 本故事」的关系。不直接写入。`;
     },
   },
   {
@@ -766,15 +766,14 @@ const scriptActions: GuidedAiAction[] = [
     output: { kind: "media", modality: "image", gate: "direct" },
     icon: "layout-grid",
     label: "生成分镜表",
-    desc: "脚本 → 一张 25 宫格分镜表（含坐标与镜号）",
+    desc: "脚本 → 一张场次分镜表（最多 3×3，含坐标与镜号）",
     typeIds: ["script"],
     priority: () => 60,
     build: (ctx) => {
       const s = entityOf(ctx);
       return `为世界《${ctx.worldName}》的视频脚本「${s.entity.name}」生成一张分镜表（storyboard sheet）——用一张图把连续分镜一次性生成出来：
 - 一句话概括：${attrText(s.entity, "logline") || "未填"}
-- 节拍 / 叙事结构：${attrText(s.entity, "beats") || "未填"}
-- 口播 / 旁白：${attrText(s.entity, "vo") || "（无）"}
+- 脚本正文（完整脚本 / 旁白 / 场景初步规划）：${s.entity.detail || "未填"}
 - 目标时长：${attrText(s.entity, "durationSec") || "未填"} 秒；画幅：${attrText(s.entity, "aspectRatio") || "未填"}；平台：${attrText(s.entity, "platform") || "未填"}
 
 ${STORYBOARD_SHEET_LAYOUT}
@@ -826,13 +825,13 @@ ${stylePreamble(ctx.styleLock)}
     output: { kind: "media", modality: "audio", gate: "direct" },
     icon: "audio-lines",
     label: "生成口播配音",
-    desc: "由 vo 字段走语音合成",
+    desc: "由脚本正文里的口播/旁白走语音合成",
     typeIds: ["script"],
-    requires: (ctx) => (attrText(entityOf(ctx).entity, "vo") ? { ok: true } : { ok: false, reason: "先填写「口播 / 旁白」字段" }),
+    requires: (ctx) => ((entityOf(ctx).entity.detail || "").trim() ? { ok: true } : { ok: false, reason: "先在脚本正文（detail）里写入口播 / 旁白" }),
     build: (ctx) => {
       const s = entityOf(ctx);
-      return `用脚本「${s.entity.name}」的口播文本合成配音（role=voice）：
-${attrText(s.entity, "vo") || "（空）"}
+      return `用脚本「${s.entity.name}」正文里的口播/旁白文本合成配音（role=voice）：
+${s.entity.detail || "（空）"}
 
 按世界已有音色锚定（若有）保持一致；产出写回该脚本的 media 属性。只新增这一条音频素材。`;
     },

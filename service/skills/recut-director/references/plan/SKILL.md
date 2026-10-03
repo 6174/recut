@@ -29,26 +29,35 @@ description: 决定「这部片子怎么排产」——备齐锚点、把戏拆�
 
 ## 二、把它排成树（本技能主体）
 
-一部片子 = **作品(`work`) → 视频脚本(`script`) → 场次(`scene`) → 镜头(`shot`)**。作品是**交付单位**（挂成片与总进度），脚本是**可生成规格**（叙事/口播/分镜表）——**一个作品可以有多个脚本**（30s/60s、口播版 vs 分镜版、中英双语），它们共享同一批角色/风格。**树靠结构 link `has_script` / `has_scene` / `has_shot`（全局、父→子），不是 `parentId`**——`parentId` 只是通用归属（文件夹），改它不断链；建生产节点时服务端会自动补这条链。类型目录的 `childTypes` 是这件事的机器可读声明（`work.childTypes=[script]`、`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory）。
+一部片子 = **作品(`work`) → 视频脚本(`script`) → 场次(`scene`) → 镜头(`shot`)**。四层职责是硬契约：
 
-每个镜头写清五件：
+- **作品 `work` = 交付单位**（挂成片与总进度；一个作品可有多个脚本：30s/60s、口播版 vs 分镜版、中英双语，共享同一批角色/风格）；
+- **视频脚本 `script` = 完整脚本 + 可生成规格**：**正文 `detail` 写完整脚本（故事脚本/旁白台词/场景的初步规划），一次写全**——不要只填一句话概括或直接跳去分镜；
+- **场次 `scene` = 一次视频生成的单位**（排产与生成的粒度都在这里，不是镜头）；
+- **镜头 `shot` = 分镜/画面细节参考**（供模型展开该场分镜、作最终参考，**不是每镜一次视频生成**）。
 
-1. **意图**：这一拍让观众感到什么（为什么存在）；
-2. **镜头**：景别 / 运动 / 时长（怎么拍归 `references/shot`，这里只记结论）；
-3. **用料**：带哪些 role 的锚点（角色 / 场景 / 道具 / 风格 / 声线 / 分镜表）；
-4. **参数**：模型 / 画幅 / 时长；
-5. **产物**：这一镜要出什么（关键帧 / 片段 / 配音）+ 生成关系（参考驱动 / 首尾帧 / 文生）。
+**树靠结构 link `has_script` / `has_scene` / `has_shot`（全局、父→子），不是 `parentId`**——`parentId` 只是通用归属（文件夹），改它不断链；建生产节点时服务端会自动补这条链。类型目录的 `childTypes` 是这件事的机器可读声明（`work.childTypes=[script]`、`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory）。
 
-> **产物不设固定槽位**：镜头**不是首尾帧模式**——生成关系至少三类，实测绝大多数是参考驱动（liblib《阿猫阿雀》90 镜里 89 个 `mixed2video`）。计划里写"要出什么 + 什么关系"，具体提示词由 `references/generation-prompt` 决定。
+**每个场次写清五件：**
 
-**成本预估**：按"镜头数 ×（模型单价 × 时长/张数）"粗算；贵的（视频）标注**待用户确认**。
+1. **内容**：本场完整内容（发生什么 / 谁在场 / 环境·情绪·关键动作·台词）→ 写 `scene.detail`；
+2. **总时长**：`scene.durationSec`（本场时间轴由它定）；
+3. **分镜**：`scene.storyboard` = 场次分镜表（一图 N 宫格，把本场拆成 shot 的依据）；
+4. **用料**：带哪些 role 的锚点（角色 / 场景 / 道具 / 风格 / 声线）；
+5. **产物**：本场要出什么（默认一场一条**场成片** → `scene.video`；需要时追加关键帧/配音）。
+
+**镜头 `shot`**：**单镜细节写 `detail`（正文）**（画面/构图/景别/光线/动作/台词——生图提示词多取自这里）；attr 只放真 meta：`no` / `shotSize` / `camera` / `durationSec` + `keyframe`（分镜图/关键帧）。它是分镜拆解与画面参考。
+
+> **产物不设固定槽位**：生成关系至少三类（参考驱动 / 首尾帧 / 文生），实测绝大多数是参考驱动（liblib《阿猫阿雀》90 镜里 89 个 `mixed2video`）。计划里写"要出什么 + 什么关系"，具体提示词由 `references/generation-prompt` 决定。
+
+**成本预估**：按"**场次**数 ×（模型单价 × 场次时长）"粗算；贵的（视频）标注**待用户确认**。
 
 ## 三、落地（工具）
 
-1. `recut.worlds.production.create({ worldId, parentId, scenes:[{ name, shots:[{ name, attrs? }] }] })`
-   —— **一次把树建成**：场次/镜头**直接以正式实体写入**（无草稿态、无转正步骤），**一条事务产一条 revision**；同时写入结构关系 **`has_scene` / `has_shot`**（这才是生产树的真源）。`parentId` 只是卡片落位（通常是**视频脚本**；无脚本短片可直接给作品），`placeCards`（默认 true）在该节点内层画布落卡。**只建结构，不生成任何素材**。
+1. `recut.worlds.production.create({ worldId, parentId, scenes:[{ name, detail, attrs, shots:[{ name, detail, attrs? }] }] })`
+   —— **一次把树建成**：场次/镜头**直接以正式实体写入**（无草稿态、无转正步骤），**一条事务产一条 revision**；同时写入结构关系 **`has_scene` / `has_shot`**（这才是生产树的真源）。`scene.detail` 写**本场完整内容**、`scene.attrs.durationSec` 写总时长、`scene.attrs.storyboard` 挂场次分镜表；`shot.detail` 写**画面描述**。`parentId` 只是卡片落位（通常是**视频脚本**；无脚本短片可直接给作品），`placeCards`（默认 true）在该节点内层画布落卡。**只建结构，不生成任何素材**。
 2. 用户可改（用 `recut.worlds.production` 读回树与派生状态）。
-3. 逐镜生成：走 `recut.image/video/speech.generate`（**视频待用户确认**），产物落成镜头的 **media 属性**（`label` 标角色，如「关键帧」/「片段」/「配音」）。
+3. **逐场生成**：走 `recut.video.generate`（**视频待用户确认**）——**一次视频生成 = 一个场次**，用该场分镜表（`storyboard`）+ 角色/场景/色卡/声线参考驱动，场成片落回 `scene.video`；镜头关键帧/配音按需走 `recut.image/speech.generate` 并落回 shot 的 **media 属性**（`label` 标角色，如「关键帧」/「配音」）。
 
 ## 四、纪律
 

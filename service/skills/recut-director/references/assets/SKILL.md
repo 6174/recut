@@ -22,18 +22,18 @@ description: 决定「生成要用的参考锚点怎么备齐」——角色卡/
 | **色卡** | 整段色调/材质参考（图） | `color-card` | 按需 media 属性 | 需要锁色调时 |
 | **风格锚点** | 世界视觉语言（图） | `style-ref` | 世界风格 / 按需 media 属性 | 有风格实体/示例图时按需 |
 | **声线参考** | 角色的参考音（音） | `voice` | `voice_reference`（角色） | 该角色有台词/旁白时 |
-| **分镜表** | 一图 N 宫格分镜表（图） | `storyboard` | `script.storyboard` | 走"分镜直驱生成"时（整张只占一个名额） |
+| **分镜表** | 一图 N 宫格分镜表（图） | `storyboard` | `scene.storyboard`（整片级可选 `script.storyboard`） | 走"分镜直驱生成"时（整张只占一个名额） |
 
 ## 从哪来（优先级）
 
 1. **世界已有** → 直接引用（`recut.worlds.get` 的 `references[]`，含建议 role；核心锚点取 `character_reference` / `location_reference` / `prop_reference` 字段）。**先读，别再造一份。**
-2. **世界没有** → 生成候选交用户挑选 → 采纳后写回实体的**语义卡字段**（`recut.worlds.entity` op=`update` + `attrPatch`，key 用 `character_reference` / `location_reference` / `prop_reference`；或画布落"节点 + 属性边"，label 与字段一致）。**不要写进 `background`**——那只是卡片装饰背景，不声明 role。
+2. **世界没有** → 生成候选交用户挑选 → 采纳后写回实体的**语义卡字段**（`recut.worlds.entity` op=`update` + `attrPatch`，key 用 `character_reference` / `location_reference` / `prop_reference`；或画布落"节点 + 属性边"，label 与字段一致）。**不要写进普通的装饰 attr**——那只是可删可改名的动态属性，不声明 role。
 3. **用户给了素材** → 登记入库（`recut.media.import`）→ 挂到对应实体的语义卡字段。
 
 ## 纪律
 
 - **一物一锚点，不堆料**：只为"本片真的会出现的角色/场景/道具"备锚点；不给"可能有用"的参考。
-- **锚点要有身份**：写回**实体**的语义卡字段（角色挂 `character_reference`、场景挂 `location_reference`、道具挂 `prop_reference`），不是散在画布上的游离图、也不是装饰用的 `background`——这样它才可被 `references[]` 派发、被 role 声明（`references[]` 按字段直接给出 `character` / `environment` / `prop`，不再靠 label 推断）。
+- **锚点要有身份**：写回**实体**的语义卡字段（角色挂 `character_reference`、场景挂 `location_reference`、道具挂 `prop_reference`），不是散在画布上的游离图、也不是装饰用的普通 attr——这样它才可被 `references[]` 派发、被 role 声明（`references[]` 按字段直接给出 `character` / `environment` / `prop`，不再靠 label 推断）。
 - **采纳才写下**：候选图先给用户挑，采纳后再写回；不把"生成的候选"当既定锚点。
 - **锚点变了要重跑下游**：换角色卡/风格 → 用到它的镜头失效重跑（见 `references/qc`）。
 

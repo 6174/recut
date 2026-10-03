@@ -123,7 +123,7 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 		}
 	}
 	if propLocked["background"] {
-		t.Fatal("prop background field must stay unlocked")
+		t.Fatal("background must not be a preset field (cover is a first-class field now)")
 	}
 	// Retired presets must not appear: `reference` (media attrs cover it),
 	// `rule`/`style` (world-level identity.constraints / identity.style now),
@@ -140,8 +140,8 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 	if len(character.Fields) == 0 {
 		t.Fatal("character preset should carry field schemas")
 	}
-	// Preset fields are locked (structure pinned); every preset carries an
-	// unlocked background media field for card backgrounds.
+	// Preset fields are locked (structure pinned); there is no decorative
+	// background field — the cover is a first-class field (`entity.cover`).
 	locked := map[string]bool{}
 	for _, field := range character.Fields {
 		locked[field.Key] = field.Locked
@@ -151,8 +151,8 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 			t.Fatalf("character preset field %q must be locked: %#v", key, character.Fields)
 		}
 	}
-	if locked["background"] {
-		t.Fatal("background field must stay unlocked")
+	if _, hasBackground := locked["background"]; hasBackground {
+		t.Fatal("background must not be a preset field")
 	}
 	mediaKeys := map[string]bool{}
 	for _, field := range character.Fields {
@@ -160,7 +160,7 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 			continue
 		}
 		mediaKeys[field.Key] = true
-		if field.Key != "background" && field.Key != "voice_reference" && field.Key != "character_reference" {
+		if field.Key != "voice_reference" && field.Key != "character_reference" {
 			t.Fatalf("unexpected media field %q", field.Key)
 		}
 	}
@@ -168,8 +168,7 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 		t.Fatal("character preset must declare a voice_reference media field")
 	}
 	// Every production anchor carries a declared core-reference card field:
-	// 角色卡 / 场景卡 / 道具卡. These are the canonical generation anchors,
-	// distinct from the unlocked decorative `background`.
+	// 角色卡 / 场景卡 / 道具卡. These are the canonical generation anchors.
 	cardFields := map[string]string{
 		"character": "character_reference",
 		"location":  "location_reference",
@@ -203,14 +202,10 @@ func TestPresetEntityTypesAreSeeded(t *testing.T) {
 		}
 	}
 	for _, id := range []string{"location", "script"} {
-		hasBackground := false
 		for _, field := range byID[id].Fields {
-			if field.Key == "background" && field.Type == "media" && !field.Locked {
-				hasBackground = true
+			if field.Key == "background" {
+				t.Fatalf("preset %q must not carry a background field: %#v", id, byID[id].Fields)
 			}
-		}
-		if !hasBackground {
-			t.Fatalf("preset %q must carry an unlocked background media field: %#v", id, byID[id].Fields)
 		}
 	}
 	if ListWorldRelationTypes() == nil {

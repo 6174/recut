@@ -88,6 +88,7 @@ Entity {
   name           -- 原 title
   intro          -- 原 summary
   detail         -- 原 content.body，长文本正文，升级为一级概念
+  cover          -- 一等封面字段（2026-10-04）：单个 media 引用 {assetId|url, name?, kind?}
   attrs_json     -- Attr[]，见下
   parent_id, container_role   -- 递归容器，沿用
   is_provisional -- 草稿，沿用
@@ -96,6 +97,16 @@ Entity {
 ```
 
 删除 `kind` 列与 `content_json`（attrs 取代）。`content_json` 中不属于 body 的历史字段由迁移脚本转为 attrs（见迁移节）。
+
+### 1.1 封面 = 一等字段（2026-10-04）
+
+`cover` 与 `name` / `intro` / `detail` 同级，是**基础字段而非动态 attr**：
+
+- **不可改名/删除**，只能换值——这是它和 attrs（可自由增删改 label）的本质区别。
+- 形状与 media attr 值一致 `{assetId, url?, name?, kind?}`（assetId|url 双源；assetId 允许未就绪 proposed/queued/running，与 media attr 同规则）。清除 = 传空/nil。
+- **读取优先级**：显式 `cover` → attrs 中第一条 image 媒体属性 → 第一条 video 媒体属性 → legacy evidence 首图。`cover` 命中时短路，不做 attrs 推断。
+- 旧的 `background` 语义**退休**：它退回为普通 unlocked attr（可删可改名），平台**不做任何封面/生成识别**，历史数据不迁移、不特殊处理；preset schema 不再默认带 `background` 字段。
+
 
 ### 2. Attr 模型
 
@@ -155,10 +166,8 @@ type EntityAttr struct {
 ### 5. 画布投影规则（不变式重申）
 
 - 语义真相只在 entities/relations；画布元素（`kind:"entity"` 骨架 + 自由元素）永远是投影，写画布不产 revision（现状 `worlds_canvas.go L591–594`）。
-- 实体卡渲染改为消费统一投影：`name / intro / cover（第一个 image attr）/ photoUrls（全部 image attrs）`。**删除 emoji 双通道**（cover/photos 遗留通道）。
-- **实体卡背景默认轮播**：默认把实体 attrs 中所有 `image | video` 类型的 attr（value 含 `assetId`）取出作为背景源，在卡内低频轮播（视频静音循环/图片淡切，节奏建议 6–8s，画布渲染循环内实现、不落额外状态）。用户想固定某张时，通过一条**显式背景 attr** 覆盖：
-  - 类型目录每类可带一个 preset 字段 `background`（type=media，unlocked，value 空=跟随默认轮播）；用户在该字段设定素材后，背景锁定为它，轮播关闭。
-  - 判定规则简单单向：`background` attr 有值 → 单图/单视频背景；否则 → attrs 内媒体轮播。空类型目录（自建类型）也自动走轮播，无需任何配置。
+- 实体卡渲染消费统一投影：`name / intro / cover / photoUrls（全部 image attrs）`。`cover` 取实体一等字段（显式优先），缺省时回落到 attrs 中第一个 image attr（见 §1.1）。**删除 emoji 双通道**（cover/photos 遗留通道）。
+- **`background` 装饰语义退休**（2026-10-04）：不再有默认背景轮播、不再有 preset `background` 覆盖字段，平台不对任何 attr 做背景/封面识别。卡片封面统一由一等字段 `cover` + attrs 回落决定。
 - rename 后元素 `name` 投影由共享保存器单向同步（entity → element），画布上的 inline 改名仍走 `saveEntityField`。
 
 ## 共享编辑器（设定视图 ⇄ 画布）
@@ -192,7 +201,7 @@ EntityEditor          -- 统一容器：身份区(name/intro/detail) + AttrsSect
 
 ## 分阶段落地
 
-1. **P0 服务端**：`world_entities` 加列（type_id/name/intro/detail/attrs_json）+ 迁移脚本 + `UpsertEntity` 改为统一输入（含 attrPatch）；删 `worldEntityKinds` enum 校验；`world_asset_refs` 冻结写入；relation spec 加 inverse；MCP/HTTP 契约同步（`entities.upsert` 的 `content` 字段替换为 `detail` + `attrs`，`evidence.*` 停用）。
+1. **P0 服务端**：`world_entities` 加列（type_id/name/intro/detail/cover_json/attrs_json）+ 迁移脚本 + `UpsertEntity` 改为统一输入（含 attrPatch）；删 `worldEntityKinds` enum 校验；`world_asset_refs` 冻结写入；relation spec 加 inverse；MCP/HTTP 契约同步（`entities.upsert` 的 `content` 字段替换为 `detail` + `attrs`，`evidence.*` 停用）。
 2. **P1 共享编辑器**：抽 `web/components/world-entity/`，画布 EntityPanel 先切过去（回归最小），FieldRow/useEntitySaver 提升；EntityPanel 素材网格并入 AttrsSection 的 media attr。
 3. **P2 设定视图切换**：类型分组列表 + EntityEditor + SettingCard 统一投影；删除 SettingDialog/fieldDefinitions/ObjectEvidenceManager。
 4. **P3 清理**：删 `world_asset_refs` 表与 `evidence.*` API/MCP 工具；EntityCardBlock emoji 双通道、`content.type` 幽灵字段、双份 purpose 常量表、demo doc-sync 遗留 attrs；readiness 改 requiredKeys。

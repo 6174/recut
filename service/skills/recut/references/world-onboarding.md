@@ -34,10 +34,11 @@ recut.worlds.get({ worldId, scenarioId? })
 ## 3. Research 纪律
 
 - 消化产物先对齐蓝图目标形态（如 novel-adaptation：`character`（角色）卡含 appearance/personality/voice/
-  invariants；`script`（视频脚本）含 logline/beats；`location`（场景）含 description；关键 `prop`（道具）含 description/appearance）。
+  invariants；`script`（视频脚本）**正文 `detail` 写完整脚本内容**，attr 只留 logline/durationSec/aspectRatio/platform；
+  `location`（场景）含 description；关键 `prop`（道具）含 description/appearance）。**正文（`detail`）是内容本体，attr 只放真 meta**——别把正文写进 attr。
 - **核心参考卡字段**：角色图写 `character_reference`（角色卡，role=character）、场景图写 `location_reference`
   （场景卡，role=environment）、道具图写 `prop_reference`（道具卡，role=prop）——它们是各自的**核心参考锚点**，
-  `references[]` 按字段声明 role。`background` 只是卡片装饰背景，**不要把参考图写进 `background`**。
+  `references[]` 按字段声明 role。封面用实体一等字段 `cover`（非 attr）；普通装饰 attr **不要把参考图写进去**。
 - 原文与产出可追溯：角色卡字段尽量保留原文依据；用户追问时能指出出处。
 - 世界定位（identity）：从用户目的与素材归纳一句话定位，放入提案请用户确认。
 

@@ -198,11 +198,9 @@ const scriptEntity = {
   typeId: "script",
   name: "雨夜电台开场",
   intro: "",
-  detail: "",
+  detail: "开场钩子→来电→回忆→落定。今晚，最后一通电话。",
   attrs: [
     { key: "logline", label: "一句话概括", type: "text", value: "主播在雨夜接通最后一通电话" },
-    { key: "beats", label: "节拍 / 叙事结构", type: "textarea", value: "开场钩子→来电→回忆→落定" },
-    { key: "vo", label: "口播 / 旁白", type: "textarea", value: "今晚，最后一通电话。" },
     { key: "durationSec", label: "目标时长", type: "number", value: 60 },
     { key: "aspectRatio", label: "画幅", type: "select", value: "9:16" },
     { key: "storyboard", label: "分镜表", type: "media", value: { assetId: "asset_sb", name: "分镜表", kind: "image" } },
@@ -221,11 +219,11 @@ test("script actions are scoped to the script type", () => {
   assert.ok(!ids.includes("character.sheet"));
 });
 
-test("script storyboard action emits a 25-panel grid sheet prompt", () => {
+test("script storyboard action emits a grid sheet prompt", () => {
   const ctx = buildEntityContext({ entity: scriptEntity, typeLabel: "视频脚本", worldId: "w1", worldName: "晨间电台" });
   const action = actionsFor(ctx).find((item) => item.id === "script.storyboard")!;
   const text = buildActionText(action, ctx);
-  assert.ok(text.includes("25 格"));
+  assert.ok(text.includes("9 格"));
   assert.ok(text.includes("R1C1"));
   assert.ok(text.includes("panel manifest"));
 });
@@ -252,7 +250,7 @@ test("story storyboard action asks for a single grid sheet with coordinates", ()
   const action = actionsFor(ctx).find((item) => item.id === "story.storyboard")!;
   const text = buildActionText(action, ctx);
   assert.ok(text.includes("R1C1"));
-  assert.ok(text.includes("25 格"));
+  assert.ok(text.includes("9 格"));
 });
 
 test("story.script proposes a script entity creation", () => {

@@ -183,18 +183,16 @@ type EntityTypeField struct {
 	I18n   map[string]string `json:"i18n,omitempty"`
 }
 
-// presetEntityTypeFields returns the preset field schemas. Preset fields are
-// locked (structure pinned) except the explicit background field, which every
-// preset carries unlocked: when set it overrides the entity card's default
-// media-attrs carousel background (RFC 统一 Entity 模型 §背景).
+// presetEntityTypeFields returns the preset field schemas. All preset fields
+// are locked (structure pinned); there is no unlocked decorative field — the
+// entity cover is a first-class field (`entity.cover`), not a preset media attr.
 //
 // Every production anchor (character/location/prop) also carries a **declared
 // core-reference field** — 角色卡(`character_reference`) / 场景卡
 // (`location_reference`) / 道具卡(`prop_reference`). These are the canonical
 // anchor a generation should consume; the field key declares the role (via
 // `declaredMediaFieldRoles`) so `references[]` reads the role off the schema
-// instead of guessing from the label. They are distinct from `background`,
-// which is only the card's decorative background and is never a reference.
+// instead of guessing from the label.
 //
 // The default set is deliberately minimal, accurate and runnable (生产层 RFC §5):
 // 谁(character) / 在哪(location) / 拍什么(script). Everything else is the user's
@@ -202,14 +200,16 @@ type EntityTypeField struct {
 //   - `reference` retired earlier (media attrs cover it);
 //   - `rule` → world-level `identity.constraints` (always/never/prefer);
 //   - `style` → world-level `identity.style` (one world = one STYLE LOCK);
-//   - `story` → merged into `script` (script is the superset: logline + beats
-//     already carry the narrative core, plus the producible spec);
+//   - `story` → merged into `script` (script is the superset: its `detail` body
+//     carries the narrative core — full script/narration/scene plan — plus the
+//     producible spec);
 //   - `object` → not seeded (key props are a common but optional extension).
 var presetEntityTypeFields = map[string][]EntityTypeField{
-	// 作品 = 交付单位：只承载**成片**（按需 media 属性，label「成片」）+ 子节点聚合；
-	// 交付规格（平台/画幅/时长）留在脚本上（决定 2026-10-02）。
+	// 作品 = 交付单位：`detail`（正文）= **作品的基础/顶层设想**（这部片到底想做什么、
+	// 给谁、什么调性），交付规格留在脚本，成片按需挂 media（label「成片」）+ 子节点聚合。
 	"work": {
-		{Key: "background", Label: "背景", Type: "media"},
+		// 作品的封面用实体一等字段 `cover`；不再预设 background 装饰字段。
+		// 正文写在实体 `detail`，attr 只放真 meta（本类型默认为空）。
 	},
 	"character": {
 		{Key: "appearance", Label: "外貌与标志", Type: "textarea", Locked: true},
@@ -219,14 +219,12 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 		// 角色卡 = 角色的核心参考锚点（多视图/表情/服装等），declared role=character。
 		{Key: "character_reference", Label: "角色卡", Type: "media", Options: []string{"image"}, Locked: true},
 		{Key: "invariants", Label: "不可变特征", Type: "textarea", Invariant: true, Locked: true},
-		{Key: "background", Label: "背景", Type: "media"},
 	},
 	"location": {
 		{Key: "description", Label: "描述", Type: "textarea", Locked: true},
 		{Key: "atmosphere", Label: "氛围", Type: "textarea", Locked: true},
 		// 场景卡 = 场景的核心参考锚点（establishing 全景/机位/氛围），declared role=environment。
 		{Key: "location_reference", Label: "场景卡", Type: "media", Options: []string{"image"}, Locked: true},
-		{Key: "background", Label: "背景", Type: "media"},
 	},
 	// 道具 = 现实制作里必备的锚点实体（关键道具跨镜一致）：描述 + 外观标志
 	// （颜色/材质/边角特征，连续性关键）+ 道具卡（核心参考图，declared role=prop）。
@@ -234,17 +232,17 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 		{Key: "description", Label: "描述", Type: "textarea", Locked: true},
 		{Key: "appearance", Label: "外观与标志", Type: "textarea", Locked: true},
 		{Key: "prop_reference", Label: "道具卡", Type: "media", Options: []string{"image"}, Locked: true},
-		{Key: "background", Label: "背景", Type: "media"},
 	},
+	// 视频脚本 = 可生成规格。**脚本全部内容细节写一等字段 `detail`（正文）**：
+	// 完整故事脚本、旁白/台词、场景的初步规划。**不要把这些写成 attr**——下面
+	// locked 字段只放真 meta（时长/画幅/平台）与一句话概括、可选整片分镜表；
+	// 把戏拆成场/镜属于生产层（`scene`/`shot`）。attr 当正文用、正文空着是错的。
 	"script": {
 		{Key: "logline", Label: "一句话概括", Type: "text", Locked: true},
-		{Key: "beats", Label: "节拍 / 叙事结构", Type: "textarea", Locked: true},
-		{Key: "vo", Label: "口播 / 旁白", Type: "textarea", Locked: true},
 		{Key: "durationSec", Label: "目标时长（秒）", Type: "number", Locked: true},
 		{Key: "aspectRatio", Label: "画幅", Type: "select", Options: []string{"9:16", "16:9", "1:1", "4:5"}, Locked: true},
 		{Key: "platform", Label: "目标平台", Type: "text", Locked: true},
-		{Key: "storyboard", Label: "分镜表", Type: "media", Locked: true},
-		{Key: "background", Label: "背景", Type: "media"},
+		{Key: "storyboard", Label: "整片分镜表（可选）", Type: "media", Locked: true},
 	},
 }
 
@@ -273,26 +271,41 @@ var retiredPresetEntityTypes = []string{"reference", "object", "story", "style",
 // structure built on top of them. Their base_kind stays empty on purpose: the
 // CreationContext buckets are world anchors, and production objects must not
 // leak into `facts`.
+//
+// SEMANTICS (the reason these types exist, 2026-10-04). **正文 vs 属性** 是硬纪律：
+// 长文细节一律写实体 `detail`（正文），attr 只放真 meta（时长/画幅/类型/景别/机位号）：
+//   - **场次 scene = 一次视频生成的单位**（最合理的粒度）。**本场细节文本化描述全部写
+//     `detail`**（发生什么、谁在场、环境/情绪/关键动作/台词）——**后续大量生成提示词
+//     就取自这里**。attr 只留：总时长 `durationSec`、场次分镜表 `storyboard`（拆 shot
+//     用）、场成片 `video`、一句话 `summary`。**不是每个 shot 一次视频生成**。
+//   - **镜头 shot = 单镜细节单位**。**镜头细节全部写 `detail`**（画面/景别/构图/运动/
+//     光线/动作，**生图提示词大多来自这里**）。attr 只留真 meta：镜号 `no`、景别角度
+//     焦段 `shotSize`、时长 `durationSec`、镜头运动 `camera`、关键帧 `keyframe`。
 var productionEntityTypeFields = map[string][]EntityTypeField{
 	"scene": {
 		{Key: "summary", Label: "一句话概括", Type: "text", Locked: true},
-		{Key: "beats", Label: "节拍", Type: "textarea", Locked: true},
-		{Key: "emotion", Label: "情绪", Type: "textarea", Locked: true},
-		{Key: "durationSec", Label: "目标时长（秒）", Type: "number", Locked: true},
-		{Key: "background", Label: "背景", Type: "media"},
+		// 场次分镜表：把本场拆成 shot 的依据（一图 N 宫格），作 role=storyboard 参考。
+		{Key: "storyboard", Label: "场次分镜表", Type: "media", Options: []string{"image"}, Locked: true},
+		{Key: "durationSec", Label: "场次总时长（秒）", Type: "number", Locked: true},
+		// 场成片：本场视频生成的结果（一次生成 = 一场）。产物不预设生成方式
+		// （参考驱动 / 首尾帧 / 文生都行），生成方式记在产物资产 metadata.proposal；
+		// 需要额外产物（关键帧/配音）仍可按需追加媒体属性。
+		{Key: "video", Label: "场成片", Type: "media", Options: []string{"video"}, Locked: true},
+		// NOTE: 本场的完整内容/情绪/节拍/画面描述全部写在实体 `detail`（正文）——
+		// 不要再造 beats/emotion 之类的正文属性；attr 只放真 meta。
 	},
 	"shot": {
 		{Key: "no", Label: "镜号", Type: "text", Locked: true},
 		{Key: "shotSize", Label: "景别 / 角度 / 焦段", Type: "text", Locked: true},
 		{Key: "durationSec", Label: "时长（秒）", Type: "number", Locked: true},
 		{Key: "camera", Label: "镜头运动", Type: "text", Locked: true},
-		{Key: "dialogue", Label: "台词 / 旁白", Type: "textarea", Locked: true},
-		{Key: "background", Label: "背景", Type: "media"},
-		// NOTE: 产物（关键帧 / 首帧 / 尾帧 / 片段 / 配音）**不设固定槽位**。
-		// 镜头不是「首尾帧模式」——生成关系至少有三类（参考驱动 / 首尾帧 / 文生），
-		// 实测绝大多数镜头是参考驱动（liblib：90 镜里 89 个 mixed2video）。
-		// 所以产物是**按需添加的普通 media 属性**，用 label 标角色；生成方式记在
-		// 产物资产自己的 metadata.proposal（model/modeType/params/references）。
+		// 关键帧 / 分镜图：该镜的参考画面（作 role=storyboard 或关键帧参考）。
+		{Key: "keyframe", Label: "关键帧 / 分镜图", Type: "media", Options: []string{"image"}, Locked: true},
+		// NOTE: 该镜的画面描述/台词/构图/光线等细节全部写在实体 `detail`（正文）——
+		// 生图提示词主要取自这里；不要再造 content/dialogue 之类的正文属性。
+		// 镜头不是视频生成单位——视频按场次生成，镜头是它的分镜拆解与画面参考。
+		// 产物不设固定槽位：关键帧/首尾帧/片段/配音按需加普通 media 属性，用 label 标角色；
+		// 生成方式记在产物资产自己的 metadata.proposal（model/modeType/params/references）。
 	},
 }
 
@@ -323,6 +336,34 @@ func childTypesFor(typeID string) []string {
 		return types
 	}
 	return nil
+}
+
+// mergePresetFields folds preset locked fields into an existing field list by
+// key: the pinned label/locked flag is refreshed and a missing preset field is
+// appended (custom fields are preserved). Returns the merged list and whether
+// anything changed. Shared by preset seeding and production-type upgrade so a
+// schema addition reaches existing worlds without touching user-added fields.
+func mergePresetFields(existing, preset []EntityTypeField) ([]EntityTypeField, bool) {
+	byKey := map[string]*EntityTypeField{}
+	for index := range existing {
+		byKey[existing[index].Key] = &existing[index]
+	}
+	changed := false
+	for _, field := range preset {
+		if current, ok := byKey[field.Key]; ok {
+			if current.Locked != field.Locked || current.Label != field.Label {
+				current.Locked = field.Locked
+				current.Label = field.Label
+				changed = true
+			}
+			continue
+		}
+		appended := field
+		existing = append(existing, appended)
+		byKey[field.Key] = &existing[len(existing)-1]
+		changed = true
+	}
+	return existing, changed
 }
 
 // ensurePresetEntityTypesInTx lazily seeds the preset directory rows into a
@@ -362,25 +403,7 @@ func ensurePresetEntityTypesInTx(tx *sql.Tx, worldID string) error {
 		if fieldsJSON != "" {
 			_ = json.Unmarshal([]byte(fieldsJSON), &existing)
 		}
-		byKey := map[string]*EntityTypeField{}
-		for index := range existing {
-			byKey[existing[index].Key] = &existing[index]
-		}
-		changed := false
-		for _, preset := range presetFields {
-			if field, ok := byKey[preset.Key]; ok {
-				if field.Locked != preset.Locked || field.Label != preset.Label {
-					field.Locked = preset.Locked
-					field.Label = preset.Label
-					changed = true
-				}
-				continue
-			}
-			appended := preset
-			existing = append(existing, appended)
-			byKey[preset.Key] = &existing[len(existing)-1]
-			changed = true
-		}
+		existing, changed := mergePresetFields(existing, presetFields)
 		if !changed {
 			continue
 		}
@@ -449,9 +472,28 @@ func ensureEntityTypeInTx(tx *sql.Tx, worldID, typeID string) error {
 	if err := ensurePresetEntityTypesInTx(tx, worldID); err != nil {
 		return err
 	}
-	var id string
-	err := tx.QueryRow("select id from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, typeID).Scan(&id)
+	var id, existingScope, existingFieldsJSON string
+	err := tx.QueryRow("select id, coalesce(scope, ''), coalesce(fields_json, '') from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, typeID).Scan(&id, &existingScope, &existingFieldsJSON)
 	if err == nil {
+		// Production types are seeded on first use, so a schema addition (e.g.
+		// scene.storyboard / scene.video) must upgrade an existing builtin row
+		// exactly like a preset; user-added custom fields are preserved.
+		if preset, ok := productionEntityTypeFields[typeID]; ok && existingScope == "builtin" {
+			existing := []EntityTypeField{}
+			if existingFieldsJSON != "" {
+				_ = json.Unmarshal([]byte(existingFieldsJSON), &existing)
+			}
+			merged, changed := mergePresetFields(existing, preset)
+			if changed {
+				encoded, err := json.Marshal(merged)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.Exec("update world_entity_types set fields_json = ?, updated_at = ? where world_id = ? and id = ?", string(encoded), isoTimeNow(), worldID, typeID); err != nil {
+					return err
+				}
+			}
+		}
 		return nil
 	}
 	if err != sql.ErrNoRows {
@@ -1107,13 +1149,13 @@ func (w *WorldStore) PromoteEntity(worldID, entityID, expectedRevisionID, create
 
 // CreateRelationInput is the typed input of relations.create.
 type CreateRelationInput struct {
-	WorldID            string
-	FromEntityID       string
-	ToEntityID         string
-	FromRole           string
-	ToRole             string
-	ScopeEntityID      string
-	Metadata           map[string]any
+	WorldID       string
+	FromEntityID  string
+	ToEntityID    string
+	FromRole      string
+	ToRole        string
+	ScopeEntityID string
+	Metadata      map[string]any
 	// IsProvisional creates an exploration draft link: no revision is produced
 	// and it stays out of the Canon until it is promoted.
 	IsProvisional      bool

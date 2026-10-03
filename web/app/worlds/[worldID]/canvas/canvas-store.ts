@@ -3247,8 +3247,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     }
   },
 
-  // 设为封面已退役（统一 Entity 模型：卡面图源 = 遍历 media attrs 的统一投影，首个 image attr
-  // 即封面；显式 background attr 若存在仍优先）——setMediaCover / 「封面」按钮一并移除
+  // 卡面图源 = 显式一等字段 cover 优先，其次遍历 media attrs 的统一投影（首个 image attr 即封面）
 }));
 
 export type WorldCanvasStore = ReturnType<typeof useWorldCanvasStore.getState>;

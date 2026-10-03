@@ -168,8 +168,15 @@ export type WorldAssetReference = WorldEvidence;
 export type WorldEvidencePurpose = "identity" | "appearance" | "wardrobe" | "voice" | "motion" | "scene" | "mood" | "visual_style" | "sound_style" | "narrative" | "rule_evidence";
 export type WorldEvidenceStatus = "primary" | "supporting" | "counterexample" | "archived";
 
+// WorldEntityCover is the entity's first-class cover (a basic field like
+// name/intro/detail, not a dynamic attr): one media reference that pins the
+// card face. Unset → cover falls back to the first image (then video) attr.
+export type WorldEntityCover = EntityAttrMediaValue;
+
 export type WorldEntity = WorldEntitySummary & {
   detail: string;
+  /** Explicit cover override; when set it wins over attr-derived inference. */
+  cover?: WorldEntityCover;
   attrs: EntityAttr[];
   relations: WorldEntityRelation[];
   /** Legacy read-only projection; entity media lives in attrs now. */
