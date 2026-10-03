@@ -867,6 +867,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       }
       if (hoveredId !== this.#hoverBlockId || forceDraw) {
         this.#hoverBlockId = hoveredId;
+        // 文本卡右上角全屏入口按 hover/选中显示：把 hover 命中同步到 store（null 即收起）
+        useWorldCanvasStore.getState().setHoveredBlockId(hoveredId);
         this.drawOverlay(editor);
       }
     };
@@ -1217,6 +1219,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const onPointerLeave = () => {
       this.#pendingMoveEvent = null;
       this.#hoverBlockId = null;
+      useWorldCanvasStore.getState().setHoveredBlockId(null);
       this.drawOverlay(editor);
     };
     view.addEventListener("pointerleave", onPointerLeave);

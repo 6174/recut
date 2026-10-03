@@ -50,6 +50,7 @@ import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { CreatePanel, type CreateGroup, type CreateItem } from "./canvas-create-panel";
 import { relationCandidatesOf } from "./canvas-relation-candidates";
 import { CanvasInlineEditor } from "./canvas-inline-editor";
+import { CanvasTextFullscreenEntry } from "./canvas-text-fullscreen-entry";
 import { CanvasToasts } from "./canvas-toast";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrMediaValueOf, attrValueOf, ENTITY_FIELD_ASSOCIATIONS, entityMediaAttrs } from "./entity-attrs";
@@ -1236,6 +1237,7 @@ export function CanvasPomeloHost() {
         </div>
       )}
       <CanvasInlineEditor />
+      <CanvasTextFullscreenEntry />
       <EmptyWorldGuide />
       <EmptyContainerGuide />
       <CanvasToasts />

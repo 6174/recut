@@ -274,10 +274,12 @@ var retiredPresetEntityTypes = []string{"reference", "object", "story", "style",
 //
 // SEMANTICS (the reason these types exist, 2026-10-04). **正文 vs 属性** 是硬纪律：
 // 长文细节一律写实体 `detail`（正文），attr 只放真 meta（时长/画幅/类型/景别/机位号）：
-//   - **场次 scene = 一次视频生成的单位**（最合理的粒度）。**本场细节文本化描述全部写
-//     `detail`**（发生什么、谁在场、环境/情绪/关键动作/台词）——**后续大量生成提示词
-//     就取自这里**。attr 只留：总时长 `durationSec`、场次分镜表 `storyboard`（拆 shot
-//     用）、场成片 `video`、一句话 `summary`。**不是每个 shot 一次视频生成**。
+//   - **场次 scene = 一次视频生成的单位**（最合理的粒度）——**一次生成 ⇒ 总时长
+//     `durationSec` 必须 ≤ 模型单次上限（默认 ≈15s）；内容更长就拆成多个场次，不拉长
+//     单场**。**本场的拍摄设计（空间/美术/表演调度/摄影/灯光/声音/视效 + 旁白台词）全部
+//     写 `detail`**——**生成提示词几乎全取自这里**。attr 只留：总时长 `durationSec`、
+//     场次分镜表 `storyboard`（拆 shot 用）、场成片 `video`、一句话 `summary`。
+//     **不是每个 shot 一次视频生成**。
 //   - **镜头 shot = 单镜细节单位**。**镜头细节全部写 `detail`**（画面/景别/构图/运动/
 //     光线/动作，**生图提示词大多来自这里**）。attr 只留真 meta：镜号 `no`、景别角度
 //     焦段 `shotSize`、时长 `durationSec`、镜头运动 `camera`、关键帧 `keyframe`。

@@ -131,10 +131,11 @@ export type AttrCreator = { fromEntityId: string; fromEntityTitle: string; scree
 
 // 就地编辑（T4）：双击便签/文本在卡位渲染 DOM 编辑器；rect 为世界坐标（宿主换算屏幕位置）。
 // T3 扩展：entity-title = 创建后命名态 / 右键重命名（单行输入，Enter/blur 提交，Esc 保留默认名）
+// fullscreen：打开时直接进入全屏编辑器（文本卡右上角全屏入口，无需先点进就地编辑）
 export type InlineEdit =
-  | { kind: "note-body" | "text-body"; elementId: string; rect: { x: number; y: number; width: number; height: number }; value: string }
+  | { kind: "note-body" | "text-body"; elementId: string; rect: { x: number; y: number; width: number; height: number }; value: string; fullscreen?: boolean }
   // attr-title = 新建属性命名态；attr-body = 属性文本值编辑（提交时同步回实体 content 字段）
-  | { kind: "attr-title" | "attr-body"; elementId: string; rect: { x: number; y: number; width: number; height: number }; value: string }
+  | { kind: "attr-title" | "attr-body"; elementId: string; rect: { x: number; y: number; width: number; height: number }; value: string; fullscreen?: boolean }
   | { kind: "entity-title"; entityId: string; rect: { x: number; y: number; width: number; height: number }; value: string }
   | null;
 
@@ -869,6 +870,9 @@ type WorldCanvasState = {
   promotingId: string | null;
   dataVersion: number;
   attrCreator: AttrCreator;
+  // 指针 hover 命中的节点 block id（CanvasBindsPlugin 写入）：文本卡右上角全屏入口按 hover/选中显示，
+  // 不需要选中即可直接进全屏浏览/编辑。
+  hoveredBlockId: string | null;
   // 工具栏连线工具：激活后点击任意节点即可拖出引导线（与「+」手柄同一引导流程）
   linkMode: boolean;
   // 工具栏抓手模式：CanvasPomeloHost 渲染全画布平移 overlay，截获指针拖拽平移视口
@@ -906,6 +910,7 @@ type WorldCanvasState = {
   pickRelatingTarget: (entityId: string) => void;
   cancelRelating: () => void;
   setAttrCreator: (creator: AttrCreator) => void;
+  setHoveredBlockId: (blockId: string | null) => void;
   setLinkMode: (linkMode: boolean) => void;
   setPanMode: (panMode: boolean) => void;
   setEditor: (editor: PomeloEditor | null) => void;
@@ -959,7 +964,7 @@ type WorldCanvasState = {
   cancelInlineEdit: () => void;
   // 右键/面板触发的就地编辑入口（T3）：rect 依 store 元素几何计算，无需编辑器句柄
   startEntityRename: (entityId: string, anchor?: { screenX: number; screenY: number }) => void;
-  startElementBodyEdit: (elementId: string, kind: "note-body" | "text-body" | "attr-body") => void;
+  startElementBodyEdit: (elementId: string, kind: "note-body" | "text-body" | "attr-body", options?: { fullscreen?: boolean }) => void;
   commitInlineEdit: (value: string) => Promise<void>;
   // 实体名重命名（面板输入框 / 就地重命名共用）：冲突重试一次 + 合并返回实体（T1 语义）
   renameEntity: (entity: WorldEntity, title: string) => Promise<void>;
@@ -1102,6 +1107,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   dataVersion: 0,
   docVersion: 0,
   attrCreator: null,
+  hoveredBlockId: null,
   pendingRelation: null,
   inlineEdit: null,
   deleteTarget: null,
@@ -1352,6 +1358,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
 
   // 「+」引导菜单锚点；宿主组件以屏幕坐标渲染引导面板
   setAttrCreator: (attrCreator) => set({ attrCreator }),
+
+  // 指针 hover 命中节点：文本卡右上角全屏入口据此显示（hover 或选中时出现，不常显遮挡浏览）
+  setHoveredBlockId: (hoveredBlockId) => set((state) => (state.hoveredBlockId === hoveredBlockId ? {} : { hoveredBlockId })),
 
   setLinkMode: (linkMode) => set({ linkMode, ...(linkMode ? { selection: null, selectedIds: [] } : {}) }),
 
@@ -2400,15 +2409,16 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     });
   },
 
-  // 右键/菜单触发的便签/文本正文编辑（T4 面板与画布同一保存通道）
-  startElementBodyEdit: (elementId, kind) => {
+  // 右键/菜单触发的便签/文本正文编辑（T4 面板与画布同一保存通道）；
+  // options.fullscreen: 文本卡右上角全屏入口直接进全屏编辑器（无需先点进就地编辑）
+  startElementBodyEdit: (elementId, kind, options) => {
     const element = get().elements.find((item) => item.id === elementId);
     if (!element) return;
     const x = Number(element.geometry?.x) || 0;
     const y = Number(element.geometry?.y) || 0;
     const width = Math.max(Number(element.geometry?.width) || NOTE_SIZE.width, 120);
     const text = String(element.props?.text ?? "");
-    // 各形态高度与画布 Block 对齐：文本框（文本元素 / 文本属性卡）按内容定高（与渲染公式同源，
+    // 各形态高度与画布 Block 对齐：文本框（文本元素 / 文本属性卡）按内容定高并封顶 16:9（与渲染公式同源，
     // 内边距一并计入）；便签沿用几何高度（缺省为便签高）
     const height =
       kind === "text-body"
@@ -2423,6 +2433,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         elementId,
         rect: { x, y, width, height },
         value: text,
+        ...(options?.fullscreen ? { fullscreen: true } : {}),
       },
       dataVersion: state.dataVersion + 1,
     }));

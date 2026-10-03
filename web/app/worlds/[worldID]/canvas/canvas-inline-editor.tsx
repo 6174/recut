@@ -58,11 +58,11 @@ export function CanvasInlineEditor() {
     return () => unsubscribe.dispose();
   }, [edit, editor]);
 
-  // 打开时初始化草稿值并聚焦全选
+  // 打开时初始化草稿值并聚焦全选；带 fullscreen intent（文本卡右上角全屏入口）时直接进全屏
   useEffect(() => {
     if (!edit) return;
     setValue(edit.value);
-    setFullscreen(false);
+    setFullscreen("fullscreen" in edit && edit.fullscreen === true);
     cancelledRef.current = false;
     const area = areaRef.current;
     if (area) {

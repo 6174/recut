@@ -4,7 +4,8 @@
  *          world-canvas/blocks/audio-block-ops（音频属性卡的播放器外观）
  * [OUTPUT]: 对外提供 FreeElementBlockV（type: free-element）：文本 / 形状 / 属性预览卡；
  * 文本框（elementKind=text，或 attr 且 attrMedia=text）无背景、圆角描边框、无徽标——就是画布上的文本（文本服从 box，
- * 溢出截断；host 置 attrs.editing 时就地编辑中只留框、藏文字，避免与 DOM 编辑器重影），与实体卡区分开；
+ * 高度封顶 16:9（见 text-block-metrics），溢出裁剪到框内并在右下角画「＋更多」提示；完整内容走右上角全屏入口；
+ * host 置 attrs.editing 时就地编辑中只留框、藏文字，避免与 DOM 编辑器重影），与实体卡区分开；
  * 只有媒体属性卡（image/audio/video）才画卡面与徽标；音频属性卡（attrMedia=audio 且有源）
  * 画播放器外观（圆形播放钮 + 真实波形 + 时间 + 音量/下载，波形懒加载，与媒体元素同源）；
  * 视频属性卡（attrMedia=video 且有源）画首帧 center-cover（video-frame 抽帧；悬停播放由 VideoPreviewPlugin 承担）；
@@ -40,9 +41,9 @@ import {
   TEXT_SECONDARY,
   TEXT_TERTIARY,
 } from "../graph-theme";
-import { CAPTION_TOP_OFFSET, captionOpsV, coverImageOpsV, isLowDetail, screenScaleOf } from "./vello-shared";
+import { CAPTION_TOP_OFFSET, captionOpsV, coverImageOpsV, isLowDetail, moreHintOpsV, screenScaleOf } from "./vello-shared";
 import { audioPlayerOpsV } from "./audio-block-ops";
-import { TEXT_ATTR_LINE_HEIGHT, TEXT_ATTR_PAD, TEXT_ATTR_SIZE, TEXT_ELEMENT_LINE_HEIGHT, TEXT_ELEMENT_PAD, TEXT_ELEMENT_SIZE } from "./text-block-metrics";
+import { TEXT_ATTR_LINE_HEIGHT, TEXT_ATTR_PAD, TEXT_ATTR_SIZE, TEXT_ELEMENT_LINE_HEIGHT, TEXT_ELEMENT_PAD, TEXT_ELEMENT_SIZE, textAttrOverflows, textElementOverflows } from "./text-block-metrics";
 import { audioBlockRect, isAudioBlockRecord } from "./audio-block-metrics";
 import { displayRefText } from "./ref-text";
 import { ensureVideoFrame, videoFrameUrl } from "./video-frame";
@@ -95,13 +96,20 @@ export class FreeElementBlockV extends VelloBlock {
 
     const ops: VelloOp[] = [];
     if (elementKind === "text") {
-      // 文本元素：无背景、圆角描边框，就是画布上的文本（低缩放下整体隐藏；就地编辑中藏文字留框）
+      // 文本元素：无背景、圆角描边框，就是画布上的文本（低缩放下整体隐藏；就地编辑中藏文字留框）；
+      // 高度已封顶 16:9（textElementHeight），溢出裁剪到框内 + 右下角「＋更多」提示
       if (!lowDetail) {
         ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS, fill: TRANSPARENT, stroke: CARD_STROKE_STRONG, strokeWidth: 1 });
-        if (!editing) ops.push(textOp({ text: text || "（空文本）", x: x + TEXT_ELEMENT_PAD, y: y + TEXT_ELEMENT_PAD, size: TEXT_ELEMENT_SIZE, maxWidth: Math.max(20, w - TEXT_ELEMENT_PAD * 2), lineHeight: TEXT_ELEMENT_LINE_HEIGHT, fill: CAPTION_FILL }));
+        if (!editing) {
+          ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS });
+          ops.push(textOp({ text: text || "（空文本）", x: x + TEXT_ELEMENT_PAD, y: y + TEXT_ELEMENT_PAD, size: TEXT_ELEMENT_SIZE, maxWidth: Math.max(20, w - TEXT_ELEMENT_PAD * 2), lineHeight: TEXT_ELEMENT_LINE_HEIGHT, fill: CAPTION_FILL }));
+          ops.push({ kind: "popClip" });
+          if (text && textElementOverflows(text, w)) ops.push(...moreHintOpsV(x, y, w, h));
+        }
       }
     } else if (elementKind === "attr") {
-      // 文本框（media=text）：无背景、圆角描边框、无徽标——和实体卡区分开，只是画布上的文本
+      // 文本框（media=text）：无背景、圆角描边框、无徽标——和实体卡区分开，只是画布上的文本；
+      // 高度已封顶 16:9（textAttrHeight），溢出裁剪到框内 + 右下角「＋更多」提示
       if (media === "text") {
         if (!lowDetail) {
           ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS, fill: TRANSPARENT, stroke: CARD_STROKE_STRONG, strokeWidth: 1 });
@@ -110,6 +118,7 @@ export class FreeElementBlockV extends VelloBlock {
               ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS });
               ops.push(textOp({ text, x: x + TEXT_ATTR_PAD, y: y + TEXT_ATTR_PAD, size: TEXT_ATTR_SIZE, maxWidth: Math.max(20, w - TEXT_ATTR_PAD * 2), lineHeight: TEXT_ATTR_LINE_HEIGHT, fill: TEXT_PRIMARY }));
               ops.push({ kind: "popClip" });
+              if (textAttrOverflows(text, w)) ops.push(...moreHintOpsV(x, y, w, h));
             } else {
               ops.push(textOp({ text: "＋ 文本", x: x + TEXT_ATTR_PAD, y: y + TEXT_ATTR_PAD, size: TEXT_ATTR_SIZE, maxWidth: Math.max(20, w - TEXT_ATTR_PAD * 2), fill: TEXT_TERTIARY }));
             }

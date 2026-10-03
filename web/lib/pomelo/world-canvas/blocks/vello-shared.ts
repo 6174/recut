@@ -1,17 +1,18 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloRendererAdapter）、pomelo-vello（VelloOp/Rgba）、pomelo-vello/vello-text
- *          （screenTextOp）、world-canvas/text-metrics（truncateText）、world-canvas/graph-theme（色板/阈值）
+ *          （screenTextOp/textOp）、world-canvas/text-metrics（truncateText/measureTextWidth）、world-canvas/graph-theme（色板/阈值）
  * [OUTPUT]: 对外提供 world-canvas vello block 的公共绘制辅助：coverImageOpsV（center-cover 填充）、
  *           captionOpsV（卡片外元素徽标，屏幕像素恒定；支持前置彩色前缀，如实体类型名）、screenScaleOf（视口缩放）、
- *           isLowDetail（是否进入低细节缩放，供各 block 隐藏文字）。
+ *           isLowDetail（是否进入低细节缩放，供各 block 隐藏文字）、
+ *           moreHintOpsV（文本框内容溢出时右下角的「＋更多」小 chip，提示走全屏入口查看完整内容）。
  *           配色/排版常量一律从 graph-theme 取，本文件不再定义颜色。
  * [POS]: lib/pomelo/world-canvas/blocks 的 vello block 共享辅助层（无具体 Block，被各 *-block-v.ts 复用）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { PomeloRendererAdapter } from "../../pomelo-core/pomelo-renderer";
 import type { Rgba, VelloOp } from "../../pomelo-vello/op-bridge";
-import { screenTextOp } from "../../pomelo-vello/vello-text";
-import { CAPTION_FILL, GRAPH_TEXT, LOW_DETAIL_SCALE } from "../graph-theme";
+import { screenTextOp, textOp } from "../../pomelo-vello/vello-text";
+import { CARD_FILL, CARD_STROKE_STRONG, CAPTION_FILL, GRAPH_TEXT, LOW_DETAIL_SCALE, TEXT_SECONDARY } from "../graph-theme";
 import { measureTextWidth, truncateText } from "../text-metrics";
 
 // 元素标题徽标（卡片外上方）：屏幕像素恒定。
@@ -28,6 +29,24 @@ export function screenScaleOf(adapter: PomeloRendererAdapter): number {
 /** 视口缩放是否已低到只该看到 shape（<= LOW_DETAIL_SCALE 时各 block 隐藏文字）。 */
 export function isLowDetail(adapter: PomeloRendererAdapter): boolean {
   return screenScaleOf(adapter) <= LOW_DETAIL_SCALE;
+}
+
+// 溢出提示「＋更多」：文本框右下角一枚小 chip（微透明底 + 描边 + 次级文字）。
+// 提示用户框内内容被裁掉，完整内容点右上角全屏入口查看。
+const MORE_HINT_RADIUS = 8;
+export function moreHintOpsV(x: number, y: number, w: number, h: number): VelloOp[] {
+  const label = "＋更多";
+  const size = 10;
+  const padX = 6;
+  const padY = 3;
+  const chipW = measureTextWidth(label, size) + padX * 2;
+  const chipH = size + padY * 2;
+  const chipX = x + w - chipW - 6;
+  const chipY = y + h - chipH - 6;
+  return [
+    { kind: "roundRect", x: chipX, y: chipY, width: chipW, height: chipH, radius: MORE_HINT_RADIUS, fill: CARD_FILL, stroke: CARD_STROKE_STRONG, strokeWidth: 1 },
+    textOp({ text: label, x: chipX + padX, y: chipY + padY, size, maxWidth: chipW - padX * 2, fill: TEXT_SECONDARY }),
+  ];
 }
 
 /** cover 填充的 op：等比放大铺满目标盒并居中，再按 clip 圆角裁剪（对齐 CSS background-size: cover; position: center）。
