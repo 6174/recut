@@ -7,7 +7,7 @@
 import { create } from "zustand";
 
 import type { AgentRuntimeStatus } from "@/components/agent-install-guide";
-import type { Detail, OpencodeModel, Session } from "@/components/agent-panel-types";
+import type { CommandcodeModel, Detail, OpencodeModel, Session } from "@/components/agent-panel-types";
 
 export type AgentGuide = {
   id: string;
@@ -20,6 +20,7 @@ type AgentStore = {
   endpoint: string | null;
   runtimeStatus: AgentRuntimeStatus[] | null;
   opencodeModels: OpencodeModel[] | null;
+  commandcodeModels: CommandcodeModel[] | null;
   onboardingByScope: Record<string, AgentGuide[]>;
   sessionsByScope: Record<string, Session[]>;
   activeSessionIDByScope: Record<string, string | null>;
@@ -27,6 +28,7 @@ type AgentStore = {
   detailStateBySessionID: Record<string, "idle" | "loading" | "ready" | "failed">;
   loadRuntimeStatus: (endpoint: string, force?: boolean) => Promise<AgentRuntimeStatus[] | null>;
   loadOpencodeModels: (endpoint: string, force?: boolean) => Promise<OpencodeModel[]>;
+  loadCommandcodeModels: (endpoint: string, force?: boolean) => Promise<CommandcodeModel[]>;
   loadOnboarding: (endpoint: string, scope: string, force?: boolean) => Promise<AgentGuide[]>;
   saveGlobalOnboarding: (endpoint: string, items: AgentGuide[]) => Promise<void>;
   loadSessions: (endpoint: string, scope: string, force?: boolean) => Promise<Session[]>;
@@ -89,6 +91,7 @@ function emptyAgentSnapshot(endpoint: string) {
     endpoint,
     runtimeStatus: null,
     opencodeModels: null,
+    commandcodeModels: null,
     onboardingByScope: {},
     sessionsByScope: {},
     activeSessionIDByScope: {},
@@ -101,6 +104,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   endpoint: null,
   runtimeStatus: null,
   opencodeModels: null,
+  commandcodeModels: null,
   onboardingByScope: {},
   sessionsByScope: {},
   activeSessionIDByScope: {},
@@ -128,6 +132,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const opencodeModels = await response.json() as OpencodeModel[];
       if (get().endpoint === endpoint) set({ opencodeModels });
       return opencodeModels;
+    });
+  },
+  loadCommandcodeModels: async (endpoint, force = false) => {
+    if (get().endpoint !== endpoint) set(emptyAgentSnapshot(endpoint));
+    const cached = get().commandcodeModels;
+    if (!force && cached) return cached;
+    return requestOnce(`${endpoint}:commandcode-models`, async () => {
+      const response = await fetch(`${endpoint}/v1/agents/commandcode/models`);
+      if (!response.ok) return [];
+      const commandcodeModels = await response.json() as CommandcodeModel[];
+      if (get().endpoint === endpoint) set({ commandcodeModels });
+      return commandcodeModels;
     });
   },
   loadOnboarding: async (endpoint, scope, force = false) => {

@@ -21,6 +21,7 @@ import {
   Sparkles,
   Trash2,
   Video,
+  Wand2,
   X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -81,24 +82,49 @@ const sections: {
   { id: "multimodal", labelKey: "settings.section.multimodal", icon: Sparkles },
 ];
 
+// 图片按模型声明的输入能力拆成两个用途：只吃文本的进「图片生成」（default 路由），
+// 声明了图片输入的进「图片编辑」（edit 路由）。分类只看 catalog 里模型支持的输入，
+// generate 提交本身不变，服务端按是否带参考图在两条路由间内部选择。
+const acceptsImageInput = (model: Model) => model.inputModes.includes("image");
+
 const capabilities = [
   {
     id: "image.generate",
+    capability: "image.generate",
+    routeId: "image.generate.default",
     labelKey: "capability.image.generate",
     descriptionKey: "capability.image.generate.desc",
     icon: Image,
+    match: (model: Model) =>
+      model.capability === "image.generate" && !acceptsImageInput(model),
+  },
+  {
+    id: "image.edit",
+    capability: "image.generate",
+    routeId: "image.generate.edit",
+    labelKey: "capability.image.edit",
+    descriptionKey: "capability.image.edit.desc",
+    icon: Wand2,
+    match: (model: Model) =>
+      model.capability === "image.generate" && acceptsImageInput(model),
   },
   {
     id: "video.generate",
+    capability: "video.generate",
+    routeId: "video.generate.default",
     labelKey: "capability.video.generate",
     descriptionKey: "capability.video.generate.desc",
     icon: Video,
+    match: (model: Model) => model.capability === "video.generate",
   },
   {
     id: "speech.generate",
+    capability: "speech.generate",
+    routeId: "speech.generate.default",
     labelKey: "capability.speech.generate",
     descriptionKey: "capability.speech.generate.desc",
     icon: Mic2,
+    match: (model: Model) => model.capability === "speech.generate",
   },
 ];
 
@@ -662,7 +688,7 @@ function ProviderSettings() {
     );
     await loadConfiguration(apiBase, true);
   }
-  async function chooseModel(capability: string, modelID: string) {
+  async function chooseModel(routeId: string, capability: string, modelID: string) {
     const model = providers
       .flatMap((item) => item.models)
       .find((item) => item.id === modelID);
@@ -679,7 +705,7 @@ function ProviderSettings() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: `${capability}.default`,
+          id: routeId,
           capability,
           modelId: modelID,
           credentialId: credential?.id ?? "",
@@ -811,15 +837,14 @@ function ProviderSettings() {
               key={capability.id}
               models={providers
                 .flatMap((item) => item.models)
-                .filter((model) => model.capability === capability.id)}
+                .filter(capability.match)}
               onChoose={chooseModel}
               onConnect={(preferred) => beginAdding(preferred)}
               providerName={(id) =>
                 providers.find((item) => item.id === id)?.name ?? id
               }
               selectedID={
-                routes.find((route) => route.capability === capability.id)
-                  ?.modelId
+                routes.find((route) => route.id === capability.routeId)?.modelId
               }
             />
           ))}
@@ -1052,7 +1077,7 @@ function ModelRouteCard({
   connectedProviderIDs: Set<string>;
   localProviderIDs: Set<string>;
   models: Model[];
-  onChoose: (capability: string, modelID: string) => void;
+  onChoose: (routeId: string, capability: string, modelID: string) => void;
   onConnect: (provider?: string) => void;
   providerName: (id: string) => string;
   selectedID?: string;
@@ -1093,12 +1118,16 @@ function ModelRouteCard({
               localProviderIDs.has(providerID) ||
               connectedProviderIDs.has(providerID)
             }
-            id={`model-route-${capability.id}`}
+            id={`model-route-${capability.routeId}`}
             models={candidates}
-            onChange={(modelID) => void onChoose(capability.id, modelID)}
+            onChange={(modelID) =>
+              void onChoose(capability.routeId, capability.capability, modelID)
+            }
             onConnect={() =>
               onConnect(
-                capability.id === "speech.generate" ? "elevenlabs" : undefined,
+                capability.capability === "speech.generate"
+                  ? "elevenlabs"
+                  : undefined,
               )
             }
             providerName={providerName}
@@ -1112,7 +1141,7 @@ function ModelRouteCard({
             <Button
               onClick={() =>
                 onConnect(
-                  capability.id === "speech.generate"
+                  capability.capability === "speech.generate"
                     ? "elevenlabs"
                     : undefined,
                 )

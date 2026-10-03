@@ -376,7 +376,7 @@ func TestAgentCLIStreamUsesSSELineBreaks(t *testing.T) {
 	store := NewStore(t.TempDir(), nil)
 	_ = store.Ensure()
 	manager := NewAgentManager(store, nil, nil)
-	session, err := manager.Create("codex", "", "", "")
+	session, err := manager.Create("codex", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

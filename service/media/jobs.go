@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖配置、资产、Provider 策略与 Provider 适配器
- * [OUTPUT]: 生成任务创建、同步执行、终态等待、结果持久化、无 prompt/凭据的状态审计与按策略分派的通用 Provider 调度；图片 job 带参考图时自动切换模型编辑变体；拒绝将 Codex 原生图片路由误送入 Provider；输出参数按 catalog schema 规范化/校验（parameters.go），本地 provider 允许只给 modelId 无凭据直连；创建期把提示词里的参考标签改写为编号别名（prompt_reference.go），模型串不含裸 assetId
+ * [OUTPUT]: 生成任务创建、同步执行、终态等待、结果持久化、无 prompt/凭据的状态审计与按策略分派的通用 Provider 调度；图片按是否带参考图在 image.generate.default（文生图）与 image.generate.edit（图生图/参考）两条路由间内部选择，带参考图时还自动切换模型编辑变体；拒绝将 Codex 原生图片路由误送入 Provider；输出参数按 catalog schema 规范化/校验（parameters.go），本地 provider 允许只给 modelId 无凭据直连；创建期把提示词里的参考标签改写为编号别名（prompt_reference.go），模型串不含裸 assetId
  * [POS]: media 的任务编排层；图片按 Provider ID 从 model_providers 注册表取策略执行，未注册的 OpenAI 协议 Provider 回退 OpenAI 兼容端点；scheduler 位于 jobs_scheduler，由其接管持久化异步任务，Codex 图片由 Agent 自行执行
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -33,6 +33,31 @@ const jobColumns = `id, capability, status, prompt, model_id, project_id, refere
 // video, so a modest budget keeps recut.image.generate from blocking for the
 // full five-minute mediaRequestTimeout on a stuck remote task.
 const atlasImagePollRetries = 40
+
+// imageEditRouteID is the image route used for edit/reference submissions (a
+// model that accepts an image input). Pure text-to-image submissions keep using
+// "<capability>.default". Splitting the two lets the global settings hold a
+// text-to-image model and an edit model side by side; the route is picked
+// internally from whether the submission carries references, so callers keep
+// submitting the same image.generate request.
+const imageEditRouteID = "image.generate.edit"
+
+// inputHasReferences reports whether a submission carries any reference. For the
+// image capability references are images only, so a non-empty list selects the
+// edit route. Typed references win; the legacy flat ids count too.
+func inputHasReferences(input GenerateMediaInput) bool {
+	return !input.References.Empty() || len(input.ReferenceIDs) > 0
+}
+
+// findRoute returns the route with the given id.
+func findRoute(routes []MediaRoute, id string) (MediaRoute, bool) {
+	for _, route := range routes {
+		if route.ID == id {
+			return route, true
+		}
+	}
+	return MediaRoute{}, false
+}
 
 func (m *MediaService) Generate(input GenerateMediaInput) (MediaJob, error) {
 	job, credential, created, err := m.createJob(input)
@@ -364,35 +389,43 @@ func (m *MediaService) resolveRoute(input GenerateMediaInput) (MediaRoute, Media
 	routeID := input.Route
 	if routeID == "" {
 		routeID = string(input.Capability) + ".default"
+		if input.Capability == ImageGenerate && inputHasReferences(input) {
+			// An image submission with references (edit / reference-to-image) uses
+			// the edit route; text-to-image keeps the default route.
+			routeID = imageEditRouteID
+		}
 	}
-	for _, route := range routes {
-		if route.ID != routeID {
-			continue
-		}
-		if !route.Enabled || route.Capability != input.Capability {
-			return MediaRoute{}, MediaCredential{}, errors.New("media route is unavailable")
-		}
-		if route.ModelID == CodexImageModelID {
-			return MediaRoute{}, MediaCredential{}, errors.New("image generation is configured for Codex; use Codex native image generation instead of recut.image.generate")
-		}
-		model, ok := modelByID(route.ModelID)
-		if !ok {
-			return MediaRoute{}, MediaCredential{}, errors.New("media route model is unknown")
-		}
-		if provider, ok := providerByID(model.Provider); ok && provider.Protocol == "local" {
-			// 本地 provider（Audio Studio 本机 TTS）无需凭据。
-			return route, MediaCredential{Provider: model.Provider}, nil
-		}
-		credential, err := m.credential(route.CredentialID)
-		if err != nil {
-			return MediaRoute{}, MediaCredential{}, errors.New("media route credential is unavailable")
-		}
-		if credential.Provider != model.Provider {
-			return MediaRoute{}, MediaCredential{}, errors.New("media route model and credential provider do not match")
-		}
-		return route, credential, nil
+	route, ok := findRoute(routes, routeID)
+	if !ok && routeID == imageEditRouteID {
+		// The edit route was never configured: fall back to the default route,
+		// whose model may still switch to its edit variant via editModelId.
+		route, ok = findRoute(routes, string(ImageGenerate)+".default")
 	}
-	return MediaRoute{}, MediaCredential{}, fmt.Errorf("no route configured for %s", input.Capability)
+	if !ok {
+		return MediaRoute{}, MediaCredential{}, fmt.Errorf("no route configured for %s", input.Capability)
+	}
+	if !route.Enabled || route.Capability != input.Capability {
+		return MediaRoute{}, MediaCredential{}, errors.New("media route is unavailable")
+	}
+	if route.ModelID == CodexImageModelID {
+		return MediaRoute{}, MediaCredential{}, errors.New("image generation is configured for Codex; use Codex native image generation instead of recut.image.generate")
+	}
+	model, ok := modelByID(route.ModelID)
+	if !ok {
+		return MediaRoute{}, MediaCredential{}, errors.New("media route model is unknown")
+	}
+	if provider, ok := providerByID(model.Provider); ok && provider.Protocol == "local" {
+		// 本地 provider（Audio Studio 本机 TTS）无需凭据。
+		return route, MediaCredential{Provider: model.Provider}, nil
+	}
+	credential, err := m.credential(route.CredentialID)
+	if err != nil {
+		return MediaRoute{}, MediaCredential{}, errors.New("media route credential is unavailable")
+	}
+	if credential.Provider != model.Provider {
+		return MediaRoute{}, MediaCredential{}, errors.New("media route model and credential provider do not match")
+	}
+	return route, credential, nil
 }
 
 func (m *MediaService) execute(job MediaJob, credential MediaCredential) {

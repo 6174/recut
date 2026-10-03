@@ -13,7 +13,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 use crate::compositor::{Compositor, QuadDraw};
-use crate::ops::{build_chunk_scene, build_scene, decode_ops, tile_transform};
+use crate::ops::{build_chunk_scene, build_scene, decode_ops, push_keepalive_image, tile_transform, KEEPALIVE_IMAGE_ID};
 
 const TILE_DEVICE_SIZE: u32 = 256;
 const BLEED: f32 = 2.0;
@@ -171,7 +171,7 @@ impl VelloRuntime {
         };
         surface.configure(&device, &config);
 
-        let renderer = Renderer::new(
+        let mut renderer = Renderer::new(
             &device,
             RendererOptions {
                 antialiasing_support: AaSupport::area_only(),
@@ -181,6 +181,26 @@ impl VelloRuntime {
         .map_err(js_err)?;
 
         let compositor = Compositor::new(&device, format);
+
+        // 常驻 1×1 全透明图像（见 push_keepalive_image）：每次渲染都需存在于 images 中。
+        let keepalive_texture = device.create_texture(&TextureDescriptor {
+            label: Some("pomelo-vello-keepalive"),
+            size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &keepalive_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            &[0u8, 0, 0, 0],
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: Some(1) },
+            Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
+        let mut images = HashMap::new();
+        images.insert(KEEPALIVE_IMAGE_ID, renderer.register_texture(keepalive_texture));
 
         Ok(VelloRuntime {
             device,
@@ -192,7 +212,7 @@ impl VelloRuntime {
             tiles: HashMap::new(),
             fonts: HashMap::new(),
             fallbacks: HashMap::new(),
-            images: HashMap::new(),
+            images,
             chunk_scenes: HashMap::new(),
             content_session: None,
             scene_backing: None,
@@ -410,6 +430,8 @@ impl VelloRuntime {
             let keep: std::collections::HashSet<u64> = seen.into_iter().collect();
             self.chunk_scenes.retain(|k, _| keep.contains(k));
         }
+        // 保证场景至少含一个 image patch，避免 vello 把持久 image atlas 缩到 1×1（见 push_keepalive_image）。
+        push_keepalive_image(&mut scene, transform, &self.images);
         Ok(scene)
     }
 

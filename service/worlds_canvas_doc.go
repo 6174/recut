@@ -2,7 +2,9 @@
  * [INPUT]: 依赖 WorldStore 的 worlds/world_canvases 表（文档粒度画布存储）、既有 world_canvas 行（惰性迁移源）
  * 与 checkWritable/summary 协议
  * [OUTPUT]: 对外提供文档粒度画布能力面（RFC 2026-09-09）：GetCanvasDocument（读 + 惰性迁移 + 懒创建）、
- * SaveCanvasDocument（整包保存 + version 乐观锁）、ListCanvasDocuments（文档索引）、UpdateCanvasDocumentOps
+ * SaveCanvasDocument（整包保存 + version 乐观锁）、PatchCanvasDocument（按字段合并写：写方只交改动过的字段，
+ * 服务端 props/geometry/style 按 key 合并、标量仅出现时覆盖，见 RFC 2026-10-03 人机并发合并）、
+ * ListCanvasDocuments（文档索引）、UpdateCanvasDocumentOps
  * （元素级 ops 操作面，AI/MCP 用：实体卡只给 refId 即补 shape:<entityId>/名称/默认几何；无 x/y 的元素按
  * canvasPlacementAnchor 贴到已有内容/被指向的邻居旁，而非原点网格；并提供 canvasLayoutSummary 只读回执）；
  * 并承载语义侧的画布联动（promote 投影写回、实体删除投影清理、
@@ -46,6 +48,33 @@ type canvasDocPayload struct {
 type CanvasDocOp struct {
 	Op      string                    `json:"op"` // insert | update | remove
 	Element *UpsertCanvasElementInput `json:"element"`
+}
+
+// CanvasElementPatch is the partial element shape of a field-merge write
+// (RFC 2026-10-03): only the fields actually present are merged. Scalars are
+// pointers so an absent field differs from an empty one; absent maps are left
+// untouched, and a JSON null map entry deletes that key.
+type CanvasElementPatch struct {
+	ID       string         `json:"id"`
+	Kind     *string        `json:"kind,omitempty"`
+	RefKind  *string        `json:"refKind,omitempty"`
+	RefID    *string        `json:"refId,omitempty"`
+	Name     *string        `json:"name,omitempty"`
+	Layer    *string        `json:"layer,omitempty"`
+	Props    map[string]any `json:"props,omitempty"`
+	Geometry map[string]any `json:"geometry,omitempty"`
+	Style    map[string]any `json:"style,omitempty"`
+}
+
+// PatchCanvasDocumentInput is one field-level patch write: elements are partial
+// patches, and deletions are explicit via Removed (with merge semantics, an
+// element's absence from Elements no longer means it was deleted).
+type PatchCanvasDocumentInput struct {
+	WorldID         string
+	ContextID       string
+	Elements        []CanvasElementPatch
+	Removed         []string
+	ExpectedVersion int
 }
 
 const canvasDocMaxBytes = 2 << 20 // 2MB doc_json safety ceiling
@@ -235,6 +264,19 @@ func (w *WorldStore) SaveCanvasDocument(worldID, contextID string, elements []Wo
 	}, nil
 }
 
+// validateWholeCanvasElements guards the whole-document replace path: elements
+// without id/kind would be dropped by normalizeCanvasElements, so a field-patch
+// body that reaches this path (mixed-version client) would silently empty the
+// document. Refuse instead.
+func validateWholeCanvasElements(elements []WorldCanvasElement) error {
+	for _, element := range elements {
+		if strings.TrimSpace(element.ID) == "" || strings.TrimSpace(element.Kind) == "" {
+			return worldsError(WorldsErrContextInvalid, "canvas save requires full elements (id+kind); use patch:true for field patches")
+		}
+	}
+	return nil
+}
+
 // normalizeCanvasElements enforces the element contract at the document edge:
 // every element needs a stable id and kind; map fields are never nil.
 func normalizeCanvasElements(elements []WorldCanvasElement) []WorldCanvasElement {
@@ -255,6 +297,125 @@ func normalizeCanvasElements(elements []WorldCanvasElement) []WorldCanvasElement
 		normalized = append(normalized, element)
 	}
 	return normalized
+}
+
+// PatchCanvasDocument applies a field-level patch to one document (RFC 2026-10-03).
+// Present fields merge by key, so concurrent writers touching different fields
+// compose; the same field resolves last-writer-wins. Removed lists deletions
+// explicitly. It keeps the same version optimistic lock as SaveCanvasDocument.
+func (w *WorldStore) PatchCanvasDocument(input PatchCanvasDocumentInput) (WorldCanvasDocument, error) {
+	db, err := w.database()
+	if err != nil {
+		return WorldCanvasDocument{}, err
+	}
+	if _, err := w.summary(db, input.WorldID); err != nil {
+		return WorldCanvasDocument{}, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return WorldCanvasDocument{}, err
+	}
+	defer tx.Rollback()
+	if err := w.checkWritable(tx, input.WorldID); err != nil {
+		return WorldCanvasDocument{}, err
+	}
+	row, err := ensureCanvasDocInTx(tx, input.WorldID, input.ContextID)
+	if err != nil {
+		return WorldCanvasDocument{}, err
+	}
+	if row.exists && input.ExpectedVersion != row.version {
+		return WorldCanvasDocument{}, worldsError(WorldsErrCanvasConflict, fmt.Sprintf("canvas version conflict: expected %d, current %d", input.ExpectedVersion, row.version))
+	}
+	elements := append([]WorldCanvasElement{}, row.payload.Elements...)
+	if len(input.Removed) > 0 {
+		dropped := make(map[string]bool, len(input.Removed))
+		for _, id := range input.Removed {
+			dropped[id] = true
+		}
+		kept := elements[:0]
+		for _, existing := range elements {
+			if !dropped[existing.ID] {
+				kept = append(kept, existing)
+			}
+		}
+		elements = append([]WorldCanvasElement{}, kept...)
+	}
+	var batchBounds *canvasRect
+	if bounds, ok := canvasContentBounds(elements); ok {
+		batchBounds = &bounds
+	}
+	attrElementIDs := []string{}
+	for _, patch := range input.Elements {
+		if strings.TrimSpace(patch.ID) == "" {
+			continue
+		}
+		if i, existing := indexCanvasElement(elements, patch.ID); existing != nil {
+			merged := mergeCanvasElementPatch(*existing, patch)
+			elements[i] = merged
+			attrElementIDs = append(attrElementIDs, canvasAttrSyncTargets(merged)...)
+			continue
+		}
+		// Not found: a patch with a kind creates the element (the client creates
+		// locally and marks it dirty; there is no separate insert call).
+		if patch.Kind == nil || strings.TrimSpace(*patch.Kind) == "" {
+			continue
+		}
+		element := mergeCanvasElementPatch(WorldCanvasElement{ID: patch.ID, WorldID: input.WorldID, ContextID: input.ContextID}, patch)
+		if element.Kind == "entity" && element.RefID != "" {
+			var entityName string
+			nameErr := tx.QueryRow("select title from world_entities where id = ? and world_id = ? and archived_at is null", element.RefID, input.WorldID).Scan(&entityName)
+			if nameErr == sql.ErrNoRows {
+				return WorldCanvasDocument{}, worldsError(WorldsErrEntityNotFound, "referenced entity does not belong to the world")
+			}
+			if nameErr != nil {
+				return WorldCanvasDocument{}, nameErr
+			}
+			if strings.TrimSpace(element.Name) == "" {
+				element.Name = entityName
+			}
+		}
+		if element.Kind == "arrow" || element.Kind == "link" {
+			if err := validateCanvasDocLinkStart(elements, element); err != nil {
+				return WorldCanvasDocument{}, err
+			}
+		}
+		if element.Kind != "entity" && element.RefID != "" && element.RefKind != "" {
+			var count int
+			if err := tx.QueryRow("select count(*) from world_entities where id = ? and world_id = ? and archived_at is null", element.RefID, input.WorldID).Scan(&count); err != nil {
+				return WorldCanvasDocument{}, err
+			}
+			if count == 0 {
+				return WorldCanvasDocument{}, worldsError(WorldsErrEntityNotFound, "referenced entity does not belong to the world")
+			}
+		}
+		placeCanvasElement(&element, elements, batchBounds)
+		element.CreatedAt = iso(time.Now().UTC())
+		elements = append(elements, element)
+		attrElementIDs = append(attrElementIDs, canvasAttrSyncTargets(element)...)
+	}
+	row, err = writeCanvasDocInTx(tx, input.WorldID, input.ContextID, row, canvasDocPayload{DocVersion: 1, Elements: normalizeCanvasElements(elements)})
+	if err != nil {
+		return WorldCanvasDocument{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorldCanvasDocument{}, err
+	}
+	w.syncCanvasAttrTargets(input.WorldID, attrElementIDs, elements)
+	return WorldCanvasDocument{
+		WorldID: input.WorldID, ContextID: input.ContextID, Version: row.version,
+		Elements: row.payload.Elements, CreatedAt: row.createdAt, UpdatedAt: row.updatedAt,
+	}, nil
+}
+
+// indexCanvasElement returns the position and a pointer to the element with the
+// given id, so a patch can merge in place.
+func indexCanvasElement(elements []WorldCanvasElement, elementID string) (int, *WorldCanvasElement) {
+	for i := range elements {
+		if elements[i].ID == elementID {
+			return i, &elements[i]
+		}
+	}
+	return -1, nil
 }
 
 // canvasElementByID finds one element by id inside a document payload.
@@ -388,17 +549,47 @@ func canvasRectOverlapsAny(candidate canvasRect, occupied []canvasRect) bool {
 	return false
 }
 
-// mergeCanvasGeometry overlays an update's geometry onto the existing element's,
-// so a partial update (e.g. only props) never drops the card's position or size.
-func mergeCanvasGeometry(base, override map[string]any) map[string]any {
+// mergeCanvasMap overlays patch entries onto base by key, so a partial write of
+// one field never drops the rest. A nil patch keeps base as-is; a JSON null value
+// deletes that key. Used for props/geometry/style (RFC 2026-10-03).
+func mergeCanvasMap(base, patch map[string]any) map[string]any {
 	merged := map[string]any{}
 	for key, value := range base {
 		merged[key] = value
 	}
-	for key, value := range override {
+	for key, value := range patch {
+		if value == nil {
+			delete(merged, key)
+			continue
+		}
 		merged[key] = value
 	}
 	return merged
+}
+
+// mergeCanvasElementPatch overlays a partial element onto an existing one: maps
+// merge by key, scalars only when present. Different writers touching different
+// fields therefore compose instead of overwriting each other.
+func mergeCanvasElementPatch(existing WorldCanvasElement, patch CanvasElementPatch) WorldCanvasElement {
+	if patch.Kind != nil {
+		existing.Kind = *patch.Kind
+	}
+	if patch.RefKind != nil {
+		existing.RefKind = *patch.RefKind
+	}
+	if patch.RefID != nil {
+		existing.RefID = *patch.RefID
+	}
+	if patch.Name != nil {
+		existing.Name = *patch.Name
+	}
+	if patch.Layer != nil {
+		existing.Layer = *patch.Layer
+	}
+	existing.Props = mergeCanvasMap(existing.Props, patch.Props)
+	existing.Geometry = mergeCanvasMap(existing.Geometry, patch.Geometry)
+	existing.Style = mergeCanvasMap(existing.Style, patch.Style)
+	return existing
 }
 
 // placeCanvasElement fills the placement an AI-placed element needs to render
@@ -646,11 +837,15 @@ func (w *WorldStore) UpdateCanvasDocumentOps(worldID, contextID string, ops []Ca
 					return WorldCanvasDocument{}, worldsError(WorldsErrEntityNotFound, "referenced entity does not belong to the world")
 				}
 			}
-			// A partial update keeps the existing box: only props/name changes must
-			// not teleport the card or drop its size.
+			// A partial update merges by key on every map field (RFC 2026-10-03):
+			// a props-only change must not teleport the card, and a geometry-only
+			// change must not drop props. Different fields compose; the same field
+			// resolves last-writer-wins because writes are serialized per document.
 			if op.Op == "update" {
 				if existing, ok := canvasElementByID(elements, element.ID); ok {
-					element.Geometry = mergeCanvasGeometry(existing.Geometry, element.Geometry)
+					element.Geometry = mergeCanvasMap(existing.Geometry, element.Geometry)
+					element.Props = mergeCanvasMap(existing.Props, element.Props)
+					element.Style = mergeCanvasMap(existing.Style, element.Style)
 				}
 			}
 			placeCanvasElement(&element, elements, batchBounds)

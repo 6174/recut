@@ -484,6 +484,48 @@ func (b *AgentBridge) writeClaudeProfile(dir string, session AgentSession, execu
 	return path, nil
 }
 
+// WriteCommandcodeWorkspace materializes the Command Code MCP adapter in the
+// session workspace. Command Code has no `--mcp-config` flag, but its project
+// scope is a `.mcp.json` at the working directory root, so the session
+// workspace (the CLI cwd) is the per-session injection point — the analogue of
+// Claude's claude-mcp.json.
+func (b *AgentBridge) WriteCommandcodeWorkspace(session AgentSession, token, executable string) (string, error) {
+	return b.writeCommandcodeWorkspace(b.WorkspaceDir(session), session, token, executable)
+}
+
+// WriteCommandcodeWorkspaceTo writes the Command Code profile into an explicit
+// directory. The workspace is pinned and reused for every later turn so the cwd
+// and its `.mcp.json` stay stable for the same native session.
+func (b *AgentBridge) WriteCommandcodeWorkspaceTo(dir string, session AgentSession, token, executable string) (string, error) {
+	return b.writeCommandcodeWorkspace(dir, session, token, executable)
+}
+
+func (b *AgentBridge) writeCommandcodeWorkspace(dir string, session AgentSession, token, executable string) (string, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	agents, err := b.renderSessionGuide(session)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), agents, 0o600); err != nil {
+		return "", err
+	}
+	config := map[string]any{"mcpServers": map[string]any{"recut": map[string]any{
+		"type":    "stdio",
+		"command": executable,
+		"args":    []string{"--mcp", "--mcp-target", defaultMCPTarget},
+		"env": map[string]any{
+			"RECUT_AGENT_SESSION": session.ID,
+			"RECUT_AGENT_TOKEN":   token,
+		},
+	}}}
+	if err := writeProjectJSON(filepath.Join(dir, ".mcp.json"), config); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
 // agentGuideData carries the render mode and the injected capability snapshot
 // for the core Agent guide template. The guide is Chinese-only (no bilingual
 // branch). The internal bridge always renders OutputFormat=xml: the Recut chat

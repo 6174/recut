@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 React 状态能力、lucide 图标与本地 Recut service /v1/agents HTTP API
- * [OUTPUT]: 对外提供 AgentRuntimeStatus 与 Runtime 类型、三个 runtime 的安装命令/登录步骤、复制到剪贴板与失败兜底、SetupStep/CopyFeedback 原子，以及被恢复面板和主动安装对话框共用的 AgentInstallGuide 三步正文（受控：checking 与 checkFailed 由调用方管理）
+ * [OUTPUT]: 对外提供 AgentRuntimeStatus 与 Runtime 类型、四个 runtime 的安装命令/登录步骤、复制到剪贴板与失败兜底、SetupStep/CopyFeedback 原子，以及被恢复面板和主动安装对话框共用的 AgentInstallGuide 三步正文（受控：checking 与 checkFailed 由调用方管理）
  * [POS]: web/components 的本地 Agent CLI 安装引导共享层；面板的 recovery 模式、空态的安装卡与未来 settings 本地 Agent 分类都消费它
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -14,11 +14,14 @@ import { useLocaleStore } from "@/lib/i18n/locale-store";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 
 export type AgentRuntimeStatus = { id: string; name: string; command: string; available: boolean };
-export type Runtime = "codex" | "claude" | "opencode";
-export const RUNTIME_ORDER: ReadonlyArray<Runtime> = ["codex", "opencode", "claude"];
+export type Runtime = "codex" | "claude" | "opencode" | "commandcode";
+export const RUNTIME_ORDER: ReadonlyArray<Runtime> = ["codex", "opencode", "claude", "commandcode"];
 
 export function runtimeAgentName(runtime: string): string {
-  return runtime === "codex" ? "Codex" : runtime === "opencode" ? "OpenCode" : "Claude Code";
+  if (runtime === "codex") return "Codex";
+  if (runtime === "opencode") return "OpenCode";
+  if (runtime === "commandcode") return "Command Code";
+  return "Claude Code";
 }
 
 export function syntheticAgent(runtime: string): AgentRuntimeStatus {
@@ -31,6 +34,7 @@ const opencodeLoginCommands = ["opencode auth login", "opencode --version"];
 export function recoveryInstallCommand(agent: AgentRuntimeStatus): string {
   if (agent.id === "codex") return "npm install -g @openai/codex";
   if (agent.id === "opencode") return opencodeInstallCommand;
+  if (agent.id === "commandcode") return "npm i -g command-code";
   return interpolate(
     t("workspace", useLocaleStore.getState().locale, "agent.recovery.claudeInstallDoc"),
     { name: agent.name },
@@ -40,6 +44,7 @@ export function recoveryInstallCommand(agent: AgentRuntimeStatus): string {
 export function recoveryLoginCommands(agent: AgentRuntimeStatus): string[] {
   if (agent.id === "codex") return ["codex login", "codex --version"];
   if (agent.id === "opencode") return opencodeLoginCommands;
+  if (agent.id === "commandcode") return ["cmd login", "cmd --version"];
   return [`${agent.command} --version`];
 }
 

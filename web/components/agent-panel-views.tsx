@@ -19,7 +19,7 @@ import { MotionGraphicPreview } from "@/components/motion-graphic-preview";
 import { AssetPreviewDialog, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { extractMotionGraphic, isMotionGraphicCall, type MotionGraphic } from "@/lib/agent/motion-graphic";
 import { Button } from "@/components/ui/button";
-import { ActionIcon, RunningStatus, WorkFocusChip, WorkSurfaceChip } from "@/components/agent-composer";import { codexModelLabel, contextLabel, defaultCodexConfiguration, hasWorkFocusSelection, opencodeModelLabel, parseSubagentJob, runtimeLabel, type SubagentJob, type WorkFocusContext, type WorkSurfaceContext } from "@/components/agent-panel-types";
+import { ActionIcon, RunningStatus, WorkFocusChip, WorkSurfaceChip } from "@/components/agent-composer";import { codexModelLabel, commandcodeModelLabel, contextLabel, defaultCodexConfiguration, hasWorkFocusSelection, opencodeModelLabel, parseSubagentJob, runtimeLabel, type SubagentJob, type WorkFocusContext, type WorkSurfaceContext } from "@/components/agent-panel-types";
 import { type AgentEvent, type CLIEntry, type Detail, type Session, type ToolPayload, type Turn } from "@/components/agent-panel-types";
 import { t, useI18n } from "@/lib/i18n/index";
 import { useLocaleStore } from "@/lib/i18n/locale-store";
@@ -1595,5 +1595,7 @@ function sessionSummary(session: Session): string {
     return `${agent} · ${codexModelLabel(session.codexModel)} · ${reasoningEffortLabel(session.reasoningEffort)}`;
   if (session.runtime === "opencode")
     return `${agent} · ${opencodeModelLabel(session.opencodeModel)}`;
+  if (session.runtime === "commandcode")
+    return `${agent} · ${commandcodeModelLabel(session.commandcodeModel)}`;
   return agent;
 }

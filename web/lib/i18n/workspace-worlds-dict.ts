@@ -41,6 +41,14 @@ const zh = {
   "worlds.create.submitting": "正在创建…",
   "worlds.create.submit": "创建并进入",
   "worlds.create.newEntity": "新建实体",
+  "worlds.create.mode.scratch": "从零创建",
+  "worlds.create.mode.import": "导入 zip",
+  "worlds.create.import.pick": "选择 .zip 文件",
+  "worlds.create.import.hint": "支持 .zip 源文件；素材按内容去重。",
+  "worlds.create.import.desc": "从导出为 zip 的 World 源导入为新的本地世界。",
+  "worlds.create.import.submit": "导入并进入",
+  "worlds.create.import.submitting": "导入中…",
+  "worlds.create.import.failed": "导入失败",
 
   // 世界类型
   "worlds.kind.character_ip": "角色 IP",
@@ -343,6 +351,14 @@ const en: Record<keyof typeof zh, string> = {
   "worlds.create.newEntity": "New entity",
   "worlds.create.submitting": "Creating…",
   "worlds.create.submit": "Create & open",
+  "worlds.create.mode.scratch": "From scratch",
+  "worlds.create.mode.import": "Import zip",
+  "worlds.create.import.pick": "Choose a .zip file",
+  "worlds.create.import.hint": "Accepts a .zip source; media is deduped by content.",
+  "worlds.create.import.desc": "Import a World source exported as zip as a new local world.",
+  "worlds.create.import.submit": "Import & open",
+  "worlds.create.import.submitting": "Importing…",
+  "worlds.create.import.failed": "Import failed",
 
   // World kinds
   "worlds.kind.character_ip": "Character IP",

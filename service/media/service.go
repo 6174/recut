@@ -1,8 +1,8 @@
 /*
  * [INPUT]: 依赖 Store 的工作区 SQLite、受控本地文件根和按请求类别分隔的 HTTP 客户端
  * [OUTPUT]: 对外提供按 SHA-256 内容哈希去重的媒体资产、提供商凭据、能力路由、动态音色目录及同步/异步生成任务；
- * 统一远程资源缓存 RemoteFileCache（<dataRoot>/files/cdn，URL → 本地文件）；同一云端凭据的一次请求生成有界串行，
- * 而 App 贡献的本地 provider 不持有凭据、并发由 App 自己的 task 账本决定（平台不排队，避免退化成全局单任务）
+ * 统一远程资源缓存 RemoteFileCache（<dataRoot>/files/cdn，URL → 本地文件）；任务并发不做平台级凭据隔离，
+ * 每个 job 独立推进，是否需要限流由 provider 自己决定（平台不排队，也避免退化成全局单任务）
  * [POS]: service 的 Media Platform 核心；普通 App 只通过 assetId 和 MCP/HTTP 使用，不持有供应商密钥
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -30,7 +30,6 @@ type MediaService struct {
 	remoteCache       *RemoteFileCache
 	dedupeMu          sync.Mutex
 	pollers           sync.Map
-	oneRequestGates   sync.Map
 	schedulerID       string
 	notifyMediaChange func()
 	// localAppExec 是 App 贡献的本地 provider（contributes.media）执行桥，按 provider id 分派。
@@ -180,18 +179,6 @@ func newID() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 func (m *MediaService) database() (*sql.DB, error) { return m.store.WorkspaceDatabase() }
-
-// oneRequestGate prevents a reconciliation tick from turning a batch of
-// queued byte-returning requests into an upstream connection burst. The
-// durable job lease is acquired before this gate, so waiting work remains
-// owned and recoverable without crossing the external billing boundary.
-// It is keyed by credential, so it only serializes cloud providers: App
-// providers hold no credential and never enter the gate, because their own
-// task ledger owns queueing.
-func (m *MediaService) oneRequestGate(credentialID string) chan struct{} {
-	gate, _ := m.oneRequestGates.LoadOrStore(credentialID, make(chan struct{}, 1))
-	return gate.(chan struct{})
-}
 
 func (m *MediaService) Database() (*sql.DB, error) { return m.database() }
 func (m *MediaService) ResolveRoute(input GenerateMediaInput) (MediaRoute, MediaCredential, error) {

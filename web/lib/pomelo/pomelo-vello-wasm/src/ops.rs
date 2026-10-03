@@ -31,6 +31,23 @@ pub const KIND_BLUR_RECT: u8 = 7;
 pub const KIND_PUSH_CLIP_ROUND_RECT: u8 = 8;
 pub const KIND_POP_CLIP: u8 = 9;
 
+/// 常驻 1×1 全透明图像 id（runtime 初始化时注册）。见 [`push_keepalive_image`]。
+pub(crate) const KEEPALIVE_IMAGE_ID: u32 = 0xFFFF_FF01;
+
+/// 每个场景末尾追加一次 1×1 全透明图像绘制，保证 scene 至少含一个 image patch。
+///
+/// 起因（vello 0.10）：`Renderer` 持有持久化的 image atlas。渲染「无 patch 场景」（既无图像，
+/// 也无字形 run / gradient——例如画布元素全部移出视口后的空 backing）时，`Resolver::resolve`
+/// 走 `resolve_solid_paths_only` 提前返回 `Images::default()`（尺寸 0），渲染层据此把持久 atlas
+/// 替换成 1×1；但 `Resolver` 内的 `ImageCache` 仍认为原图 resident、不会重传。之后带图场景把
+/// atlas 重建回原尺寸却是空的——图片整片消失，直到缩放/升档换新 image id 才恢复（新 id 未 resident）。
+/// 常驻一张 1×1 透明图让每个场景都有 patch，atlas 尺寸不再回缩，已注册的覆盖纹理始终有效。
+pub(crate) fn push_keepalive_image(scene: &mut Scene, transform: Affine, images: &HashMap<u32, ImageData>) {
+    if let Some(image) = images.get(&KEEPALIVE_IMAGE_ID) {
+        scene.draw_image(image, transform);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawOp {
     RoundRect {
@@ -251,6 +268,8 @@ pub fn build_scene(
     scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &Rect::new(0.0, 0.0, clip_width as f64, clip_height as f64));
     draw_ops(ops, transform, fonts, fallbacks, images, scene);
     scene.pop_layer();
+    // 保证场景至少含一个 image patch，避免 vello 把持久 image atlas 缩到 1×1（见 push_keepalive_image）。
+    push_keepalive_image(scene, transform, images);
 }
 
 /// 录制 chunk Scene：不做瓦片裁剪、以给定变换（通常 IDENTITY，世界坐标）绘制。

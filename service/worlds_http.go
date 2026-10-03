@@ -543,19 +543,56 @@ func (s *Server) getCanvasDocument(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, doc)
 }
 
-// saveCanvasDocument serves canvas.save: whole-document write with optimistic
-// version check (CANVAS_VERSION_CONFLICT on stale reads).
+// saveCanvasDocument serves canvas.save with an optimistic version check
+// (CANVAS_VERSION_CONFLICT on stale reads). Two shapes share the route:
+//   - default: whole-document replace (legacy; elements are full objects)
+//   - patch:true: field-level merge (RFC 2026-10-03) — elements are partial and
+//     removed lists deletions explicitly, so concurrent writers that touch
+//     different fields compose instead of overwriting each other.
 func (s *Server) saveCanvasDocument(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		ContextID       string               `json:"contextId"`
-		Elements        []WorldCanvasElement `json:"elements"`
-		ExpectedVersion int                  `json:"version"`
+		ContextID       string          `json:"contextId"`
+		Elements        json.RawMessage `json:"elements"`
+		Removed         []string        `json:"removed"`
+		Patch           bool            `json:"patch"`
+		ExpectedVersion int             `json:"version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
 		return
 	}
-	doc, err := s.worldsStore().SaveCanvasDocument(r.PathValue("worldID"), input.ContextID, input.Elements, input.ExpectedVersion)
+	worldID := r.PathValue("worldID")
+	if input.Patch {
+		var patches []CanvasElementPatch
+		if err := json.Unmarshal(input.Elements, &patches); err != nil {
+			writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+			return
+		}
+		doc, err := s.worldsStore().PatchCanvasDocument(PatchCanvasDocumentInput{
+			WorldID: worldID, ContextID: input.ContextID, Elements: patches,
+			Removed: input.Removed, ExpectedVersion: input.ExpectedVersion,
+		})
+		if err != nil {
+			writeWorldsError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, doc)
+		return
+	}
+	var elements []WorldCanvasElement
+	if len(input.Elements) > 0 {
+		if err := json.Unmarshal(input.Elements, &elements); err != nil {
+			writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+			return
+		}
+	}
+	// 防御：整包替换语义下，缺 id/kind 的元素会被 normalize 丢弃，收到这种载荷几乎必然是
+	// 「字段补丁落到了不支持 patch 的服务端」——照整包替换执行会静默清空文档。宁可报错。
+	if err := validateWholeCanvasElements(elements); err != nil {
+		writeWorldsError(w, err)
+		return
+	}
+	doc, err := s.worldsStore().SaveCanvasDocument(worldID, input.ContextID, elements, input.ExpectedVersion)
 	if err != nil {
 		writeWorldsError(w, err)
 		return

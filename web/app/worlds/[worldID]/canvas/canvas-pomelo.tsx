@@ -8,7 +8,8 @@
  * + AlignmentGuidePlugin（拖拽对齐吸附与提示线）+ VideoPreviewPlugin（视频节点悬停盖同尺寸播放器，移出收起）；
  * 画布工具（模式/连线/插入/undo/缩放菜单）由 CanvasToolbarItems 承载并合并进全局 Header（canvas-top-bar.tsx），
  * 世界工具栏与「设定视图」切换仍上提到全局 Header（canvas-top-bar.tsx）；
- * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV、绑定两实体的自由箭头→复用
+ * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV（文本框 kind=text / attr text 无背景 + 圆角描边；
+ * 就地编辑中给该记录置 editing 隐藏画布文字，避免与无背景的 DOM 就地编辑器重影）、绑定两实体的自由箭头→复用
  * RelationArrowBlockV 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
  * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界与空容器引导（T9）/ toast / 文件拖放（B.12）；
  * 生成提案态（proposal）：媒体元素与 attr 媒体卡从全局 asset 读 proposal，映射为 proposalStatus/
@@ -94,6 +95,9 @@ function buildPomeloRecords(
       if (Number.isFinite(geo.width) && Number.isFinite(geo.height)) liveSizes.set(canvasId, { width: geo.width!, height: geo.height! });
     }
   }
+
+  // 就地编辑中的自由元素 id（InlineEdit union 里 entity-title 无 elementId，先窄化一次）
+  const editingElementId = state.inlineEdit && "elementId" in state.inlineEdit ? state.inlineEdit.elementId : "";
 
   const hiddenEntityIds = new Set(
     state.elements.filter((element) => element.refKind === "entity" && element.props?.hidden).map((element) => String(element.refId)),
@@ -233,6 +237,8 @@ function buildPomeloRecords(
           // 属性名（props.label，如「环境卡」）优先作为卡片徽标；缺省回退媒体类型标签
           label: String(element.props?.label ?? ""),
           text: String(element.props?.text ?? ""),
+          // 文本属性卡同理：就地编辑中隐藏画布文字（文本框无背景，避免与 DOM 编辑器重影）
+          ...(editingElementId === element.id ? { editing: true } : {}),
           mediaSrc,
           ...(assetState !== "ready" && assetState !== "proposed" ? { assetStatus: assetState } : {}),
           ...(proposal ? {
@@ -260,7 +266,8 @@ function buildPomeloRecords(
         id: element.id,
         type: "free-element",
         // 文本元素高度随内容（换行行数），不再固定一行
-        attrs: { x: pos.x, y: pos.y, width, height: textElementHeight(text, width), elementKind: "text", text },
+        // editing：就地编辑中隐藏画布文字——文本框无背景、DOM 编辑器直接叠在框位，不隐藏会与画布文字重影
+        attrs: { x: pos.x, y: pos.y, width, height: textElementHeight(text, width), elementKind: "text", text, ...(editingElementId === element.id ? { editing: true } : {}) },
       });
       return;
     }

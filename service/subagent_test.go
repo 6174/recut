@@ -72,7 +72,7 @@ func TestSubagentToolCallRegistryConsumeOnce(t *testing.T) {
 
 func TestCreateChildSessionPersistedAndHiddenFromList(t *testing.T) {
 	bridge, agents, _ := newSubagentTestBridge(t)
-	parent, err := agents.Create("codex", "", "", "")
+	parent, err := agents.Create("codex", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

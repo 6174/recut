@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	media "recut-service/media"
 )
 
 func TestMediaRouteAndJobUseOpaqueCredential(t *testing.T) {
@@ -121,6 +124,100 @@ func TestCodexImageRouteRequiresNoProviderCredential(t *testing.T) {
 	}
 	if _, _, err := media.ResolveRoute(GenerateMediaInput{Capability: ImageGenerate}); err == nil || !strings.Contains(err.Error(), "configured for Codex") {
 		t.Fatalf("Codex route must direct Agent to native image generation, got %v", err)
+	}
+}
+
+// TestImageRouteSplitsByReferences covers the text-to-image / image-edit route
+// split: callers keep submitting image.generate, and the service picks the edit
+// route only when the submission carries references.
+func TestImageRouteSplitsByReferences(t *testing.T) {
+	svc := NewMediaService(NewStore(t.TempDir(), nil))
+	textCredential, err := svc.SaveCredential(MediaCredential{Provider: "openai-compatible", Name: "Text", APIBase: "http://127.0.0.1:1"}, "text-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editCredential, err := svc.SaveCredential(MediaCredential{Provider: "openai", Name: "Edit", APIBase: "http://127.0.0.1:1"}, "edit-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveRoute(MediaRoute{Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: textCredential.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveRoute(MediaRoute{ID: "image.generate.edit", Capability: ImageGenerate, ModelID: "openai/gpt-image-2", CredentialID: editCredential.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	textRoute, _, err := svc.ResolveRoute(GenerateMediaInput{Capability: ImageGenerate})
+	if err != nil || textRoute.ID != "image.generate.default" || textRoute.ModelID != "openai-compatible/image" {
+		t.Fatalf("text-to-image route = %#v, %v", textRoute, err)
+	}
+	editRoute, _, err := svc.ResolveRoute(GenerateMediaInput{Capability: ImageGenerate, ReferenceIDs: []string{"asset-1"}})
+	if err != nil || editRoute.ID != "image.generate.edit" || editRoute.ModelID != "openai/gpt-image-2" {
+		t.Fatalf("reference submission must use the edit route, got %#v, %v", editRoute, err)
+	}
+	typedRoute, _, err := svc.ResolveRoute(GenerateMediaInput{Capability: ImageGenerate, References: media.MediaReferences{Images: []string{"asset-1"}}})
+	if err != nil || typedRoute.ID != "image.generate.edit" {
+		t.Fatalf("typed references must use the edit route, got %#v, %v", typedRoute, err)
+	}
+}
+
+// TestImageRouteFallsBackToDefaultWhenEditUnset keeps installs that only ever
+// configured the default image route working when references are present.
+func TestImageRouteFallsBackToDefaultWhenEditUnset(t *testing.T) {
+	svc := NewMediaService(NewStore(t.TempDir(), nil))
+	credential, err := svc.SaveCredential(MediaCredential{Provider: "openai-compatible", Name: "Test", APIBase: "http://127.0.0.1:1"}, "secret-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveRoute(MediaRoute{Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	route, _, err := svc.ResolveRoute(GenerateMediaInput{Capability: ImageGenerate, ReferenceIDs: []string{"asset-1"}})
+	if err != nil || route.ID != "image.generate.default" {
+		t.Fatalf("missing edit route must fall back to default, got %#v, %v", route, err)
+	}
+}
+
+// TestLegacyMediaRouteTableMigratesToAllowImageEditRoute simulates a workspace
+// created before the split (unique capability) and verifies the startup
+// migration rebuilds the table, keeps the existing route, and lets a second
+// image route coexist.
+func TestLegacyMediaRouteTableMigratesToAllowImageEditRoute(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := sql.Open("sqlite", sqliteDSN(filepath.Join(root, "workspace.sqlite")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`create table media_routes (
+  id text primary key, capability text not null unique, model_id text not null,
+  credential_id text not null, enabled integer not null, updated_at text not null
+)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`insert into media_routes (id, capability, model_id, credential_id, enabled, updated_at) values ('image.generate.default', 'image.generate', 'openai-compatible/image', '', 1, '')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewStore(root, nil)
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewMediaService(store)
+	routes, err := svc.ListRoutes()
+	if err != nil || len(routes) != 1 || routes[0].ID != "image.generate.default" {
+		t.Fatalf("existing route lost during migration: %#v, %v", routes, err)
+	}
+	credential, err := svc.SaveCredential(MediaCredential{Provider: "openai-compatible", Name: "Test", APIBase: "http://127.0.0.1:1"}, "secret-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveRoute(MediaRoute{ID: "image.generate.edit", Capability: ImageGenerate, ModelID: "openai-compatible/image", CredentialID: credential.ID, Enabled: true}); err != nil {
+		t.Fatalf("second image route rejected after migration: %v", err)
 	}
 }
 

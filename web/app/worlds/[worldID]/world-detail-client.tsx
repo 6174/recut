@@ -481,7 +481,7 @@ function WorldDetailContent() {
             {readOnly && (
               <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-2">
                 <p className="text-xs text-muted-foreground">{t("worlds.detail.readonly.banner")}</p>
-                <Button className="h-7 shrink-0 text-xs" disabled={forking} onClick={() => void forkWorld()} type="button" variant="outline">
+                <Button className="h-7 shrink-0 text-xs" disabled={forking} onClick={() => void forkWorld()} type="button">
                   {t("worlds.detail.fork")}
                 </Button>
               </div>

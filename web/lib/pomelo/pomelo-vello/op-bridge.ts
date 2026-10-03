@@ -67,7 +67,8 @@ export type VelloOp =
   | { kind: "pushClipRoundRect"; x: number; y: number; width: number; height: number; radius: number }
   | { kind: "popClip" };
 
-const TRANSPARENT: Rgba = [0, 0, 0, 0];
+/** 透明填充（alpha=0）：Rust 侧 fill/stroke alpha 为 0 时跳过该次绘制，可用于「只描边」的形状。 */
+export const TRANSPARENT: Rgba = [0, 0, 0, 0];
 const TEXT_ENCODER = new TextEncoder();
 const ALIGN_CODE: Record<string, number> = { left: 0, center: 1, right: 2 };
 

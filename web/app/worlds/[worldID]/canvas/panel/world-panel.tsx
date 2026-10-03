@@ -99,11 +99,12 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
   return (
     <div className="text-sm">
       <PanelSection first title="身份">
-        <FieldRow label="名称" value={store.worldName} onSave={(value) => void saveMeta({ name: String(value) })} />
+        <FieldRow label="名称" readOnly={store.readOnly} value={store.worldName} onSave={(value) => void saveMeta({ name: String(value) })} />
         <RichFieldRow
           apiBase={apiBase}
           label="简介"
           minRows={3}
+          readOnly={store.readOnly}
           value={worldDetail?.description ?? ""}
           placeholder="一句话描述这个世界…"
           onSave={(value) => void saveMeta({ description: value })}
@@ -112,6 +113,7 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
           apiBase={apiBase}
           label="Skill"
           minRows={6}
+          readOnly={store.readOnly}
           value={worldDetail?.skillMd ?? ""}
           placeholder="这个世界的创作技能说明（Agent 会读取）…"
           onSave={(value) => void saveMeta({ skillMd: value })}

@@ -41,6 +41,7 @@ import {
 import {
   buildSessionDebugReport,
   defaultCodexConfiguration,
+  defaultCommandcodeConfiguration,
   defaultOpencodeConfiguration,
   creationWorldContextPayload,
   hasWorkFocusSelection,
@@ -51,6 +52,8 @@ import {
   type Attachment,
   type CLIEntry,
   type CodexConfiguration,
+  type CommandcodeConfiguration,
+  type CommandcodeModel,
   type Detail,
   type MessageContext,
   type OpencodeConfiguration,
@@ -71,6 +74,7 @@ import { useI18n } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
 const EMPTY_SESSIONS: Session[] = [];
 const EMPTY_OPENCODE_MODELS: OpencodeModel[] = [];
+const EMPTY_COMMANDCODE_MODELS: CommandcodeModel[] = [];
 const serviceInstallCommand = "curl -fsSL https://recut.video/install.sh | sh";
 
 export function ProjectAgentPanel(props: Props) {
@@ -88,10 +92,12 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
   const sessions = useAgentStore((state) => state.sessionsByScope[scope] ?? EMPTY_SESSIONS);
   const runtimeStatus = useAgentStore((state) => state.runtimeStatus);
   const opencodeModels = useAgentStore((state) => state.opencodeModels ?? EMPTY_OPENCODE_MODELS);
+  const commandcodeModels = useAgentStore((state) => state.commandcodeModels ?? EMPTY_COMMANDCODE_MODELS);
   const cachedActiveID = useAgentStore((state) => state.activeSessionIDByScope[scope] ?? null);
   const loadCachedSessions = useAgentStore((state) => state.loadSessions);
   const loadCachedRuntimeStatus = useAgentStore((state) => state.loadRuntimeStatus);
   const loadCachedOpencodeModels = useAgentStore((state) => state.loadOpencodeModels);
+  const loadCachedCommandcodeModels = useAgentStore((state) => state.loadCommandcodeModels);
   const upsertCachedSession = useAgentStore((state) => state.upsertSession);
   const loadCachedSessionDetail = useAgentStore((state) => state.loadSessionDetail);
   const setCachedActiveSession = useAgentStore((state) => state.setActiveSession);
@@ -124,6 +130,8 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     useState<CodexConfiguration>(defaultCodexConfiguration);
   const [pendingOpencodeConfig, setPendingOpencodeConfig] =
     useState<OpencodeConfiguration>(defaultOpencodeConfiguration);
+  const [pendingCommandcodeConfig, setPendingCommandcodeConfig] =
+    useState<CommandcodeConfiguration>(defaultCommandcodeConfiguration);
   const [serviceInstallCopyStatus, setServiceInstallCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [now, setNow] = useState(() => Date.now());
   const streamRef = useRef<{ unsubscribe: () => void } | null>(null);
@@ -157,6 +165,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
       void loadSessions(scopeVersion);
       void loadRuntimeStatus(scopeVersion).then((status) => {
         if (status?.some((agent) => agent.id === "opencode" && agent.available)) void loadOpencodeModels(scopeVersion);
+        if (status?.some((agent) => agent.id === "commandcode" && agent.available)) void loadCommandcodeModels(scopeVersion);
       });
     }
   }, [apiBase, online]);
@@ -271,6 +280,11 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
       await loadCachedOpencodeModels(apiBase);
     } catch {}
   }
+  async function loadCommandcodeModels(scopeVersion = scopeVersionRef.current) {
+    try {
+      await loadCachedCommandcodeModels(apiBase);
+    } catch {}
+  }
   async function open(id: string, scopeVersion = scopeVersionRef.current) {
     const detailVersion = ++detailVersionRef.current;
     activeIDRef.current = id;
@@ -280,6 +294,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     setCachedActiveSession(apiBase, scope, id);
     setDetail(null);
     setError("");
+    setStopNotice("");
     setSyncingID(id);
     setLoadingSessions(true);
     try {
@@ -389,6 +404,7 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     }
     setCreatingRuntime(true);
     setError("");
+    setStopNotice("");
     try {
       const body: Record<string, unknown> = {
         runtime,
@@ -399,6 +415,9 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
       }
       if (runtime === "opencode") {
         body.opencodeModel = pendingOpencodeConfig.opencodeModel;
+      }
+      if (runtime === "commandcode") {
+        body.commandcodeModel = pendingCommandcodeConfig.commandcodeModel;
       }
       const response = await fetch(`${apiBase}/v1/agent-sessions`, {
         method: "POST",
@@ -586,6 +605,27 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     );
     if (!response.ok) {
       setError(t("agent.panel.opencodeSaveFailed"));
+      return false;
+    }
+    await refresh(activeID);
+    return true;
+  }
+  async function saveCommandcodeConfiguration(next: CommandcodeConfiguration) {
+    if (!activeID) {
+      setPendingCommandcodeConfig(next);
+      return true;
+    }
+    setError("");
+    const response = await fetch(
+      `${apiBase}/v1/agent-sessions/${activeID}/commandcode-configuration`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      },
+    );
+    if (!response.ok) {
+      setError(t("agent.panel.commandcodeSaveFailed"));
       return false;
     }
     await refresh(activeID);
@@ -905,10 +945,17 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
           onRemovePickedContext={(key) => setPickedContexts((current) => current.filter((picked) => picked.key !== key))}
           onRemoveWorld={(worldID) => setWorldReferences((current) => current.filter((world) => world.worldId !== worldID))}
           onSaveCodexConfiguration={saveCodexConfiguration}
+          onSaveCommandcodeConfiguration={saveCommandcodeConfiguration}
           onSaveOpencodeConfiguration={saveOpencodeConfiguration}
           onSend={send}
           onStop={() => void stop()}
           onUpload={uploadMedia}
+          commandcodeConfiguration={
+            detail?.commandcodeModel
+              ? { commandcodeModel: detail.commandcodeModel }
+              : pendingCommandcodeConfig
+          }
+          commandcodeModels={commandcodeModels}
           opencodeConfiguration={
             detail?.opencodeModel
               ? { opencodeModel: detail.opencodeModel }

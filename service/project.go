@@ -456,7 +456,7 @@ func (s *Store) WorkspaceDatabase() (*sql.DB, error) {
 		_, err := db.Exec(`
 create table if not exists agent_sessions (
   id text primary key, profile_id text not null, project_id text, runtime text not null,
-  native_session_id text, native_workspace text not null default '', codex_model text, reasoning_effort text, opencode_model text,
+  native_session_id text, native_workspace text not null default '', codex_model text, reasoning_effort text, opencode_model text, commandcode_model text,
   title text not null, status text not null,
   created_at text not null, updated_at text not null
 );
@@ -512,7 +512,7 @@ create table if not exists media_credentials (
   secret_ciphertext text not null, created_at text not null, updated_at text not null
 );
 create table if not exists media_routes (
-  id text primary key, capability text not null unique, model_id text not null,
+  id text primary key, capability text not null, model_id text not null,
   credential_id text not null, enabled integer not null, updated_at text not null
 );
 create table if not exists media_assets (
@@ -772,6 +772,7 @@ create index if not exists creation_context_bindings_world on creation_context_b
 			"alter table agent_sessions add column codex_model text",
 			"alter table agent_sessions add column reasoning_effort text",
 			"alter table agent_sessions add column opencode_model text",
+			"alter table agent_sessions add column commandcode_model text",
 			"alter table agent_sessions add column native_workspace text not null default ''",
 			"alter table agent_sessions add column workspace_context_json text not null default ''",
 			"alter table agent_sessions add column app_id text not null default ''",
@@ -845,6 +846,9 @@ create index if not exists creation_context_bindings_world on creation_context_b
 		if err := migrateWorldAssetRefsURL(db); err != nil {
 			return err
 		}
+		if err := migrateMediaRoutesAllowImageEditRoute(db); err != nil {
+			return err
+		}
 		if _, err := db.Exec("update media_assets set status = 'completed' where coalesce(trim(status), '') = '' or (status in ('queued', 'running') and job_id = '')"); err != nil {
 			return err
 		}
@@ -905,6 +909,39 @@ drop table world_asset_refs;
 alter table world_asset_refs_v2 rename to world_asset_refs;
 create index world_asset_refs_world on world_asset_refs(world_id, entity_id, sort_order);
 create index world_asset_refs_asset on world_asset_refs(asset_id);
+`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// migrateMediaRoutesAllowImageEditRoute drops the legacy "one route per
+// capability" unique constraint so image generation can hold a text-to-image
+// route (image.generate.default) and an image-edit route (image.generate.edit)
+// side by side. SQLite cannot drop a constraint in place, so the table is
+// rebuilt only when the legacy unique index is still present.
+func migrateMediaRoutesAllowImageEditRoute(db *sql.DB) error {
+	var uniqueIndexes int
+	if err := db.QueryRow("select count(*) from pragma_index_list('media_routes') where origin = 'u'").Scan(&uniqueIndexes); err != nil {
+		return err
+	}
+	if uniqueIndexes == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
+create table media_routes_v2 (
+  id text primary key, capability text not null, model_id text not null,
+  credential_id text not null, enabled integer not null, updated_at text not null
+);
+insert into media_routes_v2 (id, capability, model_id, credential_id, enabled, updated_at)
+  select id, capability, model_id, credential_id, enabled, updated_at from media_routes;
+drop table media_routes;
+alter table media_routes_v2 rename to media_routes;
 `); err != nil {
 		return err
 	}

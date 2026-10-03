@@ -1257,13 +1257,25 @@ func (w *WorldStore) mergeEntityAttrs(worldID string, entityType WorldEntityType
 			seen[field.Key] = true
 		}
 	}
-	for _, attr := range merged {
+	for i := range merged {
+		attr := merged[i]
 		// Options are checked after the schema pass so a locked preset field
 		// supplies its own options: an Agent writing {key:"aspectRatio",
 		// type:"select", value:"9:16"} succeeds without knowing the options.
 		// Only a select that no schema declares still needs explicit options.
 		if attr.Type == "select" && len(attr.Options) == 0 {
 			return nil, worldsError(WorldsErrContextInvalid, fmt.Sprintf("select attr %q needs options", attr.Key))
+		}
+		// Agent-authored numeric fields frequently arrive as strings ("210");
+		// coerce a parseable numeric string to a real number so the stored
+		// value is type-correct. A non-numeric string still fails validation.
+		if attr.Type == "number" {
+			if text, ok := attr.Value.(string); ok {
+				if number, convErr := strconv.ParseFloat(strings.TrimSpace(text), 64); convErr == nil {
+					attr.Value = number
+					merged[i].Value = number
+				}
+			}
 		}
 		if err := w.validateAttrValue(attr); err != nil {
 			return nil, err

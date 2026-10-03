@@ -80,7 +80,7 @@ func TestRecutSkillLinksAllAgentsWithoutCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(status.Targets) != 4 {
+	if len(status.Targets) != 5 {
 		t.Fatalf("targets = %#v", status.Targets)
 	}
 	for _, target := range status.Targets {
@@ -340,7 +340,7 @@ func TestSkillsHTTPLinksAppSkillWithoutMCP(t *testing.T) {
 	if summary.ID != "studio" || summary.Source != skillRoot {
 		t.Fatalf("summary = %#v", summary)
 	}
-	if len(summary.Targets) != 4 {
+	if len(summary.Targets) != 5 {
 		t.Fatalf("targets = %#v", summary.Targets)
 	}
 	for _, target := range summary.Targets {

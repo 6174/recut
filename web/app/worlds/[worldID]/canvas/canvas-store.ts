@@ -16,8 +16,10 @@
  * 拖拽/resize（插件 pointerup 经 logGeometryChange 记一条）与便签/文本正文编辑均可撤销；回放期整层重载合并
  * （loadForHistory：一笔批量撤销只 load(false) 一次）；历史菜单逐条撤销 = 从栈顶连续回放到该条（含其上的更新条目）。
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
- * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏集合，去抖整包落库，
- * 冲突时拉远端按 id 合并脏集重试一次；内层画布是独立文档，实体投影位置跨层天然隔离。
+ * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏字段组，去抖以
+ * 字段补丁落库（patch:true：只发脏分组，服务端按 key 合并——不同字段天然互补、同字段后者胜，
+ * RFC 2026-10-03）；冲突时拿新 version 重发同一补丁，不再整份拉远端覆盖；
+ * 内层画布是独立文档，实体投影位置跨层天然隔离。
  * elementsContextId：elements 归属层（切层后 load 回填前仍是旧层数据），整包保存按它落库，
  * 避免按当前导航 context 把旧层整包覆盖写进新层文档。
  * canonicalizeCanvasElements：load 时把导入 bundle 的实体元素 id 归一为 shape:<entityId>（源世界沿用
@@ -491,17 +493,24 @@ export function readRecentCustomTypes(): string[] {
   }
 }
 
-// ---- 文档粒度画布保存机制（RFC 2026-09-09）----
-// 本地编辑（upsert/remove/persistGeometry/moveElement）只改 store 内的文档，
-// 脏元素记入 canvasSaveState，去抖整包 canvas.save 落库；version 冲突时
-// 拉远端文档按 id 合并脏集重试一次。非响应式状态：放 zustand 外的模块单例。
-// 去抖很短（150ms）：元素变更都发生在交互收尾（pointerup/文本提交），标脏即调度，
-// 本地服务下几乎即时落库；批量/连发由去抖合并成一次整包保存。
+// ---- 文档粒度画布保存机制（RFC 2026-09-09 / 2026-10-03）----
+// 本地编辑只改 store 内的文档，脏元素连同「改了哪几个字段组」记入 canvasSaveState，
+// 去抖后以字段补丁（patch:true）落库：只发改动的字段组，服务端按 key 合并，不同字段
+// 天然互补、同字段后者胜（RFC 2026-10-03）。version 冲突时拿新 version 重发同一补丁即可
+// （补丁只含自己改的字段，重发即正确合并），不再整份拉远端覆盖。非响应式状态：
+// 放 zustand 外的模块单例。去抖很短（150ms）：元素变更都发生在交互收尾
+// （pointerup/文本提交），标脏即调度，本地服务下几乎即时落库。
 const CANVAS_SAVE_DEBOUNCE_MS = 150;
+
+// 脏字段组：只追到「元素内的哪一块变了」，粒度足够解决人机并发（人动 geometry、AI 动 props），
+// 又不至于为每个叶子维护时间戳。meta = kind/refKind/refId/name/layer 等标量。
+type CanvasDirtyGroup = "geometry" | "props" | "style" | "meta";
+const CANVAS_ALL_GROUPS: CanvasDirtyGroup[] = ["geometry", "props", "style", "meta"];
 
 const canvasSaveState = {
   timer: null as ReturnType<typeof setTimeout> | null,
-  dirty: new Set<string>(),
+  // id → 本次待落库的字段组（无 entry 表示整个元素，如新建）
+  dirty: new Map<string, Set<CanvasDirtyGroup>>(),
   removed: new Set<string>(),
   saving: false,
 };
@@ -614,9 +623,16 @@ async function withChangeGroup<T>(label: string, action: () => Promise<T> | T): 
   }
 }
 
-function markCanvasDirty(id: string, removed = false) {
-  canvasSaveState.dirty.add(id);
-  if (removed) canvasSaveState.removed.add(id);
+// 标脏：groups 省略 = 整个元素（新建）；removed=true = 删除（从脏集移出，进 removed）。
+function markCanvasDirty(id: string, groups?: CanvasDirtyGroup[], removed = false) {
+  if (removed) {
+    canvasSaveState.dirty.delete(id);
+    canvasSaveState.removed.add(id);
+  } else {
+    const set = canvasSaveState.dirty.get(id) ?? new Set<CanvasDirtyGroup>();
+    for (const group of groups ?? CANVAS_ALL_GROUPS) set.add(group);
+    canvasSaveState.dirty.set(id, set);
+  }
   scheduleCanvasSave();
 }
 
@@ -644,13 +660,16 @@ async function flushCanvasSave(): Promise<void> {
   // 保存按「elements 归属层」而非当前导航 context：切层后 load 回填新层前，
   // elements 仍是旧层数据，按 context 落库会把旧层整包覆盖写进新层文档。
   const contextId = state.elementsContextId;
-  const dirty = new Set(canvasSaveState.dirty);
+  const dirty = new Map([...canvasSaveState.dirty].map(([id, groups]) => [id, new Set(groups)] as const));
   const removed = new Set(canvasSaveState.removed);
-  const save = async (elements: WorldCanvasElement[], version: number) => {
+  const elements = canvasPatchElements(state.elements, dirty);
+  const save = async (version: number) => {
     const doc = await createRecutWorldsClient(state.apiBase).canvas.save({
       worldId: state.worldId,
       contextId,
+      patch: true,
       elements,
+      removed: [...removed],
       version,
     });
     // 只有仍在保存同一层时才回写 docVersion，避免旧层保存结果覆盖新层的乐观锁。
@@ -658,36 +677,28 @@ async function flushCanvasSave(): Promise<void> {
       useWorldCanvasStore.setState({ docVersion: doc.version });
     }
   };
-  try {
-    await save(useWorldCanvasStore.getState().elements, useWorldCanvasStore.getState().docVersion);
-    for (const id of dirty) canvasSaveState.dirty.delete(id);
-    for (const id of removed) canvasSaveState.dirty.delete(id);
+  const clearDirty = () => {
+    for (const id of dirty.keys()) canvasSaveState.dirty.delete(id);
     canvasSaveState.removed.clear();
+  };
+  try {
+    await save(state.docVersion);
+    clearDirty();
   } catch (cause) {
     const code = (cause as { code?: string } | null)?.code;
     if (code === "CANVAS_VERSION_CONFLICT") {
-      // 冲突合并：远端文档为底，回放本地脏元素/删除，再以新 version 重试一次。
-      // elements 已切到别的层则丢弃本次合并（脏集属于旧层文档，不能写进新层）
+      // 冲突：补丁只含自己改的字段，拿新 version 重发一次即可与远端合并（服务端逐字段合并）。
+      // elements 已切到别的层则丢弃本次落库（脏集属于旧层文档，不能写进新层）
       if (useWorldCanvasStore.getState().elementsContextId !== contextId) {
         canvasSaveState.dirty.clear();
         canvasSaveState.removed.clear();
       } else {
         try {
-          const remote = await createRecutWorldsClient(state.apiBase).canvas.get({
-            worldId: state.worldId,
-            contextId,
-          });
-          const latest = useWorldCanvasStore.getState();
-          const byId = new Map(remote.elements.map((element) => [element.id, element]));
-          for (const id of removed) byId.delete(id);
-          for (const element of latest.elements) {
-            if (dirty.has(element.id)) byId.set(element.id, element);
-          }
-          await save([...byId.values()], remote.version);
-          for (const id of dirty) canvasSaveState.dirty.delete(id);
-          canvasSaveState.removed.clear();
-        } catch (mergeCause) {
-          useWorldCanvasStore.setState({ notice: messageOf(mergeCause) });
+          const remote = await createRecutWorldsClient(state.apiBase).canvas.get({ worldId: state.worldId, contextId });
+          await save(remote.version);
+          clearDirty();
+        } catch (retryCause) {
+          useWorldCanvasStore.setState({ notice: messageOf(retryCause) });
         }
       }
     } else {
@@ -696,6 +707,32 @@ async function flushCanvasSave(): Promise<void> {
   } finally {
     canvasSaveState.saving = false;
   }
+}
+
+// 组装字段补丁：只带脏元素、且只带脏分组（未改的组不发，服务端按 key 合并）。
+function canvasPatchElements(
+  elements: WorldCanvasElement[],
+  dirty: Map<string, Set<CanvasDirtyGroup>>,
+): Array<Partial<WorldCanvasElement> & { id: string }> {
+  const byId = new Map(elements.map((element) => [element.id, element]));
+  const patches: Array<Partial<WorldCanvasElement> & { id: string }> = [];
+  for (const [id, groups] of dirty) {
+    const element = byId.get(id);
+    if (!element) continue;
+    const patch: Partial<WorldCanvasElement> & { id: string } = { id };
+    if (groups.has("geometry")) patch.geometry = element.geometry;
+    if (groups.has("props")) patch.props = element.props;
+    if (groups.has("style")) patch.style = element.style;
+    if (groups.has("meta")) {
+      patch.kind = element.kind;
+      patch.refKind = element.refKind;
+      patch.refId = element.refId;
+      patch.name = element.name;
+      patch.layer = element.layer;
+    }
+    patches.push(patch);
+  }
+  return patches;
 }
 
 // 卸载兜底：去抖窗口内刷新/关闭页面时，用 sendBeacon 把当前文档强制落盘
@@ -711,7 +748,9 @@ if (typeof window !== "undefined") {
     }
     const body = JSON.stringify({
       contextId: state.elementsContextId,
-      elements: state.elements,
+      patch: true,
+      elements: canvasPatchElements(state.elements, canvasSaveState.dirty),
+      removed: [...canvasSaveState.removed],
       version: state.docVersion,
     });
     const url = `${state.apiBase}/v1/worlds/${encodeURIComponent(state.worldId)}/canvas/doc`;
@@ -1454,7 +1493,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       await get().saveEntityField(entity, { attrKey: matched?.key ?? label, value: text });
     }
     // 属性投影同步（文档版）：attr 元素 props.value 回写进本地文档，随统一保存落库
-    markCanvasDirty(element.id);
+    markCanvasDirty(element.id, ["props"]);
     set((state) => ({
       elements: state.elements.map((item) =>
         item.kind === "attr" && item.refId === entity.id
@@ -1517,7 +1556,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
 
   moveElement: (id, x, y) => {
-    markCanvasDirty(id);
+    markCanvasDirty(id, ["geometry"]);
     set((state) => {
       if (!state.elements.some((element) => element.id === id)) {
         // 首次拖拽尚未入文档的元素（罕见兜底）：先落一个本地影子元素，随统一保存落库
@@ -1613,7 +1652,10 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
 
   // 把画布元素（几何/属性覆盖后）写进本地文档，随统一保存落库；文本提交共用此路径。
   persistGeometry: (id, geometryOverride, propsOverride) => {
-    markCanvasDirty(id);
+    const groups: CanvasDirtyGroup[] = [];
+    if (geometryOverride) groups.push("geometry");
+    if (propsOverride) groups.push("props");
+    markCanvasDirty(id, groups.length ? groups : CANVAS_ALL_GROUPS);
     set((state) => ({
       elements: state.elements.map((element) =>
         element.id === id
@@ -1633,7 +1675,10 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   // 历史回放写回（撤销/重做几何或文本）：与 persistGeometry 同构，但显式推进 dataVersion，
   // 让画布投影重建（否则撤销位移/文本后 store 变了、画布不变）。不产 revision。
   applyElementPatch: (id, patch) => {
-    markCanvasDirty(id);
+    const groups: CanvasDirtyGroup[] = [];
+    if (patch.geometry) groups.push("geometry");
+    if (patch.props) groups.push("props");
+    markCanvasDirty(id, groups.length ? groups : CANVAS_ALL_GROUPS);
     set((state) => ({
       elements: state.elements.map((element) =>
         element.id === id
@@ -1827,7 +1872,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       }
     }
     // 文档粒度存储：本地移除 + 统一保存落库
-    markCanvasDirty(id, true);
+    markCanvasDirty(id, undefined, true);
     set((state) => ({
       elements: state.elements.filter((element) => element.id !== id),
       dataVersion: state.dataVersion + 1,
@@ -2264,8 +2309,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   setAddFieldFor: (addFieldFor) => set({ addFieldFor }),
 
   // 就地编辑（T4）：状态由插件双击写入，宿主渲染 DOM 编辑器；提交经 persistGeometry（props.text）
-  startInlineEdit: (edit) => set({ inlineEdit: edit }),
-  cancelInlineEdit: () => set({ inlineEdit: null }),
+  // 就地编辑开关推进 dataVersion：文档投影按 editing 隐藏/恢复画布文字（文本框无背景，避免与 DOM 编辑器重影）
+  startInlineEdit: (edit) => set((state) => ({ inlineEdit: edit, dataVersion: state.dataVersion + 1 })),
+  cancelInlineEdit: () => set((state) => ({ inlineEdit: null, dataVersion: state.dataVersion + 1 })),
 
   // 右键/菜单触发的实体重命名：命名态同一通道（rect = 卡标题行世界坐标）
   startEntityRename: (entityId) => {
@@ -2299,22 +2345,31 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const x = Number(element.geometry?.x) || 0;
     const y = Number(element.geometry?.y) || 0;
     const width = Math.max(Number(element.geometry?.width) || NOTE_SIZE.width, 120);
-    // 各形态的默认高度与画布 Block 对齐：文本块默认 24；便签/属性沿用几何高度（缺省为便签高）
-    const fallbackHeight = kind === "text-body" ? 24 : NOTE_SIZE.height;
-    const height = Math.max(Number(element.geometry?.height) || fallbackHeight, 24);
-    set({
+    const text = String(element.props?.text ?? "");
+    // 各形态高度与画布 Block 对齐：文本框（文本元素 / 文本属性卡）按内容定高（与渲染公式同源，
+    // 内边距一并计入）；便签沿用几何高度（缺省为便签高）
+    const height =
+      kind === "text-body"
+        ? textElementHeight(text, width)
+        : kind === "attr-body"
+          ? textAttrHeight(text, width)
+          : Math.max(Number(element.geometry?.height) || NOTE_SIZE.height, 24);
+    // 推进 dataVersion：文档投影据此给该元素置 editing 隐藏画布文字（文本框无背景，否则与 DOM 编辑器重影）
+    set((state) => ({
       inlineEdit: {
         kind,
         elementId,
         rect: { x, y, width, height },
-        value: String(element.props?.text ?? ""),
+        value: text,
       },
-    });
+      dataVersion: state.dataVersion + 1,
+    }));
   },
 
   commitInlineEdit: async (value) => {
     const edit = get().inlineEdit;
-    set({ inlineEdit: null });
+    // 结束编辑即推进 dataVersion：去掉投影上的 editing，恢复画布文字（未改值的早退路径也要恢复）
+    set((state) => ({ inlineEdit: null, dataVersion: state.dataVersion + 1 }));
     if (!edit) return;
     if (edit.kind === "entity-title") {
       const entity = get().entities.find((item) => item.id === edit.entityId);
@@ -3113,7 +3168,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     try {
       const line = get().elements.find((item) => item.kind === "arrow" && item.props?.fromElementId === elementId && item.props?.edgeType === "attach");
       if (line) {
-        markCanvasDirty(line.id, true);
+        markCanvasDirty(line.id, undefined, true);
         scheduleCanvasSave();
       }
       set((state) => ({

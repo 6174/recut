@@ -754,6 +754,30 @@ func TestEntityAttrsPresetLockedFieldsAndValidation(t *testing.T) {
 	}
 }
 
+// 数字字段收到可解析的数字字符串（Agent 常把 210 写成 "210"）时按数字落库，
+// 非数字字符串仍被拒绝。
+func TestEntityNumberAttrAcceptsNumericString(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Number", Type: WorldFiction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entity, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: world.ID, TypeID: EntityTypeScript, Name: "数",
+		Attrs: []EntityAttr{{Key: "durationSec", Value: "210"}},
+	})
+	if err != nil {
+		t.Fatalf("numeric string for a number field must be accepted: %v", err)
+	}
+	duration, ok := entityAttr(entity, "durationSec")
+	if !ok {
+		t.Fatalf("durationSec attr missing: %#v", entity.Attrs)
+	}
+	if number, ok := duration.Value.(float64); !ok || number != 210 {
+		t.Fatalf("durationSec must be stored as a number, got %#v", duration.Value)
+	}
+}
+
 // 预设类型的 locked select 字段：Agent 只写 key+value（type/options 都不给）时，
 // 结构由类型 schema 补齐——不需要先读类型，也不需要手写 options。
 func TestEntityPresetSelectInheritsSchemaOptions(t *testing.T) {

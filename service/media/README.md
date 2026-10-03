@@ -4,7 +4,7 @@
 
 成员清单
 types.go: 媒体能力、含输入/输出参数能力的模型、路由、资产、任务、生成输入与固定两轨合成的稳定 JSON 契约。
-service.go: Workspace 端口、MediaService 组合根、图片等同步生成 5 分钟长请求与短状态查询分离的 HTTP 超时配置及少量跨层诊断入口；同一凭据的一次请求生成在进程内有界串行，避免调度批次突发压垮上游。
+service.go: Workspace 端口、MediaService 组合根、图片等同步生成 5 分钟长请求与短状态查询分离的 HTTP 超时配置及少量跨层诊断入口；任务并发不做平台级凭据隔离，每个 job 独立推进，是否限流由 provider 自己决定。
 catalog.go: Provider/模型目录、无需 Provider 凭据的 Codex 原生图片路由、默认输出字段、参考素材能力及模型限制校验（含 skymind-token：gpt-image-2 / seedance-2.0 / seedance-2.5）。
 app_providers.go: App 贡献的本地 provider（manifest `contributes.media`）合并进全局模型目录，并在 CDN 刷新时保留；provider/模型由 App 静态声明，平台只做通用合并。
 capability_models.go: 按能力聚合本地生成 provider 的模型分组（平台模型清单 + App 引擎就绪度），镜像 capability_voices.go，供 HTTP 与 MCP 的 `list_capability_models` 共用。
@@ -22,6 +22,6 @@ providers/: 第三方媒体协议适配器（atlas、skymind）；只负责请�
 
 依赖边界
 
-`service/media` 持有媒体任务与 Asset 真相，`media/providers/*` 只接收已解密的短生命周期凭据和引用数据，并返回供应商结果。异步提交先原子持久化 `job -> queued asset`；常驻 Host 用 SQLite lease 推进任务，并让同一凭据的一次请求 Provider 依次执行，避免一个调度批次并发冲击上游。对于同步返回最终字节的 Provider，提交检查点与 job/asset 的 `running` 状态必须同一事务提交，事务失败则保持可安全重试的 `queued`，绝不制造“已提交但未运行”的本地假故障；Atlas 则在外部接受 prediction 后原子绑定其远端 ID。`compose.go` 是独立的本地、确定性出口：只读取已完成 Asset 的服务私有路径，使用受验证的 FFmpeg 参数产生新的交付 Asset，绝不调用 Provider 或模型。同步图片生成、成片下载和提交均保留 5 分钟上限；状态查询固定使用 12 秒短超时，避免慢轮询占住 lease。任一 Provider 在 checkpoint 与结果持久化之间中断，任务明确失败而不重发收费请求，直到该 Provider 显式声明幂等契约。Skymind 视频是预扣费上游：提交结果（queued + 远端 task id）与 job/asset `running` 状态同事务落库，提交 HTTP 结果不确定时只轮询查询远端任务、绝不重发提交（双发=双扣）。每次 Asset 改变与 SQLite `media_asset_events` 同事务提交，服务端通过 snapshot/replay SSE 传播当前完整 Asset；前端只读取本地 Asset，不能轮询 Provider。Seedance 的 `generateAudio` 是模型输出能力：创建任务时默认固化为 `true`，用户可显式关闭；Gemini 不声明该开关，绝不发送无效参数。Seedance 的本地视频参考先由 Atlas provider 上传并取得 Atlas URL，图片与音频按模型 Schema 使用 data URL；Skymind 网关只接受公网 URL，本地参考素材统一经 `shares.go` 临时分享（R2 `share/` 前缀 + 7 天 TTL + 账本级联吊销）发布后提交；新增平台必须新增独立 provider 子目录并接入通用协调器，不能把协议分支塞回任务层；根 `service` 只通过 `media_adapter.go` 提供 Store 端口。
+`service/media` 持有媒体任务与 Asset 真相，`media/providers/*` 只接收已解密的短生命周期凭据和引用数据，并返回供应商结果。异步提交先原子持久化 `job -> queued asset`；常驻 Host 用 SQLite lease 推进任务，同一轮 reconcile 的多个任务各自并发执行——平台不加凭据级串行，是否限流由 provider 自己决定（云端异步 provider 由上游排队，本地 App provider 归各自 task 账本）。对于同步返回最终字节的 Provider，提交检查点与 job/asset 的 `running` 状态必须同一事务提交，事务失败则保持可安全重试的 `queued`，绝不制造“已提交但未运行”的本地假故障；Atlas 则在外部接受 prediction 后原子绑定其远端 ID。`compose.go` 是独立的本地、确定性出口：只读取已完成 Asset 的服务私有路径，使用受验证的 FFmpeg 参数产生新的交付 Asset，绝不调用 Provider 或模型。同步图片生成、成片下载和提交均保留 5 分钟上限；状态查询固定使用 12 秒短超时，避免慢轮询占住 lease。任一 Provider 在 checkpoint 与结果持久化之间中断，任务明确失败而不重发收费请求，直到该 Provider 显式声明幂等契约。Skymind 视频是预扣费上游：提交结果（queued + 远端 task id）与 job/asset `running` 状态同事务落库，提交 HTTP 结果不确定时只轮询查询远端任务、绝不重发提交（双发=双扣）。每次 Asset 改变与 SQLite `media_asset_events` 同事务提交，服务端通过 snapshot/replay SSE 传播当前完整 Asset；前端只读取本地 Asset，不能轮询 Provider。Seedance 的 `generateAudio` 是模型输出能力：创建任务时默认固化为 `true`，用户可显式关闭；Gemini 不声明该开关，绝不发送无效参数。Seedance 的本地视频参考先由 Atlas provider 上传并取得 Atlas URL，图片与音频按模型 Schema 使用 data URL；Skymind 网关只接受公网 URL，本地参考素材统一经 `shares.go` 临时分享（R2 `share/` 前缀 + 7 天 TTL + 账本级联吊销）发布后提交；新增平台必须新增独立 provider 子目录并接入通用协调器，不能把协议分支塞回任务层；根 `service` 只通过 `media_adapter.go` 提供 Store 端口。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 README.md

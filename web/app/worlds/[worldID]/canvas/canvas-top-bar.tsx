@@ -1,10 +1,10 @@
 /*
- * [INPUT]: 依赖 canvas-store（context/worldName/notice/relating 状态与 setContext 动作）、
- * canvas-toolbar（CanvasToolbarItems 工具组）与 lucide-react
+ * [INPUT]: 依赖 canvas-store（context/worldName/notice/relating/readOnly 状态与 setContext 动作）、
+ * canvas-toolbar（CanvasToolbarItems 工具组）、components/ui/button、recut-worlds-client（只读 Fork）与 lucide-react
  * [OUTPUT]: 对外提供 useWorldCanvasTopBarStore（画布/设定两种视图都向全局 Header 注册同一条工具栏行，
  * variant 区分）、WorldCanvasTopBar（全局 Header 左侧标题区内容：上下文面包屑 / world 名称 / notice，
  * 单一返回入口由 WorkspaceHeader 提供，不再自绘返回图标）、WorldCanvasToolbar（画布工具组，
- * 由 Workspace 顶层 Header 居中渲染，仅 canvas variant；只读徽标与关系引导随行）与
+ * 由 Workspace 顶层 Header 居中渲染，仅 canvas variant；只读徽标 + 「Fork 为我的世界」主操作与关系引导随行）与
  * WorldCanvasShareButton（右侧视图切换：canvas→设定视图，form→画布视图），切换按钮位置在两种视图下保持一致
  * [POS]: worlds/[worldID]/canvas 的顶层工具栏；画布工具（模式/连线/插入/undo/缩放）由 CanvasToolbarItems 承载
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -12,7 +12,10 @@
 "use client";
 
 import { Box, ChevronLeft, Globe2, Network } from "lucide-react";
+import { useState } from "react";
 import { create } from "zustand";
+import { Button } from "@/components/ui/button";
+import { createRecutWorldsClient } from "@/lib/recut-worlds-client";
 import { useWorldCanvasStore } from "./canvas-store";
 import { CanvasToolbarItems } from "./canvas-toolbar";
 
@@ -104,10 +107,45 @@ export function WorldCanvasToolbar() {
   if (!active || variant !== "canvas") return null;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      {readOnly && <span className="shrink-0 rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">只读</span>}
+      {readOnly && (
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span className="rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">只读</span>
+          <WorldReadOnlyForkButton />
+        </span>
+      )}
       <CanvasToolbarItems />
       {relatingFrom && !relatingTo && <span className="shrink-0 text-xs text-foreground">已选起点：点击目标实体建立关系</span>}
     </div>
+  );
+}
+
+// 只读世界的主操作：Fork 出本地可编辑副本。画布是默认视图，只读世界必须在这里就给出 clone 出口
+// （设定视图另有同一 CTA）；Fork 成功后直接进入副本。
+function WorldReadOnlyForkButton() {
+  const apiBase = useWorldCanvasStore((state) => state.apiBase);
+  const worldId = useWorldCanvasStore((state) => state.worldId);
+  const [forking, setForking] = useState(false);
+  return (
+    <Button
+      className="h-7"
+      disabled={forking || !worldId}
+      onClick={async () => {
+        if (forking || !worldId) return;
+        setForking(true);
+        try {
+          const forked = await createRecutWorldsClient(apiBase).fork({ worldId });
+          window.location.assign(`/worlds/${encodeURIComponent(forked.id)}`);
+        } catch (cause) {
+          setForking(false);
+          useWorldCanvasStore
+            .getState()
+            .toast(cause instanceof Error ? cause.message : "Fork 失败", "error");
+        }
+      }}
+      type="button"
+    >
+      {forking ? "Fork 中…" : "Fork 为我的世界"}
+    </Button>
   );
 }
 

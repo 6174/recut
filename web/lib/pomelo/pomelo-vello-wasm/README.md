@@ -17,6 +17,11 @@ vello(WASM/WebGPU) 光栅器运行时，实现 `pomelo-vello` 的 `VelloRuntime`
   vello `draw_glyphs` 绘制。测试字体 `assets/space-grotesk.ttf`（OFL）。GPU e2e 已验证拉丁字形渲染。
   ⚠️ CJK 走同一路径，但需**原始 TTF/OTF**（recut 现网是切片 woff2，skrifa 不支持 woff2，需补原始字体供给）。
 - ✅ **图像**：`register_image(id, w, h, rgba)` + IMAGE op（vello `draw_image`）。
+  ⚠️ **image atlas 回缩坑（已在 runtime 修复）**：vello 0.10 的持久 image atlas 在渲染「无 patch 场景」
+  （既无图像也无字形 run/gradient，例如世界画布元素全部移出视口后的空 backing）时会被缩到 1×1，而
+  resolver 的 `ImageCache` 仍认为原图 resident、不再重传——之后带图场景重建出空 atlas，图片整片消失
+  （缩放/升档换新 image id 才恢复）。修复：`runtime` 注册一张常驻 1×1 全透明图（`push_keepalive_image`），
+  每个场景末尾追加一次图像绘制，保证 scene 始终含 image patch，atlas 尺寸不再回缩。
 - ✅ **atomic chunk（跨瓦片效果）**：`atomic` chunk 经 `render_atomic_chunk` 整块渲到自己的纹理并注册为 image，
   各相交瓦片以 IMAGE op 引用；BLUR_RECT op 用 vello `draw_blurred_rounded_rect`。解决 blur 跨瓦片被裁出接缝。
 - ✅ **CJK**：`set_font_fallback(primary, fallback)`；主字体缺字用回退字体（demo 用 Noto Sans CJK SC 子集，OFL）。

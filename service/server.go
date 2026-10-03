@@ -225,6 +225,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/agent-sessions/{id}", s.getAgentSession)
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/codex-configuration", s.updateCodexConfiguration)
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/opencode-configuration", s.updateOpencodeConfiguration)
+	mux.HandleFunc("PATCH /v1/agent-sessions/{id}/commandcode-configuration", s.updateCommandcodeConfiguration)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/turns", s.startAgentTurn)
 	mux.HandleFunc("POST /v1/agent-sessions/{id}/stop", s.stopAgentTurn)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", s.streamAgentEvents)
@@ -237,6 +238,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /v1/device-tokens/{id}", s.revokeDeviceToken)
 	mux.HandleFunc("GET /v1/agents", s.listAgents)
 	mux.HandleFunc("GET /v1/agents/opencode/models", s.listOpencodeModels)
+	mux.HandleFunc("GET /v1/agents/commandcode/models", s.listCommandcodeModels)
 	mux.HandleFunc("GET /v1/terminals", s.listTerminals)
 	mux.HandleFunc("POST /v1/terminals", s.startTerminal)
 	mux.HandleFunc("GET /v1/terminals/{id}/events", s.streamTerminal)
@@ -285,7 +287,7 @@ type AgentStatus struct {
 }
 
 func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
-	agents := []AgentStatus{{ID: "codex", Name: "Codex", Command: "codex"}, {ID: "claude", Name: "Claude Code", Command: "claude"}, {ID: "opencode", Name: "OpenCode", Command: "opencode"}}
+	agents := []AgentStatus{{ID: "codex", Name: "Codex", Command: "codex"}, {ID: "claude", Name: "Claude Code", Command: "claude"}, {ID: "opencode", Name: "OpenCode", Command: "opencode"}, {ID: commandcodeRuntime, Name: "Command Code", Command: commandcodeCommand}}
 	for index := range agents {
 		// 面板只需可用性；定位缓存只验证路径，完整多 shell 扫描仅由诊断页触发。
 		process, available := s.store.agentCommands.Available(agents[index].Command)
@@ -307,7 +309,7 @@ func (s *Server) systemLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "inline; filename=recut-service-diagnostics.log")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintf(w, "Recut service diagnostics\nGenerated: %s\nVersion: %s\n\n", time.Now().UTC().Format(time.RFC3339), ServiceVersion())
-	for _, command := range []string{"codex", "claude", "opencode"} {
+	for _, command := range []string{"codex", "claude", "opencode", commandcodeCommand} {
 		data, _ := json.MarshalIndent(inspectAgentCommand(command), "", "  ")
 		fmt.Fprintf(w, "%s CLI resolution\n%s\n\n", strings.ToUpper(command), data)
 	}

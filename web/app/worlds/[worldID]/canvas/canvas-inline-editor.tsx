@@ -4,6 +4,7 @@
  * [OUTPUT]: 对外提供 CanvasInlineEditor：画布就地编辑器宿主——把 inlineEdit 的世界坐标 rect 换算为
  * 屏幕位置渲染 DOM 编辑器（标题为单行 textarea，Enter 提交；正文/文本/属性值为 RichComposer 富文本，
  * 可 @ 引用实体，blur / ⌘↵ 提交，Esc 取消）；正文编辑器高度服从元素 box（内滚动，不随内容自增长），
+ * 文本框（text-body / attr-body）就地编辑与画布一致：无背景 + 圆角描边（文字内边距与 Block 对齐），
  * 并提供 RichComposer 全屏放大编辑；视口平移/缩放时跟随重排；
  * EDITOR_METRICS 经 CSS 变量注入 RichComposer，与各 Block 的画布排版逐形态对齐（字号/行高/内边距/颜色）
  * [POS]: worlds/[worldID]/canvas 的就地编辑层（T4/T3 命名态共用）
@@ -24,7 +25,7 @@ import { useWorldCanvasStore } from "./canvas-store";
 // 颜色取自 graph-theme（与 vello block 同一真源），字号取自 entity-card-metrics，避免两种渲染模式错位。
 const EDITOR_METRICS = {
   "note-body": { fontSize: 11, lineHeight: 16, padX: 10, padTop: 10, color: GRAPH_COLORS.textSecondary, semibold: false },
-  "text-body": { fontSize: 13, lineHeight: 20, padX: 0, padTop: 0, color: GRAPH_COLORS.caption, semibold: false },
+  "text-body": { fontSize: 13, lineHeight: 20, padX: 10, padTop: 10, color: GRAPH_COLORS.caption, semibold: false },
   "attr-body": { fontSize: 11, lineHeight: 17, padX: 10, padTop: 10, color: GRAPH_COLORS.textPrimary, semibold: false },
   "entity-title": { fontSize: ENTITY_TITLE_SIZE, lineHeight: 20, padX: 14, padTop: 0, color: GRAPH_COLORS.textPrimary, semibold: true },
   "attr-title": { fontSize: 11, lineHeight: 18, padX: 28, padTop: 8, color: GRAPH_COLORS.textSecondary, semibold: false },
@@ -147,7 +148,9 @@ export function CanvasInlineEditor() {
         />
       ) : (
         <div
-          className="h-full w-full overflow-y-auto bg-card/95 shadow-lg outline outline-1 outline-primary/60"
+          // 文本框（自由文本 / 文本属性卡）无背景 + 圆角描边，与画布 Block 同款（文字改由卡片描边框住）；
+          // 便签沿用旧款不透明卡面——便签画布文字不会随编辑隐藏，透明会与画布文字重影
+          className={`h-full w-full overflow-y-auto ${edit.kind === "note-body" ? "bg-card/95 shadow-lg outline outline-1 outline-primary/60" : "rounded-lg border border-primary/60"}`}
           onBlur={(event) => {
             if (fullscreen) return;
             if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;

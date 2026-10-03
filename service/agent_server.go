@@ -107,12 +107,29 @@ func (s *Server) listOpencodeModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, models)
 }
 
+func (s *Server) listCommandcodeModels(w http.ResponseWriter, r *http.Request) {
+	// Command Code is optional. Its absence is a normal capability state, not a
+	// service failure; clients can use the empty directory to keep its picker
+	// dormant while another runtime (for example Codex) remains usable.
+	if _, available := s.store.agentCommands.Available(commandcodeCommand); !available {
+		writeJSON(w, http.StatusOK, []CommandcodeModel{})
+		return
+	}
+	models, err := s.agents.cachedCommandcodeModels(r.Context())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, models)
+}
+
 func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 	input := struct {
-		Runtime         string `json:"runtime"`
-		CodexModel      string `json:"codexModel"`
-		ReasoningEffort string `json:"reasoningEffort"`
-		OpencodeModel   string `json:"opencodeModel"`
+		Runtime          string `json:"runtime"`
+		CodexModel       string `json:"codexModel"`
+		ReasoningEffort  string `json:"reasoningEffort"`
+		OpencodeModel    string `json:"opencodeModel"`
+		CommandcodeModel string `json:"commandcodeModel"`
 	}{}
 	if json.NewDecoder(r.Body).Decode(&input) != nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
@@ -121,7 +138,7 @@ func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request) {
 	if input.Runtime == "" {
 		input.Runtime = "codex"
 	}
-	session, err := s.agents.Create(input.Runtime, strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort), strings.TrimSpace(input.OpencodeModel))
+	session, err := s.agents.Create(input.Runtime, strings.TrimSpace(input.CodexModel), strings.TrimSpace(input.ReasoningEffort), strings.TrimSpace(input.OpencodeModel), strings.TrimSpace(input.CommandcodeModel))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -168,6 +185,22 @@ func (s *Server) updateOpencodeConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	session, err := s.agents.UpdateOpencodeConfiguration(r.PathValue("id"), strings.TrimSpace(input.OpencodeModel))
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) updateCommandcodeConfiguration(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		CommandcodeModel string `json:"commandcodeModel"`
+	}{}
+	if json.NewDecoder(r.Body).Decode(&input) != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return
+	}
+	session, err := s.agents.UpdateCommandcodeConfiguration(r.PathValue("id"), strings.TrimSpace(input.CommandcodeModel))
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
 		return

@@ -29,6 +29,7 @@ export type Session = {
   codexModel?: string;
   reasoningEffort?: string;
   opencodeModel?: string;
+  commandcodeModel?: string;
 };
 export type CodexConfiguration = { codexModel: string; reasoningEffort: string };
 export const defaultCodexConfiguration: CodexConfiguration = {
@@ -39,6 +40,11 @@ export type OpencodeConfiguration = { opencodeModel: string };
 export type OpencodeModel = { id: string; provider: string };
 export const defaultOpencodeConfiguration: OpencodeConfiguration = {
   opencodeModel: "opencode-go/deepseek-v4.1-flash",
+};
+export type CommandcodeConfiguration = { commandcodeModel: string };
+export type CommandcodeModel = { id: string; provider: string };
+export const defaultCommandcodeConfiguration: CommandcodeConfiguration = {
+  commandcodeModel: "deepseek/deepseek-v4.1-flash",
 };
 export type Attachment = AssetReference;
 export type WorldReference = { worldId: string; name: string };
@@ -321,6 +327,7 @@ function debugSessionMetadata(detail: Detail) {
     codexModel: detail.codexModel,
     reasoningEffort: detail.reasoningEffort,
     opencodeModel: detail.opencodeModel,
+    commandcodeModel: detail.commandcodeModel,
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt,
     lastEventId: detail.lastEventId,
@@ -411,4 +418,7 @@ export function opencodeProviderLabel(provider: string) {
     : provider === "opencode-go"
       ? "OpenCode Go"
       : provider;
+}
+export function commandcodeModelLabel(model?: string) {
+  return model || defaultCommandcodeConfiguration.commandcodeModel;
 }

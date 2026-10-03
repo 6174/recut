@@ -45,24 +45,35 @@ func cliScanError(err error) error {
 
 const defaultOpencodeModel = "opencode-go/deepseek-v4.1-flash"
 
+// defaultCommandcodeModel is Recut's chosen default for new Command Code
+// sessions (V4.1 Flash, the reference-capable V4.1 family member); the CLI's own
+// `(default)` marker points at `deepseek/deepseek-v4-flash`.
+const defaultCommandcodeModel = "deepseek/deepseek-v4.1-flash"
+
 type OpencodeModel struct {
 	ID       string `json:"id"`
 	Provider string `json:"provider"`
 }
 
+type CommandcodeModel struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+}
+
 type ChatSession struct {
-	ID              string    `json:"id"`
-	ProfileID       string    `json:"profileId"`
-	Runtime         string    `json:"runtime"`
-	NativeSessionID string    `json:"nativeSessionId,omitempty"`
-	NativeWorkspace string    `json:"nativeWorkspace,omitempty"`
-	CodexModel      string    `json:"codexModel,omitempty"`
-	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
-	OpencodeModel   string    `json:"opencodeModel,omitempty"`
-	Title           string    `json:"title"`
-	Status          string    `json:"status"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	ID               string    `json:"id"`
+	ProfileID        string    `json:"profileId"`
+	Runtime          string    `json:"runtime"`
+	NativeSessionID  string    `json:"nativeSessionId,omitempty"`
+	NativeWorkspace  string    `json:"nativeWorkspace,omitempty"`
+	CodexModel       string    `json:"codexModel,omitempty"`
+	ReasoningEffort  string    `json:"reasoningEffort,omitempty"`
+	OpencodeModel    string    `json:"opencodeModel,omitempty"`
+	CommandcodeModel string    `json:"commandcodeModel,omitempty"`
+	Title            string    `json:"title"`
+	Status           string    `json:"status"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 // ChatSession is unbound: it never carries a Project or App binding. The model
@@ -147,21 +158,24 @@ type agentCLIStream struct {
 }
 
 type AgentManager struct {
-	store          *Store
-	bridge         *AgentBridge
-	media          *MediaService
-	commands       *AgentCommandResolver
-	opencodeModels func(context.Context) ([]OpencodeModel, error)
-	mu             sync.Mutex
-	running        map[string]context.CancelFunc
-	cliStreams     map[string]*agentCLIStream
+	store             *Store
+	bridge            *AgentBridge
+	media             *MediaService
+	commands          *AgentCommandResolver
+	opencodeModels    func(context.Context) ([]OpencodeModel, error)
+	commandcodeModels func(context.Context) ([]CommandcodeModel, error)
+	mu                sync.Mutex
+	running           map[string]context.CancelFunc
+	cliStreams        map[string]*agentCLIStream
 	// bridgeSessions 记录当前 turn 的 chatSessionID -> bridgeSessionID 映射。
 	// 主 Agent 的 MCP 工具调用以 bridge session 身份鉴权（subagent 工具调用注册在 bridge ID 下），
 	// 而事件流（handleCodexEvent 等）用 chat session ID；subagentId 注入据此映射消费。
-	bridgeSessions map[string]string
-	modelsMu       sync.Mutex
-	modelsCache    []OpencodeModel
-	modelsCachedAt time.Time
+	bridgeSessions            map[string]string
+	modelsMu                  sync.Mutex
+	modelsCache               []OpencodeModel
+	modelsCachedAt            time.Time
+	commandcodeModelsCache    []CommandcodeModel
+	commandcodeModelsCachedAt time.Time
 }
 
 const opencodeModelsCacheTTL = 60 * time.Second
@@ -235,7 +249,7 @@ func (w *opencodeSilenceWatchdog) Stop() {
 
 func NewAgentManager(store *Store, bridge *AgentBridge, media *MediaService) *AgentManager {
 	commands := store.agentCommands
-	return &AgentManager{store: store, bridge: bridge, media: media, commands: commands, opencodeModels: func(ctx context.Context) ([]OpencodeModel, error) { return listOpencodeModels(ctx, commands) }, running: map[string]context.CancelFunc{}, cliStreams: map[string]*agentCLIStream{}, bridgeSessions: map[string]string{}}
+	return &AgentManager{store: store, bridge: bridge, media: media, commands: commands, opencodeModels: func(ctx context.Context) ([]OpencodeModel, error) { return listOpencodeModels(ctx, commands) }, commandcodeModels: func(ctx context.Context) ([]CommandcodeModel, error) { return listCommandcodeModels(ctx, commands) }, running: map[string]context.CancelFunc{}, cliStreams: map[string]*agentCLIStream{}, bridgeSessions: map[string]string{}}
 }
 
 // recordBridgeSession 记录当前 turn 的 chatSessionID -> bridgeSessionID 映射（见 bridgeSessions 注释）。
@@ -263,6 +277,28 @@ func (m *AgentManager) cachedOpencodeModels(ctx context.Context) ([]OpencodeMode
 	m.modelsMu.Lock()
 	m.modelsCache = append([]OpencodeModel(nil), models...)
 	m.modelsCachedAt = time.Now().UTC()
+	m.modelsMu.Unlock()
+	return models, nil
+}
+
+// cachedCommandcodeModels bounds the cost of `cmd --list-models`, which spawns
+// the CLI and can take seconds. It shares modelsMu with the OpenCode cache but
+// keeps its own snapshot and TTL.
+func (m *AgentManager) cachedCommandcodeModels(ctx context.Context) ([]CommandcodeModel, error) {
+	m.modelsMu.Lock()
+	if len(m.commandcodeModelsCache) > 0 && time.Since(m.commandcodeModelsCachedAt) < opencodeModelsCacheTTL {
+		cached := append([]CommandcodeModel(nil), m.commandcodeModelsCache...)
+		m.modelsMu.Unlock()
+		return cached, nil
+	}
+	m.modelsMu.Unlock()
+	models, err := m.commandcodeModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.modelsMu.Lock()
+	m.commandcodeModelsCache = append([]CommandcodeModel(nil), models...)
+	m.commandcodeModelsCachedAt = time.Now().UTC()
 	m.modelsMu.Unlock()
 	return models, nil
 }
@@ -438,8 +474,8 @@ func (m *AgentManager) queuedSessionIDs() []string {
 	return sessionIDs
 }
 
-func (m *AgentManager) Create(runtime, codexModel, reasoningEffort, opencodeModel string) (ChatSession, error) {
-	if runtime != "codex" && runtime != "claude" && runtime != "opencode" {
+func (m *AgentManager) Create(runtime, codexModel, reasoningEffort, opencodeModel, commandcodeModel string) (ChatSession, error) {
+	if runtime != "codex" && runtime != "claude" && runtime != "opencode" && runtime != commandcodeRuntime {
 		return ChatSession{}, fmt.Errorf("runtime %q is not available yet", runtime)
 	}
 	var err error
@@ -459,17 +495,25 @@ func (m *AgentManager) Create(runtime, codexModel, reasoningEffort, opencodeMode
 	} else if opencodeModel != "" {
 		return ChatSession{}, errors.New("OpenCode configuration is only available for OpenCode conversations")
 	}
+	if runtime == commandcodeRuntime {
+		commandcodeModel, err = m.normalizeCommandcodeConfiguration(context.Background(), commandcodeModel)
+		if err != nil {
+			return ChatSession{}, err
+		}
+	} else if commandcodeModel != "" {
+		return ChatSession{}, errors.New("Command Code configuration is only available for Command Code conversations")
+	}
 	id, err := newID()
 	if err != nil {
 		return ChatSession{}, err
 	}
 	now := time.Now().UTC()
-	session := ChatSession{ID: id, ProfileID: localProfileID, Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, OpencodeModel: opencodeModel, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
+	session := ChatSession{ID: id, ProfileID: localProfileID, Runtime: runtime, CodexModel: codexModel, ReasoningEffort: reasoningEffort, OpencodeModel: opencodeModel, CommandcodeModel: commandcodeModel, Title: "新对话", Status: "idle", CreatedAt: now, UpdatedAt: now}
 	db, err := m.store.WorkspaceDatabase()
 	if err != nil {
 		return ChatSession{}, err
 	}
-	_, err = db.Exec("insert into agent_sessions (id, profile_id, runtime, native_session_id, native_workspace, codex_model, reasoning_effort, opencode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.Runtime, session.NativeSessionID, session.NativeWorkspace, session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.Title, session.Status, iso(now), iso(now))
+	_, err = db.Exec("insert into agent_sessions (id, profile_id, runtime, native_session_id, native_workspace, codex_model, reasoning_effort, opencode_model, commandcode_model, title, status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", session.ID, session.ProfileID, session.Runtime, session.NativeSessionID, session.NativeWorkspace, session.CodexModel, session.ReasoningEffort, session.OpencodeModel, session.CommandcodeModel, session.Title, session.Status, iso(now), iso(now))
 	if err != nil {
 		return session, err
 	}
@@ -517,7 +561,7 @@ func (m *AgentManager) SessionByJob(jobID string) (ChatSession, error) {
 	if err != nil {
 		return ChatSession{}, err
 	}
-	row := db.QueryRow("select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where job_id = ? and profile_id = ? limit 1", jobID, localProfileID)
+	row := db.QueryRow("select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), coalesce(commandcode_model, ''), title, status, created_at, updated_at from agent_sessions where job_id = ? and profile_id = ? limit 1", jobID, localProfileID)
 	return scanChatSession(row)
 }
 
@@ -526,7 +570,7 @@ func (m *AgentManager) List(projectID, scope string) ([]ChatSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	query, args := "select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ? and parent_session_id is null", []any{localProfileID}
+	query, args := "select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), coalesce(commandcode_model, ''), title, status, created_at, updated_at from agent_sessions where profile_id = ? and parent_session_id is null", []any{localProfileID}
 	switch {
 	case projectID != "":
 		query += " and project_id = ?"
@@ -856,6 +900,33 @@ func (m *AgentManager) UpdateOpencodeConfiguration(sessionID, model string) (Cha
 	return session, nil
 }
 
+// UpdateCommandcodeConfiguration changes the model used by the next queued
+// turn. A running Command Code child process keeps its already-started
+// configuration.
+func (m *AgentManager) UpdateCommandcodeConfiguration(sessionID, model string) (ChatSession, error) {
+	model, err := m.normalizeCommandcodeConfiguration(context.Background(), model)
+	if err != nil {
+		return ChatSession{}, err
+	}
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return ChatSession{}, err
+	}
+	session, err := getChatSession(db, sessionID)
+	if err != nil {
+		return ChatSession{}, err
+	}
+	if session.Runtime != commandcodeRuntime {
+		return ChatSession{}, errors.New("only Command Code conversations have this configuration")
+	}
+	now := time.Now().UTC()
+	if _, err := db.Exec("update agent_sessions set commandcode_model = ?, updated_at = ? where id = ?", model, iso(now), sessionID); err != nil {
+		return ChatSession{}, err
+	}
+	session.CommandcodeModel, session.UpdatedAt = model, now
+	return session, nil
+}
+
 func (m *AgentManager) startRunner(sessionID string) {
 	m.mu.Lock()
 	if _, running := m.running[sessionID]; running {
@@ -1039,6 +1110,8 @@ func (m *AgentManager) runRuntime(ctx context.Context, session ChatSession, user
 		return m.runClaude(ctx, session, userTurn)
 	case "opencode":
 		return m.runOpencode(ctx, session, userTurn)
+	case commandcodeRuntime:
+		return m.runCommandcode(ctx, session, userTurn)
 	default:
 		return fmt.Errorf("runtime %q is not installed", session.Runtime)
 	}
@@ -1298,6 +1371,201 @@ func (m *AgentManager) runOpencode(ctx context.Context, session ChatSession, use
 		return err
 	}
 	return nil
+}
+
+// commandcodeRuntime is the session runtime id; the CLI binary is `cmd` (see
+// commandcodeCommand). The two differ, so the resolver is invoked with the
+// binary name while the persisted runtime keeps its own id.
+const (
+	commandcodeRuntime = "commandcode"
+	commandcodeCommand = "cmd"
+)
+
+// runCommandcode resumes the stored native session, falling back to a fresh
+// session when Command Code reports the resume target is missing. A first run
+// that did not commit a transcript leaves only a checkpoint, so the native id
+// persists while `--resume` has nothing to load; without this fallback the
+// conversation would dead-end on "No session ... found to resume".
+func (m *AgentManager) runCommandcode(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
+	err := m.runCommandcodeTurn(ctx, session, userTurn)
+	if err == nil || session.NativeSessionID == "" || !isCommandcodeResumeMissing(err) {
+		return err
+	}
+	log.Printf("WARN commandcode resume target missing session_id=%s native_session_id=%s; starting a fresh session", session.ID, session.NativeSessionID)
+	m.clearNativeSessionWorkspace(session.ID)
+	session.NativeSessionID = ""
+	session.NativeWorkspace = ""
+	return m.runCommandcodeTurn(ctx, session, userTurn)
+}
+
+func isCommandcodeResumeMissing(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "found to resume")
+}
+
+// commandcodeHistoryPrompt replays the recent user/assistant turns of the chat
+// session as plain text, for a fresh Command Code session that has no resume
+// target. Bounded so a long conversation cannot blow up the prompt. An empty
+// result (nothing to replay) leaves the prompt untouched.
+func (m *AgentManager) commandcodeHistoryPrompt(sessionID, currentTurnID string) string {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return ""
+	}
+	rows, err := db.Query("select role, content from agent_turns where session_id = ? and id != ? and role in ('user', 'assistant') and status in ('completed', 'cancelled') order by created_at, id", sessionID, currentTurnID)
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	type historyEntry struct{ role, content string }
+	entries := make([]historyEntry, 0, 8)
+	for rows.Next() {
+		var entry historyEntry
+		if rows.Scan(&entry.role, &entry.content) != nil || strings.TrimSpace(entry.content) == "" {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	const (
+		maxHistoryEntries    = 20
+		maxHistoryEntryBytes = 2000
+		maxHistoryTotalBytes = 20000
+	)
+	if len(entries) > maxHistoryEntries {
+		entries = entries[len(entries)-maxHistoryEntries:]
+	}
+	builder := strings.Builder{}
+	builder.WriteString("【本会话此前的对话，供你延续上下文】\n")
+	for _, entry := range entries {
+		content := entry.content
+		if len(content) > maxHistoryEntryBytes {
+			content = content[:maxHistoryEntryBytes] + "…"
+		}
+		speaker := "用户"
+		if entry.role == "assistant" {
+			speaker = "助手"
+		}
+		builder.WriteString(speaker + "：" + content + "\n")
+		if builder.Len() >= maxHistoryTotalBytes {
+			break
+		}
+	}
+	builder.WriteString("【历史结束】\n\n")
+	return builder.String()
+}
+
+// Command Code publishes a documented headless NDJSON contract
+// (`cmd -p --output-format json`): event frames `{"type":"event","event":{...}}`
+// carry run/turn/tool lifecycle and text deltas, and a terminal
+// `{"type":"result",...}` line carries the final text and session id. Like
+// Claude Code, its native session id is stable and can be resumed with
+// `--resume <id>`, so the generic ChatSession persists it as native_session_id.
+// The unattended run needs `--yolo` (file writes + shell) and `--trust` (skip
+// the project trust prompt for the per-session workspace MCP config).
+func (m *AgentManager) runCommandcodeTurn(ctx context.Context, session ChatSession, userTurn ChatTurn) error {
+	model, err := m.normalizeCommandcodeConfiguration(ctx, session.CommandcodeModel)
+	if err != nil {
+		return err
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	bridgeSession, token, err := m.bridge.CreateSession(SessionContext{TaskID: userTurn.TaskID, Runtime: commandcodeRuntime})
+	if err != nil {
+		return err
+	}
+	m.recordBridgeSession(session.ID, bridgeSession.ID)
+	// Command Code resolves a headless session by id, but its per-session MCP
+	// config lives in the workspace, so pin and reuse the workspace exactly like
+	// Claude Code: every later turn of the same native session runs from the
+	// directory where its `.mcp.json` already exists.
+	workspace, err := m.commandcodeWorkspace(session, bridgeSession, token, executable)
+	if err != nil {
+		return err
+	}
+	defer func() { m.persistNativeWorkspace(session.ID, workspace) }()
+	materials, err := m.contextMaterials(userTurn.Contexts)
+	if err != nil {
+		return err
+	}
+	prompt := userTurn.runtimePrompt() + contextPrompt(materials)
+	// Command Code carries context only through `--resume`. When no resumable
+	// native session exists (first turn, or the previous one was cancelled before
+	// its transcript committed), replay the conversation so a fresh session still
+	// understands follow-ups like "继续" instead of seeing the message alone.
+	if session.NativeSessionID == "" {
+		prompt = m.commandcodeHistoryPrompt(session.ID, userTurn.ID) + prompt
+	}
+	args := []string{"-p", prompt, "--output-format", "json", "--yolo", "--trust", "--model", model}
+	if session.NativeSessionID != "" {
+		args = append(args, "--resume", session.NativeSessionID)
+	}
+	cmd, stdout, stderr, err := m.startCLI(ctx, commandcodeCommand, args, workspace, []string{"RECUT_AGENT_SESSION=" + bridgeSession.ID, "RECUT_AGENT_TOKEN=" + token})
+	if err != nil {
+		return err
+	}
+	m.beginCLIStream(session.ID)
+	defer m.finishCLIStream(session.ID)
+	var stderrText strings.Builder
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			m.captureCLIOutput(session.ID, "stderr", scanner.Text())
+			if stderrText.Len() < 4096 {
+				stderrText.WriteString(scanner.Text() + "\n")
+			}
+		}
+	}()
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), cliStreamScanLimit)
+	var text strings.Builder
+	var resultError string
+	for scanner.Scan() {
+		m.captureCLIOutput(session.ID, "stdout", scanner.Text())
+		var raw map[string]any
+		if json.Unmarshal(scanner.Bytes(), &raw) != nil {
+			continue
+		}
+		// The terminal result line is not an event frame; only its error subtype
+		// needs forwarding here (success text is already flushed at turn_end).
+		if envelopeType, _ := raw["type"].(string); envelopeType == "result" {
+			if subtype, _ := raw["subtype"].(string); subtype == "error" {
+				resultError, _ = raw["error"].(string)
+			}
+			continue
+		}
+		m.handleCommandcodeEvent(session.ID, userTurn.ID, raw, &text)
+	}
+	if err := scanner.Err(); err != nil {
+		return cliScanError(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return errors.New("已停止")
+		}
+		if message := strings.TrimSpace(stderrText.String()); message != "" {
+			return errors.New(message)
+		}
+		return err
+	}
+	if strings.TrimSpace(resultError) != "" {
+		return errors.New(strings.TrimSpace(resultError))
+	}
+	return nil
+}
+
+// commandcodeWorkspace reuses the persisted native workspace for resumed
+// sessions and materializes a fresh bridge workspace on the first turn, so the
+// CLI cwd and its per-session `.mcp.json` stay stable across turns.
+func (m *AgentManager) commandcodeWorkspace(session ChatSession, bridgeSession AgentSession, token, executable string) (string, error) {
+	if session.NativeWorkspace != "" {
+		return m.bridge.WriteCommandcodeWorkspaceTo(session.NativeWorkspace, bridgeSession, token, executable)
+	}
+	return m.bridge.WriteCommandcodeWorkspace(bridgeSession, token, executable)
 }
 
 // opencodeWorkspace reuses the persisted native workspace for resumed OpenCode
@@ -2631,6 +2899,102 @@ func codexToolCost(item map[string]any) string {
 	return string(data)
 }
 
+// handleCommandcodeEvent maps Command Code's headless NDJSON event frames into
+// the platform's generic event vocabulary. Frames are wrapped as
+// `{"type":"event","event":{...}}`; the terminal result line is handled by
+// runCommandcode. Text arrives as `text_delta` and is buffered per turn, then
+// flushed at `turn_end` so a run does not write one turn per token.
+func (m *AgentManager) handleCommandcodeEvent(sessionID, turnID string, raw map[string]any, text *strings.Builder) {
+	if envelopeType, _ := raw["type"].(string); envelopeType != "event" {
+		return
+	}
+	event, _ := raw["event"].(map[string]any)
+	if event == nil {
+		return
+	}
+	switch typeName, _ := event["type"].(string); typeName {
+	case "run_start":
+		if nativeID, ok := event["sessionId"].(string); ok && nativeID != "" {
+			m.setNativeSession(sessionID, nativeID)
+		}
+		m.emit(sessionID, turnID, "session.updated", map[string]any{"label": "已连接 Agent"})
+	case "turn_start":
+		m.emit(sessionID, turnID, "status", map[string]any{"phase": "thinking", "label": "正在分析"})
+	case "text_delta":
+		if delta, ok := event["delta"].(string); ok {
+			text.WriteString(delta)
+		}
+	case "tool_queued":
+		name, _ := event["toolName"].(string)
+		name = canonicalMCPToolName(name)
+		id, _ := event["toolCallId"].(string)
+		payload := map[string]any{"toolCallId": id, "tool": name, "toolName": name, "label": m.toolLabel("mcp_tool_call", name, nil)}
+		if detail := commandcodeToolDetail(event["input"]); detail != "" {
+			payload["input"] = detail
+		}
+		m.emit(sessionID, turnID, "tool.started", payload)
+	case "tool_completed":
+		name, _ := event["toolName"].(string)
+		name = canonicalMCPToolName(name)
+		id, _ := event["toolCallId"].(string)
+		eventType, phase := "tool.completed", "output"
+		payload := map[string]any{"toolCallId": id, "tool": name, "toolName": name, "label": m.toolLabel("mcp_tool_call", name, nil)}
+		if detail := commandcodeToolDetail(event["error"]); detail != "" {
+			eventType, phase = "tool.failed", "error"
+			payload[phase] = detail
+		} else if detail := commandcodeResultText(event["result"]); detail != "" {
+			payload[phase] = detail
+		}
+		m.emit(sessionID, turnID, eventType, payload)
+	case "turn_end", "run_end":
+		m.flushCommandcodeText(sessionID, turnID, text)
+	}
+}
+
+func (m *AgentManager) flushCommandcodeText(sessionID, turnID string, text *strings.Builder) {
+	value := strings.TrimSpace(text.String())
+	text.Reset()
+	if value == "" {
+		return
+	}
+	m.addAssistantTurn(sessionID, value)
+	m.emit(sessionID, turnID, "assistant.completed", map[string]any{"text": value})
+}
+
+// commandcodeResultText flattens a tool result array ([{type:text,text},...])
+// into a single string; other shapes fall back to their JSON encoding.
+func commandcodeResultText(value any) string {
+	parts, ok := value.([]any)
+	if !ok {
+		return commandcodeToolDetail(value)
+	}
+	builder := strings.Builder{}
+	for _, rawPart := range parts {
+		part, _ := rawPart.(map[string]any)
+		if part == nil {
+			continue
+		}
+		if text, ok := part["text"].(string); ok {
+			builder.WriteString(text)
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func commandcodeToolDetail(value any) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	return string(data)
+}
+
 func (m *AgentManager) addAssistantTurn(sessionID, text string) {
 	id, err := newID()
 	if err != nil {
@@ -2718,7 +3082,7 @@ func (m *AgentManager) updateSession(id, clause, value string) {
 func (m *AgentManager) finish(id string) { m.mu.Lock(); delete(m.running, id); m.mu.Unlock() }
 
 func getChatSession(db *sql.DB, id string) (ChatSession, error) {
-	row := db.QueryRow("select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
+	row := db.QueryRow("select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), coalesce(commandcode_model, ''), title, status, created_at, updated_at from agent_sessions where id = ? and profile_id = ?", id, localProfileID)
 	return scanChatSession(row)
 }
 
@@ -2727,7 +3091,7 @@ type scanner interface{ Scan(...any) error }
 func scanChatSession(row scanner) (ChatSession, error) {
 	var session ChatSession
 	var created, updated string
-	err := row.Scan(&session.ID, &session.ProfileID, &session.Runtime, &session.NativeSessionID, &session.NativeWorkspace, &session.CodexModel, &session.ReasoningEffort, &session.OpencodeModel, &session.Title, &session.Status, &created, &updated)
+	err := row.Scan(&session.ID, &session.ProfileID, &session.Runtime, &session.NativeSessionID, &session.NativeWorkspace, &session.CodexModel, &session.ReasoningEffort, &session.OpencodeModel, &session.CommandcodeModel, &session.Title, &session.Status, &created, &updated)
 	if err != nil {
 		return ChatSession{}, err
 	}
@@ -2758,6 +3122,30 @@ func normalizeCodexConfiguration(model, effort string) (string, string, error) {
 	return model, effort, nil
 }
 
+func (m *AgentManager) normalizeCommandcodeConfiguration(ctx context.Context, model string) (string, error) {
+	models, err := m.cachedCommandcodeModels(ctx)
+	if err != nil {
+		return "", err
+	}
+	model = strings.TrimSpace(model)
+	explicit := model != ""
+	if model == "" {
+		model = defaultCommandcodeModel
+	}
+	for _, available := range models {
+		if available.ID == model {
+			return model, nil
+		}
+	}
+	// An empty (defaulted) selection falls back to the first available model so
+	// a moved default never blocks creating a session; an explicit model that is
+	// gone is a real error.
+	if !explicit && len(models) > 0 {
+		return models[0].ID, nil
+	}
+	return "", fmt.Errorf("Command Code does not offer model %q", model)
+}
+
 func (m *AgentManager) normalizeOpencodeConfiguration(ctx context.Context, model string) (string, error) {
 	models, err := m.cachedOpencodeModels(ctx)
 	if err != nil {
@@ -2784,7 +3172,7 @@ func (m *AgentManager) startCLI(ctx context.Context, command string, arguments [
 }
 
 func agentRuntimeName(command string) string {
-	return map[string]string{"codex": "Codex", "claude": "Claude Code", "opencode": "OpenCode"}[command]
+	return map[string]string{"codex": "Codex", "claude": "Claude Code", "opencode": "OpenCode", "cmd": "Command Code", commandcodeRuntime: "Command Code"}[command]
 }
 
 func listOpencodeModels(ctx context.Context, commands *AgentCommandResolver) ([]OpencodeModel, error) {
@@ -2819,6 +3207,49 @@ func parseOpencodeModels(output string) []OpencodeModel {
 		if found && name != "" {
 			models = append(models, OpencodeModel{ID: id, Provider: provider})
 		}
+	}
+	return models
+}
+
+func listCommandcodeModels(ctx context.Context, commands *AgentCommandResolver) ([]CommandcodeModel, error) {
+	command, err := commands.Find(commandcodeCommand)
+	if err != nil {
+		return nil, agentCLIUnavailableError("Command Code", commandcodeCommand)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, command.Path, "--list-models")
+	cmd.Env = environmentWithOverrides(os.Environ(), command.Env)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		commands.Invalidate(commandcodeCommand)
+		if retry, retryErr := commands.Find(commandcodeCommand); retryErr == nil {
+			cmd = exec.CommandContext(ctx, retry.Path, "--list-models")
+			cmd.Env = environmentWithOverrides(os.Environ(), retry.Env)
+			output, err = cmd.CombinedOutput()
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to read Command Code models: %s", strings.TrimSpace(string(output)))
+	}
+	return parseCommandcodeModels(string(output)), nil
+}
+
+// parseCommandcodeModels reads `cmd --list-models`, whose model rows are
+// `provider/name` followed by a human description (section headers and a count
+// line carry no slash and are skipped).
+func parseCommandcodeModels(output string) []CommandcodeModel {
+	models := make([]CommandcodeModel, 0)
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		provider, name, found := strings.Cut(fields[0], "/")
+		if !found || name == "" {
+			continue
+		}
+		models = append(models, CommandcodeModel{ID: fields[0], Provider: provider})
 	}
 	return models
 }

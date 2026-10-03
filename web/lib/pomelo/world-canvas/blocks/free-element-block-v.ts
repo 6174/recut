@@ -3,8 +3,9 @@
  *          world-canvas/graph-theme（配色单一真源）、world-canvas/blocks/vello-shared（cover/徽标/低细节）、
  *          world-canvas/blocks/audio-block-ops（音频属性卡的播放器外观）
  * [OUTPUT]: 对外提供 FreeElementBlockV（type: free-element）：文本 / 形状 / 属性预览卡；
- * 文本框（elementKind=text，或 attr 且 attrMedia=text）无背景、无徽标——就是画布上的文本（文本服从 box，
- * 溢出截断），与实体卡区分开；只有媒体属性卡（image/audio/video）才画卡面与徽标；音频属性卡（attrMedia=audio 且有源）
+ * 文本框（elementKind=text，或 attr 且 attrMedia=text）无背景、圆角描边框、无徽标——就是画布上的文本（文本服从 box，
+ * 溢出截断；host 置 attrs.editing 时就地编辑中只留框、藏文字，避免与 DOM 编辑器重影），与实体卡区分开；
+ * 只有媒体属性卡（image/audio/video）才画卡面与徽标；音频属性卡（attrMedia=audio 且有源）
  * 画播放器外观（圆形播放钮 + 真实波形 + 时间 + 音量/下载，波形懒加载，与媒体元素同源）；
  * 视频属性卡（attrMedia=video 且有源）画首帧 center-cover（video-frame 抽帧；悬停播放由 VideoPreviewPlugin 承担）；
  * 媒体属性卡的图/视频与媒体元素、实体卡头图同一卡面语法：内容在卡面内缩 MEDIA_PAD、自带 MEDIA_RADIUS 圆角，
@@ -17,13 +18,14 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import { VelloBlock, type VelloBlockDraw } from "../../pomelo-vello/vello-block";
-import type { VelloOp } from "../../pomelo-vello/op-bridge";
+import { TRANSPARENT, type VelloOp } from "../../pomelo-vello/op-bridge";
 import { textOp } from "../../pomelo-vello/vello-text";
 import { attrMediaLabel } from "../entity-color";
 import {
   CAPTION_FILL,
   CARD_FILL,
   CARD_STROKE,
+  CARD_STROKE_STRONG,
   FAILED_ACCENT,
   FAILED_FILL,
   PENDING_ACCENT,
@@ -40,7 +42,7 @@ import {
 } from "../graph-theme";
 import { CAPTION_TOP_OFFSET, captionOpsV, coverImageOpsV, isLowDetail, screenScaleOf } from "./vello-shared";
 import { audioPlayerOpsV } from "./audio-block-ops";
-import { TEXT_ATTR_LINE_HEIGHT, TEXT_ATTR_PAD, TEXT_ATTR_SIZE, TEXT_ELEMENT_LINE_HEIGHT, TEXT_ELEMENT_SIZE } from "./text-block-metrics";
+import { TEXT_ATTR_LINE_HEIGHT, TEXT_ATTR_PAD, TEXT_ATTR_SIZE, TEXT_ELEMENT_LINE_HEIGHT, TEXT_ELEMENT_PAD, TEXT_ELEMENT_SIZE } from "./text-block-metrics";
 import { audioBlockRect, isAudioBlockRecord } from "./audio-block-metrics";
 import { displayRefText } from "./ref-text";
 import { ensureVideoFrame, videoFrameUrl } from "./video-frame";
@@ -49,6 +51,9 @@ import { ensureVideoFrame, videoFrameUrl } from "./video-frame";
 // 但属性卡自身的卡面圆角是 12——图在卡内再圆一次 8，四周留出卡面底色成「框」。
 const MEDIA_PAD = 6;
 const MEDIA_RADIUS = 8;
+
+// 文本框（文本元素 / 文本属性卡）：无背景、圆角描边框（fill 透明，只画 stroke）
+const TEXT_BOX_RADIUS = 8;
 
 /** 自由元素（type: free-element）：文本 / 形状 / 属性预览卡（v1 简化视觉）。 */
 export class FreeElementBlockV extends VelloBlock {
@@ -84,21 +89,30 @@ export class FreeElementBlockV extends VelloBlock {
     const media = String(attrs.attrMedia ?? "text");
     const mediaSrc = String(attrs.mediaSrc ?? "");
     const lowDetail = isLowDetail(this.adapter);
+    // 就地编辑中（宿主 stage 已置 editing）：隐藏画布文字——文本框无背景，DOM 编辑器直接叠在框位，
+    // 不隐藏会与画布文字重影（框本身仍画，编辑时保持描边可见）
+    const editing = attrs.editing === true;
 
     const ops: VelloOp[] = [];
     if (elementKind === "text") {
-      // 文本元素：无背景，就是画布上的文本（低缩放下隐藏）
-      if (!lowDetail) ops.push(textOp({ text: text || "（空文本）", x, y, size: TEXT_ELEMENT_SIZE, maxWidth: Math.max(40, w), lineHeight: TEXT_ELEMENT_LINE_HEIGHT, fill: CAPTION_FILL }));
+      // 文本元素：无背景、圆角描边框，就是画布上的文本（低缩放下整体隐藏；就地编辑中藏文字留框）
+      if (!lowDetail) {
+        ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS, fill: TRANSPARENT, stroke: CARD_STROKE_STRONG, strokeWidth: 1 });
+        if (!editing) ops.push(textOp({ text: text || "（空文本）", x: x + TEXT_ELEMENT_PAD, y: y + TEXT_ELEMENT_PAD, size: TEXT_ELEMENT_SIZE, maxWidth: Math.max(20, w - TEXT_ELEMENT_PAD * 2), lineHeight: TEXT_ELEMENT_LINE_HEIGHT, fill: CAPTION_FILL }));
+      }
     } else if (elementKind === "attr") {
-      // 文本框（media=text）：无背景、无徽标——和实体卡区分开，只是画布上的文本
+      // 文本框（media=text）：无背景、圆角描边框、无徽标——和实体卡区分开，只是画布上的文本
       if (media === "text") {
         if (!lowDetail) {
-          if (text) {
-            ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: 8 });
-            ops.push(textOp({ text, x: x + TEXT_ATTR_PAD, y: y + TEXT_ATTR_PAD, size: TEXT_ATTR_SIZE, maxWidth: Math.max(20, w - TEXT_ATTR_PAD * 2), lineHeight: TEXT_ATTR_LINE_HEIGHT, fill: TEXT_PRIMARY }));
-            ops.push({ kind: "popClip" });
-          } else {
-            ops.push(textOp({ text: "＋ 文本", x: x + TEXT_ATTR_PAD, y: y + TEXT_ATTR_PAD, size: TEXT_ATTR_SIZE, maxWidth: Math.max(20, w - TEXT_ATTR_PAD * 2), fill: TEXT_TERTIARY }));
+          ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS, fill: TRANSPARENT, stroke: CARD_STROKE_STRONG, strokeWidth: 1 });
+          if (!editing) {
+            if (text) {
+              ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS });
+              ops.push(textOp({ text, x: x + TEXT_ATTR_PAD, y: y + TEXT_ATTR_PAD, size: TEXT_ATTR_SIZE, maxWidth: Math.max(20, w - TEXT_ATTR_PAD * 2), lineHeight: TEXT_ATTR_LINE_HEIGHT, fill: TEXT_PRIMARY }));
+              ops.push({ kind: "popClip" });
+            } else {
+              ops.push(textOp({ text: "＋ 文本", x: x + TEXT_ATTR_PAD, y: y + TEXT_ATTR_PAD, size: TEXT_ATTR_SIZE, maxWidth: Math.max(20, w - TEXT_ATTR_PAD * 2), fill: TEXT_TERTIARY }));
+            }
           }
         }
         return { ops, bounds: this.blockBounds() };

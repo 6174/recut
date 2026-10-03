@@ -123,6 +123,8 @@ func (m *RecutSkillsManager) mcpConfig(targetID string) (path, format string, er
 		return filepath.Join(home, ".claude.json"), "json", nil
 	case "opencode":
 		return filepath.Join(openCodeConfigDir(home), "opencode", "opencode.jsonc"), "json", nil
+	case "commandcode":
+		return filepath.Join(home, ".commandcode", "mcp.json"), "json", nil
 	default:
 		return "", "", errors.New("Agent does not expose a supported global MCP configuration")
 	}

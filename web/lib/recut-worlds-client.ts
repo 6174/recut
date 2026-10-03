@@ -413,6 +413,10 @@ export type WorldCanvasDocument = {
   updatedAt: string;
 };
 
+// canvas.save 的写元素（RFC 2026-10-03）：默认是完整元素（整份替换）；当 patch=true 时
+// 只需要出现改动过的字段，服务端按 key 合并、不整块替换（删除走 removed）。
+export type CanvasSaveElement = Partial<WorldCanvasElement> & { id: string };
+
 export type CanvasDocOp = {
   op: "insert" | "update" | "remove";
   element?: Partial<CanvasUpsertInput>;
@@ -474,7 +478,7 @@ export type RecutWorldsClient = {
   };
   canvas: {
     get(input: { worldId: string; contextId?: string }): Promise<WorldCanvasDocument>;
-    save(input: { worldId: string; contextId?: string; elements: WorldCanvasElement[]; version: number }): Promise<WorldCanvasDocument>;
+    save(input: { worldId: string; contextId?: string; elements: CanvasSaveElement[]; removed?: string[]; patch?: boolean; version: number }): Promise<WorldCanvasDocument>;
     docs(input: { worldId: string }): Promise<Array<{ contextId: string; version: number; updatedAt: string; elementCount: number }>>;
     docUpdate(input: { worldId: string; contextId?: string; ops: CanvasDocOp[] }): Promise<WorldCanvasDocument>;
     promote(input: { worldId: string; elementId: string; typeId?: string; fromRole?: string; toRole?: string; relationType?: string; title?: string; expectedRevisionId?: string }): Promise<CanvasPromoteResult>;
@@ -600,10 +604,16 @@ export function createRecutWorldsClient(apiBase: string): RecutWorldsClient {
         const query = contextId ? `?contextId=${encodeURIComponent(contextId)}` : "";
         return requestJSON<WorldCanvasDocument>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/doc${query}`);
       },
-      save: ({ worldId, contextId, elements, version }) =>
+      save: ({ worldId, contextId, elements, removed, patch, version }) =>
         requestJSON<WorldCanvasDocument>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/doc`, {
           method: "POST",
-          body: { contextId: contextId ?? "", elements, version },
+          body: {
+            contextId: contextId ?? "",
+            elements,
+            ...(removed && removed.length ? { removed } : {}),
+            ...(patch ? { patch: true } : {}),
+            version,
+          },
         }),
       docs: async ({ worldId }) => {
         const body = await requestJSON<{ items: Array<{ contextId: string; version: number; updatedAt: string; elementCount: number }> }>(`${apiBase}/v1/worlds/${encodeURIComponent(worldId)}/canvas/docs`);

@@ -474,6 +474,7 @@ func agentSkillTargets(homeDir func() (string, error), skillID string) ([]RecutS
 		{ID: "claude", Name: "Claude Code", Path: filepath.Join(home, ".claude", "skills", skillID)},
 		{ID: "codex", Name: "Codex", Path: filepath.Join(home, ".codex", "skills", skillID)},
 		{ID: "opencode", Name: "OpenCode", Path: filepath.Join(config, "opencode", "skills", skillID)},
+		{ID: "commandcode", Name: "Command Code", Path: filepath.Join(home, ".commandcode", "skills", skillID)},
 	}, nil
 }
 

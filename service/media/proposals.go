@@ -19,9 +19,11 @@ import (
 // proposalRouteInput picks the route-resolution fields for a propose/confirm
 // call. A concrete credential pins a direct model binding; otherwise a named
 // route re-resolves (and pins the model+credential it returns); otherwise the
-// model resolves directly (local provider with no credential).
-func proposalRouteInput(capability MediaCapability, routeID, modelID, credentialID string) GenerateMediaInput {
-	input := GenerateMediaInput{Capability: capability}
+// model resolves directly (local provider with no credential). References are
+// carried through so image.generate resolves to the same edit/text-to-image
+// route the eventual submission would use.
+func proposalRouteInput(capability MediaCapability, routeID, modelID, credentialID string, references MediaReferences, referenceIDs []string) GenerateMediaInput {
+	input := GenerateMediaInput{Capability: capability, References: references, ReferenceIDs: referenceIDs}
 	switch {
 	case credentialID != "":
 		input.ModelID, input.CredentialID = modelID, credentialID
@@ -116,7 +118,7 @@ func (m *MediaService) Propose(input ProposeInput) (MediaAsset, error) {
 	if len(input.ReferenceIDs) == 0 && len(input.ReferencesMeta) > 0 {
 		input.ReferenceIDs = proposalReferenceIDs(input.ReferencesMeta)
 	}
-	route, credential, err := m.resolveRoute(proposalRouteInput(input.Capability, input.Route, input.ModelID, input.CredentialID))
+	route, credential, err := m.resolveRoute(proposalRouteInput(input.Capability, input.Route, input.ModelID, input.CredentialID, input.References, input.ReferenceIDs))
 	if err != nil {
 		return MediaAsset{}, err
 	}
@@ -450,7 +452,7 @@ func (m *MediaService) applyProposalRecipe(assetID string, recipe ProposeInput) 
 			Data:    map[string]any{"capability": string(recipe.Capability)},
 		}
 	}
-	route, credential, err := m.resolveRoute(proposalRouteInput(recipe.Capability, recipe.Route, recipe.ModelID, recipe.CredentialID))
+	route, credential, err := m.resolveRoute(proposalRouteInput(recipe.Capability, recipe.Route, recipe.ModelID, recipe.CredentialID, recipe.References, recipe.ReferenceIDs))
 	if err != nil {
 		return err
 	}

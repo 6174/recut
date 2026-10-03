@@ -385,9 +385,11 @@ const zh = {
 
   // 能力
   "capability.image.generate": "图片生成",
+  "capability.image.edit": "图片编辑",
   "capability.video.generate": "视频生成",
   "capability.speech.generate": "文本转语音",
-  "capability.image.generate.desc": "为分镜、封面和视觉参考生成静态图片。",
+  "capability.image.generate.desc": "纯文本提示词生成静态图片（文生图）。",
+  "capability.image.edit.desc": "带参考图改编、合成或局部修改（图生图）；提交带参考图时自动使用这里的模型。",
   "capability.video.generate.desc": "把提示词或已有素材转成动态镜头。",
   "capability.speech.generate.desc": "为旁白生成音频；创建时可选该凭据的可用音色。",
 
@@ -851,9 +853,11 @@ const en: Record<keyof typeof zh, string> = {
 
   // Capabilities
   "capability.image.generate": "Image generation",
+  "capability.image.edit": "Image editing",
   "capability.video.generate": "Video generation",
   "capability.speech.generate": "Text-to-speech",
-  "capability.image.generate.desc": "Generate stills for storyboards, covers and visual references.",
+  "capability.image.generate.desc": "Generate stills from a text prompt (text-to-image).",
+  "capability.image.edit.desc": "Edit, compose or refine from reference images (image-to-image); used automatically when references are present.",
   "capability.video.generate.desc": "Turn prompts or existing media into motion shots.",
   "capability.speech.generate.desc": "Generate narration audio; available voices of the credential can be chosen at creation time.",
 

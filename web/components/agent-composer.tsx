@@ -16,7 +16,7 @@ import { ContextMentionPopover } from "@/components/context-panel/context-mentio
 import { RichComposer } from "@/components/rich-composer/rich-composer";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { codexModelLabel, defaultCodexConfiguration, defaultOpencodeConfiguration, hasWorkFocusSelection, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type OpencodeConfiguration, type OpencodeModel, type PickedContext, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
+import { codexModelLabel, defaultCodexConfiguration, defaultCommandcodeConfiguration, defaultOpencodeConfiguration, hasWorkFocusSelection, opencodeProviderLabel, runtimeLabel, type AgentEvent, type Attachment, type CodexConfiguration, type CommandcodeConfiguration, type CommandcodeModel, type OpencodeConfiguration, type OpencodeModel, type PickedContext, type UploadedAsset, type WorkFocusContext, type WorkSurfaceContext, type WorldReference } from "@/components/agent-panel-types";
 import { resolveContextOption } from "@/lib/context-catalog/resolve";
 import { useContextRuntime } from "@/lib/context-catalog/runtime";
 import { focusOption, surfaceOption } from "@/lib/context-catalog/sources/current";
@@ -36,6 +36,8 @@ export function Composer({
   apiBase,
   attachments,
   codexConfiguration,
+  commandcodeConfiguration,
+  commandcodeModels,
   content,
   disabled,
   firstTurn,
@@ -51,6 +53,7 @@ export function Composer({
   onRemoveWorkFocus,
   onRemoveWorkSurface,
   onSaveCodexConfiguration,
+  onSaveCommandcodeConfiguration,
   onSaveOpencodeConfiguration,
   onSend,
   onStop,
@@ -72,6 +75,8 @@ export function Composer({
   apiBase: string;
   attachments: Attachment[];
   codexConfiguration: CodexConfiguration;
+  commandcodeConfiguration: CommandcodeConfiguration;
+  commandcodeModels: CommandcodeModel[];
   content: string;
   disabled: boolean;
   firstTurn: boolean;
@@ -88,6 +93,9 @@ export function Composer({
   onRemoveWorkSurface: () => void;
   onSaveCodexConfiguration: (
     configuration: CodexConfiguration,
+  ) => Promise<boolean>;
+  onSaveCommandcodeConfiguration: (
+    configuration: CommandcodeConfiguration,
   ) => Promise<boolean>;
   onSaveOpencodeConfiguration: (
     configuration: OpencodeConfiguration,
@@ -147,6 +155,9 @@ export function Composer({
   async function saveOpencode(next: OpencodeConfiguration) {
     if (await onSaveOpencodeConfiguration(next)) setConfigOpen(false);
   }
+  async function saveCommandcode(next: CommandcodeConfiguration) {
+    if (await onSaveCommandcodeConfiguration(next)) setConfigOpen(false);
+  }
   function pickAsset(asset: UploadedAsset) {
     onAddAsset(asset);
   }
@@ -185,8 +196,18 @@ export function Composer({
       ? t("agent.composer.config.codex")
       : runtime === "opencode"
         ? t("agent.composer.config.opencode")
-        : t("agent.composer.config.claude");
+        : runtime === "commandcode"
+          ? t("agent.composer.config.commandcode")
+          : t("agent.composer.config.claude");
   const configDisabled = disabled || runtime === "claude";
+  const currentModel =
+    runtime === "codex"
+      ? codexConfiguration.codexModel
+      : runtime === "opencode"
+        ? opencodeConfiguration.opencodeModel
+        : runtime === "commandcode"
+          ? commandcodeConfiguration.commandcodeModel
+          : "";
   const placeholder = firstTurn
     ? interpolate(t("agent.composer.placeholder.first"), { name: runtimeAgentName(runtime) })
     : t("agent.composer.placeholder");
@@ -292,6 +313,7 @@ export function Composer({
           workSurface={workSurface}
         />
         <div className="mt-1 flex items-center justify-between">
+          <div className="flex min-w-0 items-center gap-1.5">
           <Popover onOpenChange={setConfigOpen} open={configOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -307,7 +329,7 @@ export function Composer({
             </PopoverTrigger>
             <PopoverContent
               align="start"
-              className={runtime === "opencode" ? "w-80 p-1.5" : "w-72 p-1.5"}
+              className={runtime === "opencode" || runtime === "commandcode" ? "w-80 p-1.5" : "w-72 p-1.5"}
               side="top"
               sideOffset={8}
             >
@@ -324,8 +346,24 @@ export function Composer({
                   onChange={(next) => void saveOpencode(next)}
                 />
               )}
+              {runtime === "commandcode" && (
+                <CommandcodeConfigurationPopover
+                  configuration={commandcodeConfiguration}
+                  models={commandcodeModels}
+                  onChange={(next) => void saveCommandcode(next)}
+                />
+              )}
             </PopoverContent>
           </Popover>
+          {currentModel && (
+            <span
+              className="min-w-0 max-w-[180px] truncate font-mono text-[10px] text-muted-foreground"
+              title={currentModel}
+            >
+              {currentModel}
+            </span>
+          )}
+          </div>
           <div className="flex items-center gap-1">
             <input
               accept="image/*,video/*,audio/*"
@@ -547,6 +585,91 @@ function OpencodeConfigurationPopover({
           <p className="px-2.5 py-3 text-xs text-muted-foreground">
             {models.length === 0
               ? t("agent.composer.noModels")
+              : t("agent.composer.noMatch")}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+function CommandcodeConfigurationPopover({
+  configuration,
+  models,
+  onChange,
+}: {
+  configuration: CommandcodeConfiguration;
+  models: CommandcodeModel[];
+  onChange: (configuration: CommandcodeConfiguration) => void;
+}) {
+  const { t } = useI18n();
+  const [query, setQuery] = useState("");
+  const selectedRef = useRef<HTMLButtonElement>(null);
+  const matchingModels = models.filter((model) =>
+    model.id.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const providers = [...new Set(matchingModels.map((model) => model.provider))];
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+  }, [models.length]);
+  return (
+    <section>
+      <div className="flex items-baseline justify-between gap-2 px-2 py-1.5">
+        <p className="shrink-0 text-xs font-medium">
+          {t("agent.composer.currentModel")}
+        </p>
+        <p
+          className="min-w-0 truncate font-mono text-[10px] text-muted-foreground"
+          title={configuration.commandcodeModel}
+        >
+          {configuration.commandcodeModel ||
+            defaultCommandcodeConfiguration.commandcodeModel}
+        </p>
+      </div>
+      <label className="sr-only" htmlFor="commandcode-model-search">
+        {t("agent.composer.searchModel.commandcode")}
+      </label>
+      <input
+        autoFocus
+        className="mt-1 w-full rounded-sm border bg-background px-2.5 py-2 font-mono text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+        id="commandcode-model-search"
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={t("agent.composer.searchPlaceholder")}
+        type="search"
+        value={query}
+      />
+      <div className="mt-1 max-h-80 space-y-2 overflow-y-auto border-t pt-2">
+        {providers.map((provider) => (
+          <section key={provider}>
+            <p className="px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
+              {provider}
+            </p>
+            {matchingModels
+              .filter((model) => model.provider === provider)
+              .map((model) => {
+                const selected = model.id === configuration.commandcodeModel;
+                return (
+                  <button
+                    className={`flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-muted ${selected ? "bg-secondary/60" : ""}`}
+                    key={model.id}
+                    onClick={() => onChange({ commandcodeModel: model.id })}
+                    ref={selected ? selectedRef : undefined}
+                    type="button"
+                  >
+                    <span className="min-w-0 flex-1 break-all font-mono text-[10px]">
+                      {model.id}
+                    </span>
+                    {selected && (
+                      <Check className="size-3.5 shrink-0 text-primary" />
+                    )}
+                  </button>
+                );
+              })}
+          </section>
+        ))}
+        {matchingModels.length === 0 && (
+          <p className="px-2.5 py-3 text-xs text-muted-foreground">
+            {models.length === 0
+              ? t("agent.composer.noModels.commandcode")
               : t("agent.composer.noMatch")}
           </p>
         )}

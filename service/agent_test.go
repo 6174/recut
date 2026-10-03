@@ -93,7 +93,7 @@ func TestNextQueuedTurnHydratesContexts(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := NewAgentManager(store, nil, nil)
-	session, err := manager.Create("codex", "", "", "")
+	session, err := manager.Create("codex", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,7 +532,7 @@ func TestCodexTransportErrorsDistinguishReconnectFromTerminalFailure(t *testing.
 		t.Fatal(err)
 	}
 	manager := NewAgentManager(store, nil, nil)
-	session, err := manager.Create("codex", "", "", "")
+	session, err := manager.Create("codex", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
