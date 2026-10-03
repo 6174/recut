@@ -462,16 +462,51 @@ type canvasRect struct {
 	height float64
 }
 
-// canvasElementRect returns the element's box only when it carries full, usable
-// geometry. Elements without a size (arrow/link edges derive theirs from their
-// endpoints) are skipped, so they never count as content to anchor against.
+// canvasNominalSize is the placement-only box for an element kind when it carries
+// no explicit size. It is NOT render truth: content-sized nodes (entity cards,
+// image/video media & attr cards, notes, text) are re-laid-out by the client from
+// measured content. The backend only needs a stable box so placement math
+// (anchoring / overlap) keeps working when a node is inserted with position only.
+func canvasNominalSize(kind string) (float64, float64) {
+	switch kind {
+	case "entity":
+		return canvasEntityCardWidth, canvasEntityCardHeight
+	case "media":
+		return 240, 135
+	case "attr":
+		return 200, 140
+	case "note":
+		return 150, 100
+	case "text":
+		return 120, 40
+	case "shape":
+		return 220, 150
+	default:
+		return canvasEntityCardWidth, canvasEntityCardHeight
+	}
+}
+
+// canvasElementRect returns the element's box only when it carries a usable
+// position. Edges (arrow/link) derive theirs from their endpoints and are
+// skipped. A missing size falls back to the kind's nominal placement box, so a
+// position-only node still counts as content to anchor / avoid.
 func canvasElementRect(element WorldCanvasElement) (canvasRect, bool) {
+	if element.Kind == "arrow" || element.Kind == "link" {
+		return canvasRect{}, false
+	}
 	x, okX := numericGeometry(element.Geometry["x"])
 	y, okY := numericGeometry(element.Geometry["y"])
+	if !okX || !okY {
+		return canvasRect{}, false
+	}
 	width, okW := numericGeometry(element.Geometry["width"])
 	height, okH := numericGeometry(element.Geometry["height"])
-	if !okX || !okY || !okW || !okH || width <= 0 || height <= 0 {
-		return canvasRect{}, false
+	nominalW, nominalH := canvasNominalSize(element.Kind)
+	if !okW || width <= 0 {
+		width = nominalW
+	}
+	if !okH || height <= 0 {
+		height = nominalH
 	}
 	return canvasRect{x: x, y: y, width: width, height: height}, true
 }
@@ -501,15 +536,16 @@ func canvasContentBounds(elements []WorldCanvasElement) (canvasRect, bool) {
 }
 
 // canvasElementSize is the box used for placement math: the element's own size
-// when present, else the unified entity-card default.
+// when present, else the kind's nominal placement box (never render truth).
 func canvasElementSize(element *WorldCanvasElement) (float64, float64) {
+	nominalW, nominalH := canvasNominalSize(element.Kind)
 	width, okW := numericGeometry(element.Geometry["width"])
 	if !okW || width <= 0 {
-		width = canvasEntityCardWidth
+		width = nominalW
 	}
 	height, okH := numericGeometry(element.Geometry["height"])
 	if !okH || height <= 0 {
-		height = canvasEntityCardHeight
+		height = nominalH
 	}
 	return width, height
 }
@@ -612,6 +648,11 @@ func mergeCanvasElementPatch(existing WorldCanvasElement, patch CanvasElementPat
 // anchored to the canvas content (see canvasPlacementAnchor) instead of the
 // world origin. batchBounds is the content bounds captured before the current
 // write, so one batch keeps a stable anchor and fills a tidy band.
+//
+// NOTE: the default width/height written here (and in canvasNominalSize) are a
+// **placement box**, not render truth. Content-sized nodes (entity cards,
+// image/video media & attr cards, notes, text) are re-laid-out by the client
+// from measured content; the client ignores this stored size for rendering.
 func placeCanvasElement(element *WorldCanvasElement, elements []WorldCanvasElement, batchBounds *canvasRect) {
 	if element.Geometry == nil {
 		element.Geometry = map[string]any{}
@@ -670,7 +711,9 @@ func placeCanvasElement(element *WorldCanvasElement, elements []WorldCanvasEleme
 // canvasLayoutSummary is a cheap, render-free receipt of a document's layout so
 // a headless Agent can sanity-check what it just wrote: element count, kind
 // distribution, overall bounding box, and how many elements lack usable
-// geometry. It is a projection, not truth.
+// geometry. It is a projection, not truth. Sizes use the kind's nominal
+// placement box when a position-only node carries no explicit size, matching
+// the placement math (edges without endpoints count as missing).
 func canvasLayoutSummary(elements []WorldCanvasElement) map[string]any {
 	kinds := map[string]int{}
 	missingGeometry := 0
@@ -679,30 +722,27 @@ func canvasLayoutSummary(elements []WorldCanvasElement) map[string]any {
 	hasBounds := false
 	for _, element := range elements {
 		kinds[element.Kind]++
-		x, okX := numericGeometry(element.Geometry["x"])
-		y, okY := numericGeometry(element.Geometry["y"])
-		w, okW := numericGeometry(element.Geometry["width"])
-		h, okH := numericGeometry(element.Geometry["height"])
-		if !okX || !okY || !okW || !okH {
+		rect, ok := canvasElementRect(element)
+		if !ok {
 			missingGeometry++
 			continue
 		}
 		if !hasBounds {
-			minX, minY, maxX, maxY = x, y, x+w, y+h
+			minX, minY, maxX, maxY = rect.x, rect.y, rect.x+rect.width, rect.y+rect.height
 			hasBounds = true
 			continue
 		}
-		if x < minX {
-			minX = x
+		if rect.x < minX {
+			minX = rect.x
 		}
-		if y < minY {
-			minY = y
+		if rect.y < minY {
+			minY = rect.y
 		}
-		if x+w > maxX {
-			maxX = x + w
+		if rect.x+rect.width > maxX {
+			maxX = rect.x + rect.width
 		}
-		if y+h > maxY {
-			maxY = y + h
+		if rect.y+rect.height > maxY {
+			maxY = rect.y + rect.height
 		}
 	}
 	summary := map[string]any{

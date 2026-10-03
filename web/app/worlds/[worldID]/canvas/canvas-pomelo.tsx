@@ -44,7 +44,7 @@ import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignmen
 import { VideoPreviewPlugin } from "@/lib/pomelo/world-canvas/plugins/video-preview-plugin";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { mediaSource, modalityOfAssetKind, modalityOfKind } from "./canvas-media";
-import { MEDIA_VISUAL_HEIGHT, MEDIA_VISUAL_WIDTH, isMediaVisualModality } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
+import { MEDIA_VISUAL_HEIGHT, MEDIA_VISUAL_WIDTH, isMediaVisualModality, mediaVisualSizeForRatio } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
 import { textAttrHeight, textElementHeight } from "@/lib/pomelo/world-canvas/blocks/text-block-metrics";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { CreatePanel, type CreateGroup, type CreateItem } from "./canvas-create-panel";
@@ -55,7 +55,7 @@ import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrMediaValueOf, attrValueOf, ENTITY_FIELD_ASSOCIATIONS, entityMediaAttrs } from "./entity-attrs";
 import { isPlanAsset, readProposal, proposalFromAsset } from "./canvas-proposal";
 import { canvasAssetOf, canvasAssetStateOf, ensureCanvasAssetStatus, ingestCanvasAsset, rearmCanvasAssetStatus, stopCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
-import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
+import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, persistedAspect, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
@@ -122,6 +122,8 @@ function buildPomeloRecords(
     }
     // 实体卡标题的类型前缀文案：type 目录 name 优先（B.2 用户语言），目录缺失回退静态 label
     const kindLabel = state.entityTypes.find((item) => item.id === entity.typeId)?.name || entityKindLabel(entity.typeId);
+    // 封面比例：加载成功时测量并回写元素 props.coverAspect（DB；key 匹配当前封面才生效）；旧数据兼容
+    const coverAspect = persistedAspect(element?.props, "coverAspect", cover ? cover.assetId || cover.url : "") ?? 0;
     records.push({
       id: `entity:${entity.id}`,
       type: "entity-card",
@@ -139,8 +141,8 @@ function buildPomeloRecords(
         cover: "",
         coverUrl: coverState === "ready" ? cover?.url ?? "" : "",
         coverKind: coverState === "ready" ? cover?.kind ?? undefined : undefined,
-        // 封面比例（store.fitEntityCover 测量的 naturalWidth/Height）：有封面时卡片按它定尺
-        ...(Number(element?.props?.coverAspect) > 0 ? { coverAspect: Number(element?.props?.coverAspect) } : {}),
+        // 有封面时卡片按封面比例定尺（entity-card-metrics）；未测得时回落保底高度
+        ...(coverAspect > 0 ? { coverAspect } : {}),
         ...(coverState !== "ready" ? { coverStatus: coverState } : {}),
         // photoUrls = 参考素材图片（头图取自参考素材时已剔除那张；未就绪素材另行等待态）
         photoUrls: photoUrls.filter((url) => !pendingUrls.has(url)),
@@ -174,16 +176,18 @@ function buildPomeloRecords(
       // 走蓝/红等待态；素材就绪后由状态订阅重建文档切到真实图。proposed 由提案/计划徽标表达。
       const assetState = canvasAssetStateOf(assetId, element.props?.assetStatus);
       const mediaSrc = assetState === "ready" ? mediaSource(state.apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }) : "";
-      // 图片/视频块按素材比例定尺、空素材 = 16:9 占位（比例由 store 在素材就绪后写入几何）
-      const visualBlank = isMediaVisualModality(modality) && !mediaSrc;
+      // 图片/视频块渲染尺寸按 props 里回写的实测比例派生（不读几何放置盒）；未测得/空素材 = 16:9 占位。
+      const visual = isMediaVisualModality(modality);
+      const visualAspect = visual ? persistedAspect(element.props, "visualAspect", assetId || url) : null;
+      const measuredSize = visualAspect ? mediaVisualSizeForRatio(visualAspect) : null;
       records.push({
         id: element.id,
         type: "media",
         attrs: {
           x: pos.x,
           y: pos.y,
-          width: liveSize?.width ?? (visualBlank ? MEDIA_VISUAL_WIDTH : Number(element.geometry?.width) || 220),
-          height: liveSize?.height ?? (visualBlank ? MEDIA_VISUAL_HEIGHT : Number(element.geometry?.height) || 150),
+          width: liveSize?.width ?? (visual ? measuredSize?.width ?? MEDIA_VISUAL_WIDTH : Number(element.geometry?.width) || 220),
+          height: liveSize?.height ?? (visual ? measuredSize?.height ?? MEDIA_VISUAL_HEIGHT : Number(element.geometry?.height) || 150),
           modality,
           src: mediaSrc,
           ...(assetState !== "ready" && assetState !== "proposed" ? { assetStatus: assetState } : {}),
@@ -214,13 +218,16 @@ function buildPomeloRecords(
         ...(attrAssetId ? { assetId: attrAssetId } : {}),
         ...(element.props?.url ? { url: String(element.props.url) } : {}),
       }) : "";
-      const attrVisualBlank = isMediaVisualModality(resolvedAttrMedia) && !mediaSrc;
-      const attrWidth = attrVisualBlank ? MEDIA_VISUAL_WIDTH : Number(element.geometry?.width) || (resolvedAttrMedia === "text" ? 160 : 200);
-      // 文本属性卡高度随内容（换行行数）；其余媒体卡用几何/默认高度
-      const attrHeight = attrVisualBlank
-        ? MEDIA_VISUAL_HEIGHT
-        : resolvedAttrMedia === "text"
-          ? textAttrHeight(String(element.props?.text ?? ""), attrWidth)
+      const attrVisual = isMediaVisualModality(resolvedAttrMedia);
+      // 图片/视频属性卡渲染尺寸同媒体卡：按 props 回写的实测比例派生（不读几何放置盒）；未测得/空素材 = 16:9 占位。
+      const attrAspect = attrVisual ? persistedAspect(element.props, "visualAspect", attrAssetId || String(element.props?.url ?? "")) : null;
+      const attrSize = attrAspect ? mediaVisualSizeForRatio(attrAspect) : null;
+      const attrWidth = attrVisual ? attrSize?.width ?? MEDIA_VISUAL_WIDTH : Number(element.geometry?.width) || (resolvedAttrMedia === "text" ? 160 : 200);
+      // 文本属性卡高度随内容（换行行数）；图片/视频卡用测量尺寸或 16:9；音频等用几何/默认高度
+      const attrHeight = resolvedAttrMedia === "text"
+        ? textAttrHeight(String(element.props?.text ?? ""), attrWidth)
+        : attrVisual
+          ? attrSize?.height ?? MEDIA_VISUAL_HEIGHT
           : Number(element.geometry?.height) || 140;
       const proposal = (attrAsset ? proposalFromAsset(attrAsset) : null) ?? readProposal(element.props);
       const plan = attrAsset ? isPlanAsset(attrAsset) : false;
@@ -1050,8 +1057,18 @@ export function CanvasPomeloHost() {
     if (!ready) return;
     const state = useWorldCanvasStore.getState();
     for (const assetId of canvasAssetIdsInUse(state)) ensureCanvasAssetStatus(state.apiBase, assetId);
-    // 有封面的实体卡：测量封面比例并写回元素 props.coverAspect（卡片按它定尺；已测过则跳过）
+    // 有封面的实体卡：测量封面比例并回写 props.coverAspect（已回写且 key 匹配则跳过，reload 无需再测）
     for (const entity of state.entities) state.fitEntityCover(entity.id);
+    // 图片/视频媒体卡与属性卡：测量素材比例并回写 props.visualAspect（渲染按它派生尺寸）。加载后必跑一次——
+    // 覆盖「AI 经后端 doc_update 直接落卡」（创建时素材可能已就绪、无状态跃迁，订阅路径收不到变化）与
+    // 「只有 url 无 assetId」两种否则永不补尺的场景；已回写且 key 匹配则跳过，幂等。
+    // 素材未就绪不测（避免对生成中的 assetId 反复请求 content 造成 404 风暴），就绪后走状态订阅补测。
+    for (const element of state.elements) {
+      if (element.kind !== "media" && element.kind !== "attr") continue;
+      const assetId = String(element.props?.assetId ?? "");
+      if (assetId && canvasAssetStateOf(assetId, undefined) !== "ready") continue;
+      state.fitMediaVisualElement(element.id);
+    }
   }, [dataVersion, ready]);
 
   // 素材实时通道（media channel）：资产状态变化即时写入画布状态层。生成完成不再只依赖 2.5s 轮询链——
@@ -1105,7 +1122,7 @@ export function CanvasPomeloHost() {
         const modality = element.kind === "media" ? element.props?.modality : element.props?.media;
         if (isMediaVisualModality(modality) && canvasAssetStateOf(assetId, undefined) === "ready") store.fitMediaVisualElement(element.id);
       }
-      // 有封面的实体卡：封面就绪后测量比例并写回（卡片按封面定尺）
+      // 有封面的实体卡：封面就绪后测量比例并回写 props.coverAspect（卡片按封面定尺）
       for (const entity of store.entities) {
         const cover = entityCoverMedia(store.apiBase, entity);
         if (cover?.assetId && changed.has(cover.assetId) && canvasAssetStateOf(cover.assetId, undefined) === "ready") store.fitEntityCover(entity.id);
