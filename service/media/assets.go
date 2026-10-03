@@ -36,6 +36,11 @@ const (
 	generationPollErrorCountKey    = "generationPollErrorCount"
 	generationLastPollErrorKey     = "generationLastPollError"
 	generationLastPollErrorAtKey   = "generationLastPollErrorAt"
+	// remoteTerminalFailureKey marks a provider-reported terminal prediction
+	// failure (the remote task is dead, not merely unreachable). Such an asset is
+	// safe to resubmit; unlike an unknown/interrupted remote task it must not be
+	// blindly polled forever or treated as a still-paid job.
+	remoteTerminalFailureKey = "remoteTerminalFailure"
 )
 
 const atlasPollingDiagnosticPrefix = "Atlas Cloud reconciliation retry"
@@ -1176,6 +1181,17 @@ func (m *MediaService) CompletePendingAssetFromBytes(assetID string, content []b
 }
 
 func (m *MediaService) failRemoteAsset(jobID, assetID, message string) {
+	m.failRemoteAssetWith(jobID, assetID, message, nil)
+}
+
+// failRemoteAssetTerminal records a provider-reported terminal prediction
+// failure. It flags the asset so the recovery layer knows resubmission is safe
+// (the remote task is dead) rather than polling it forever.
+func (m *MediaService) failRemoteAssetTerminal(jobID, assetID, message string) {
+	m.failRemoteAssetWith(jobID, assetID, message, map[string]any{remoteTerminalFailureKey: true})
+}
+
+func (m *MediaService) failRemoteAssetWith(jobID, assetID, message string, extraMetadata map[string]any) {
 	db, err := m.database()
 	if err != nil {
 		return
@@ -1186,6 +1202,9 @@ func (m *MediaService) failRemoteAsset(jobID, assetID, message string) {
 	}
 	completedAt := time.Now().UTC()
 	metadata := completedGenerationMetadata(asset.Metadata, asset.CreatedAt, completedAt)
+	for key, value := range extraMetadata {
+		metadata[key] = value
+	}
 	serialized, _ := json.Marshal(metadata)
 	now := completedAt.Format(time.RFC3339Nano)
 	tx, err := db.Begin()

@@ -8,6 +8,7 @@ package model_providers
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -173,6 +174,49 @@ func TestAtlasImageSurfacesProviderFailure(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "insufficient balance") {
 		t.Fatalf("atlas failure error = %v", err)
+	}
+}
+
+func TestAtlasImageSurfacesFailureFromErrorStatusWithoutRetry(t *testing.T) {
+	var polls int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v1/model/generateImage":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id":     "pred-terminal",
+				"status": "processing",
+				"urls":   map[string]any{"get": server.URL + "/api/v1/model/prediction/pred-terminal"},
+			}})
+		case "/api/v1/model/prediction/pred-terminal":
+			atomic.AddInt32(&polls, 1)
+			writer.WriteHeader(http.StatusInternalServerError)
+			_, _ = writer.Write([]byte(`{"code":500,"data":{"id":"pred-terminal","status":"failed","error":"request body field <images> is required"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	_, err := (atlasCloudProvider{}).GenerateImage(ImageInput{
+		Model:      "openai/gpt-image-2.5-flare-developer/edit",
+		Prompt:     "a fox",
+		APIBase:    server.URL,
+		Secret:     "atlas-key",
+		HTTPClient: client,
+		PollClient: client,
+		PollBudget: 10 * time.Second,
+	})
+	if err == nil || !strings.Contains(err.Error(), "images") {
+		t.Fatalf("expected the provider failure message, got %v", err)
+	}
+	var terminal TerminalFailure
+	if !errors.As(err, &terminal) {
+		t.Fatalf("expected a terminal failure, got %T: %v", err, err)
+	}
+	if got := atomic.LoadInt32(&polls); got != 1 {
+		t.Fatalf("a terminal prediction failure must not be retried, polls = %d", got)
 	}
 }
 

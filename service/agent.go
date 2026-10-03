@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Store 的本地工作区 SQLite、持久化 CLI 定位缓存、MediaService 的项目媒体资产、AgentBridge 的 MCP 授权，以及 Codex/OpenCode CLI
- * [OUTPUT]: 对外提供 AgentManager、持久化 Turn、CLI 生命周期、调试事件，以及 Work Surface（经 Store 校验的目标策略）与完整 Work Focus 的提示词物化
+ * [OUTPUT]: 对外提供 AgentManager、持久化 Turn、CLI 生命周期、调试事件，以及 Work Surface（经 Store 校验的目标策略）与完整 Work Focus 的提示词物化；并提供有界的历史会话读取（ListRange/DetailRange：分页、时间窗、事件游标与截断标志）供 MCP 回顾过去会话
  * [POS]: service 的结构化 Agent 协议层；每个 Turn 固定自己的真实工作目标，Focus 不能脱离或改写该目标
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -138,6 +138,19 @@ type ChatSessionDetail struct {
 const (
 	agentCLILineLimit    = 400
 	agentCLILineMaxBytes = 16 << 10
+)
+
+// MCP past-session read bounds. Listing and detail reads of an old session can
+// otherwise pull unbounded rows into one tool result; these ceilings keep the
+// response small and paginable while staying generous enough for normal audit.
+const (
+	defaultAgentSessionListLimit  = 20
+	maxAgentSessionListLimit      = 100
+	defaultAgentSessionTurnLimit  = 20
+	maxAgentSessionTurnLimit      = 200
+	defaultAgentSessionEventLimit = 100
+	maxAgentSessionEventLimit     = 500
+	defaultAgentSessionTurnChars  = 4 << 10
 )
 
 // AgentCLIOutput is a volatile mirror of one CLI output line. It is never
@@ -624,6 +637,183 @@ func (m *AgentManager) Detail(id string) (ChatSessionDetail, error) {
 		last = events[len(events)-1].ID
 	}
 	return ChatSessionDetail{ChatSession: session, Turns: turns, Events: events, LastEventID: last}, nil
+}
+
+// AgentSessionListOptions bounds a session-list query for the MCP read surface.
+// A past session list can grow without limit, so the tool layer must be able to
+// ask for a scoped, time-bounded, paged slice instead of the whole history.
+type AgentSessionListOptions struct {
+	ProjectID string
+	Scope     string
+	Query     string
+	Since     time.Time
+	Until     time.Time
+	Limit     int
+	Offset    int
+}
+
+// AgentSessionListResult is the ranged list view. Total is the count matching
+// the filters before Limit/Offset, so an Agent knows whether more pages exist.
+type AgentSessionListResult struct {
+	Sessions []ChatSession `json:"sessions"`
+	Total    int           `json:"total"`
+	Offset   int           `json:"offset"`
+	Limit    int           `json:"limit"`
+	HasMore  bool          `json:"hasMore"`
+}
+
+// ListRange lists parent sessions under the same scope rules as List, with an
+// additional title substring filter and an updatedAt time window. It never
+// returns the whole unbounded history: Limit is clamped to a safe ceiling and
+// Offset pages through matches. A non-positive Limit falls back to the default.
+func (m *AgentManager) ListRange(opts AgentSessionListOptions) (AgentSessionListResult, error) {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return AgentSessionListResult{}, err
+	}
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = defaultAgentSessionListLimit
+	}
+	if limit > maxAgentSessionListLimit {
+		limit = maxAgentSessionListLimit
+	}
+	offset := opts.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	where := " where profile_id = ? and parent_session_id is null"
+	args := []any{localProfileID}
+	switch {
+	case opts.ProjectID != "":
+		where += " and project_id = ?"
+		args = append(args, opts.ProjectID)
+	case opts.Scope == "media":
+		where += " and app_view = 'media'"
+	case strings.HasPrefix(opts.Scope, "app:"):
+		where += " and app_view = 'standalone' and app_id = ?"
+		args = append(args, strings.TrimPrefix(opts.Scope, "app:"))
+	case opts.Scope == "general":
+		where += " and (project_id is null or project_id = '') and coalesce(app_view, '') = ''"
+	}
+	if query := strings.TrimSpace(opts.Query); query != "" {
+		where += " and title like ?"
+		args = append(args, "%"+query+"%")
+	}
+	if !opts.Since.IsZero() {
+		where += " and updated_at >= ?"
+		args = append(args, iso(opts.Since))
+	}
+	if !opts.Until.IsZero() {
+		where += " and updated_at <= ?"
+		args = append(args, iso(opts.Until))
+	}
+	var total int
+	if err := db.QueryRow("select count(*) from agent_sessions"+where, args...).Scan(&total); err != nil {
+		return AgentSessionListResult{}, err
+	}
+	// iso() 产出定宽 9 位小数时间戳，字符串序即时间序；rowid 作为稳定 tiebreak。
+	query := "select id, profile_id, runtime, native_session_id, coalesce(native_workspace, ''), coalesce(codex_model, ''), coalesce(reasoning_effort, ''), coalesce(opencode_model, ''), coalesce(commandcode_model, ''), title, status, created_at, updated_at from agent_sessions" + where + " order by updated_at desc, agent_sessions.rowid desc limit ? offset ?"
+	args = append(args, limit, offset)
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return AgentSessionListResult{}, err
+	}
+	defer rows.Close()
+	result := []ChatSession{}
+	for rows.Next() {
+		session, err := scanChatSession(rows)
+		if err != nil {
+			return AgentSessionListResult{}, err
+		}
+		result = append(result, session)
+	}
+	if err := rows.Err(); err != nil {
+		return AgentSessionListResult{}, err
+	}
+	return AgentSessionListResult{Sessions: result, Total: total, Offset: offset, Limit: limit, HasMore: offset+len(result) < total}, nil
+}
+
+// AgentSessionDetailOptions bounds a detail read. Turns and events can each be
+// arbitrarily large, so both are windowed independently: events page forward by
+// id (AfterEventID) and turns are capped to the most recent MaxTurns. The
+// returned flags say whether anything was left out, so an Agent can page on.
+type AgentSessionDetailOptions struct {
+	AfterEventID int64
+	MaxEvents    int
+	MaxTurns     int
+	MaxTurnChars int
+}
+
+// AgentSessionDetailResult is the ranged detail view. LastEventID is the cursor
+// to pass as AfterEventID for the next page; EventsTruncated/TurnsTruncated
+// signal more data remains. TotalEvents counts events at or after the request's
+// cursor (so it matches what further pages would cover).
+type AgentSessionDetailResult struct {
+	ChatSession
+	Turns           []ChatTurn  `json:"turns"`
+	Events          []ChatEvent `json:"events"`
+	LastEventID     int64       `json:"lastEventId"`
+	TotalTurns      int         `json:"totalTurns"`
+	TotalEvents     int         `json:"totalEvents"`
+	TurnsTruncated  bool        `json:"turnsTruncated"`
+	EventsTruncated bool        `json:"eventsTruncated"`
+}
+
+// DetailRange reads one session with bounded turns and events. It is the MCP
+// read path; the unbounded Detail stays the HTTP editor path.
+func (m *AgentManager) DetailRange(id string, opts AgentSessionDetailOptions) (AgentSessionDetailResult, error) {
+	db, err := m.store.WorkspaceDatabase()
+	if err != nil {
+		return AgentSessionDetailResult{}, err
+	}
+	session, err := getChatSession(db, id)
+	if err != nil {
+		return AgentSessionDetailResult{}, err
+	}
+	maxEvents := opts.MaxEvents
+	if maxEvents <= 0 {
+		maxEvents = defaultAgentSessionEventLimit
+	}
+	if maxEvents > maxAgentSessionEventLimit {
+		maxEvents = maxAgentSessionEventLimit
+	}
+	maxTurns := opts.MaxTurns
+	if maxTurns <= 0 {
+		maxTurns = defaultAgentSessionTurnLimit
+	}
+	if maxTurns > maxAgentSessionTurnLimit {
+		maxTurns = maxAgentSessionTurnLimit
+	}
+	maxTurnChars := opts.MaxTurnChars
+	if maxTurnChars == 0 {
+		maxTurnChars = defaultAgentSessionTurnChars
+	}
+	turns, totalTurns, err := listChatTurnsWindowed(db, id, maxTurns, maxTurnChars)
+	if err != nil {
+		return AgentSessionDetailResult{}, err
+	}
+	m.enrichTurnContexts(turns)
+	events, totalEvents, err := listChatEventsWindowed(db, id, opts.AfterEventID, maxEvents)
+	if err != nil {
+		return AgentSessionDetailResult{}, err
+	}
+	var last int64
+	if len(events) > 0 {
+		last = events[len(events)-1].ID
+	} else {
+		last = opts.AfterEventID
+	}
+	return AgentSessionDetailResult{
+		ChatSession:     session,
+		Turns:           turns,
+		Events:          events,
+		LastEventID:     last,
+		TotalTurns:      totalTurns,
+		TotalEvents:     totalEvents,
+		TurnsTruncated:  totalTurns > len(turns),
+		EventsTruncated: totalEvents > len(events),
+	}, nil
 }
 
 func (m *AgentManager) subagentToolFields(sessionID string) map[string]any {
@@ -2730,6 +2920,8 @@ var mcpToolLabels = map[string]string{
 	"recut.project.list":                        "读取项目列表",
 	"recut.project.get":                         "读取项目",
 	"recut.project_context":                     "读取 Recut 项目上下文",
+	"recut.agent-session.list":                  "读取历史会话列表",
+	"recut.agent-session.detail":                "读取历史会话内容",
 	"recut.job.status":                          "查询任务状态",
 	"recut.job.wait":                            "等待任务完成",
 	"recut.job.logs":                            "读取任务日志",
@@ -3302,6 +3494,70 @@ func listChatTurns(db *sql.DB, sessionID string) ([]ChatTurn, error) {
 	return result, nil
 }
 
+// listChatTurnsWindowed returns at most the last `limit` turns (most recent
+// first in the source order, re-sorted chronologically for display) plus the
+// total turn count. Turn content longer than maxTurnChars is truncated so one
+// verbose turn cannot blow the tool budget. maxTurnChars <= 0 skips truncation.
+func listChatTurnsWindowed(db *sql.DB, sessionID string, limit, maxTurnChars int) ([]ChatTurn, int, error) {
+	var total int
+	if err := db.QueryRow("select count(*) from agent_turns where session_id = ?", sessionID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	// Fetch the newest `limit` by descending order, then reverse to chronological.
+	rows, err := db.Query("select id, session_id, coalesce(task_id, ''), role, content, status, created_at, completed_at from agent_turns where session_id = ? order by created_at desc, id desc limit ?", sessionID, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	result := []ChatTurn{}
+	for rows.Next() {
+		turn, err := scanChatTurn(rows)
+		if err != nil {
+			_ = rows.Close()
+			return nil, 0, err
+		}
+		result = append(result, turn)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, err
+	}
+	for left, right := 0, len(result)-1; left < right; left, right = left+1, right-1 {
+		result[left], result[right] = result[right], result[left]
+	}
+	for index := range result {
+		result[index].Content = truncateTurnContent(result[index].Content, maxTurnChars)
+		attachments, err := listChatAttachments(db, result[index].ID)
+		if err != nil {
+			return nil, 0, err
+		}
+		result[index].Attachments = attachments
+		contexts, err := listChatContexts(db, result[index].ID)
+		if err != nil {
+			return nil, 0, err
+		}
+		if len(contexts) > 0 {
+			result[index].Contexts = contexts
+		}
+	}
+	return result, total, nil
+}
+
+// truncateTurnContent caps a turn body at maxChars runes, appending a marker so
+// the reader knows the text was cut. maxChars <= 0 leaves the content untouched.
+func truncateTurnContent(content string, maxChars int) string {
+	if maxChars <= 0 {
+		return content
+	}
+	runes := []rune(content)
+	if len(runes) <= maxChars {
+		return content
+	}
+	return string(runes[:maxChars]) + "…[truncated]"
+}
+
 func listChatContexts(db *sql.DB, turnID string) ([]ChatContext, error) {
 	rows, err := db.Query(`select type, source, payload_json from agent_turn_contexts where turn_id = ? order by seq`, turnID)
 	if err != nil {
@@ -3434,6 +3690,41 @@ func listChatEvents(db *sql.DB, sessionID string, after int64) ([]ChatEvent, err
 		result = append(result, event)
 	}
 	return result, rows.Err()
+}
+
+// listChatEventsWindowed returns at most `limit` events with id > after,
+// ordered ascending, plus the count of events remaining after the cursor. The
+// remaining count (not the session-wide total) lets the caller flag that more
+// events exist beyond this page even when paging forward.
+func listChatEventsWindowed(db *sql.DB, sessionID string, after int64, limit int) ([]ChatEvent, int, error) {
+	var remaining int
+	if err := db.QueryRow("select count(*) from agent_events where session_id = ? and id > ?", sessionID, after).Scan(&remaining); err != nil {
+		return nil, 0, err
+	}
+	rows, err := db.Query("select id, session_id, turn_id, type, payload_json, created_at from agent_events where session_id = ? and id > ? order by id limit ?", sessionID, after, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	result := []ChatEvent{}
+	for rows.Next() {
+		var event ChatEvent
+		var payload, created string
+		var turn sql.NullString
+		if err := rows.Scan(&event.ID, &event.SessionID, &turn, &event.Type, &payload, &created); err != nil {
+			return nil, 0, err
+		}
+		if turn.Valid {
+			event.TurnID = turn.String
+		}
+		event.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			return nil, 0, err
+		}
+		_ = json.Unmarshal([]byte(payload), &event.Payload)
+		result = append(result, event)
+	}
+	return result, remaining, rows.Err()
 }
 
 // iso 固定输出 9 位小数（RFC3339 合法）：字符串比较即时间比较，

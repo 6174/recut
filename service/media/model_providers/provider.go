@@ -9,7 +9,14 @@ package model_providers
 import (
 	"net/http"
 	"time"
+
+	"recut-service/media/providers/atlas"
 )
+
+// TerminalFailure is a provider-reported terminal prediction failure. Re-exported
+// so the media task layer can recognize it without importing provider-specific
+// packages.
+type TerminalFailure = atlas.TerminalFailure
 
 // ImageReference is a decoded reference asset passed to a provider strategy.
 // Byte decoding happens in the media service; strategies only serialize it

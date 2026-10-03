@@ -36,6 +36,7 @@ export type Asset = {
     generationDurationMs?: unknown;
     generationStartedAt?: unknown;
     generationResumedAt?: unknown;
+    remoteTerminalFailure?: unknown;
     modelId?: unknown;
     output?: Record<string, unknown>;
     referenceIds?: unknown;

@@ -32,6 +32,9 @@ func (m *MediaService) RetryRemoteJob(assetID string) (MediaAsset, error) {
 	if asset.Status != "failed" && asset.Status != "running" {
 		return MediaAsset{}, errors.New("只有生成中或失败的素材可以同步远端任务")
 	}
+	if asset.Status == "failed" && assetRemoteTerminalFailure(asset) {
+		return MediaAsset{}, errors.New("远端任务已明确失败，请重新生成")
+	}
 	if asset.JobID == "" {
 		return MediaAsset{}, errors.New("该素材没有关联的生成任务")
 	}
@@ -103,6 +106,14 @@ func (m *MediaService) RetryRemoteJob(assetID string) (MediaAsset, error) {
 // Atlas-only name; recovery is now provider-agnostic via RetryRemoteJob.
 func (m *MediaService) RetryAssetDownload(assetID string) (MediaAsset, error) {
 	return m.RetryRemoteJob(assetID)
+}
+
+// assetRemoteTerminalFailure reports whether a provider explicitly reported the
+// asset's remote prediction as terminally failed. Such a task is dead, so it is
+// safe to resubmit rather than polling it forever.
+func assetRemoteTerminalFailure(asset MediaAsset) bool {
+	failed, _ := asset.Metadata[remoteTerminalFailureKey].(bool)
+	return failed
 }
 
 // remoteRecoveryProvider reports whether the credential's provider has a

@@ -124,6 +124,41 @@ func TestUploadMediaReturnsAtlasDownloadURL(t *testing.T) {
 	}
 }
 
+func TestPollReadsFailedPredictionFromErrorBody(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusInternalServerError,
+			Status:     "500 Internal Server Error",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"code":500,"message":"generate task failed","data":{"id":"pred-1","status":"failed","error":"request body field <images> is required","urls":{"get":"https://api.atlascloud.ai/api/v1/model/prediction/pred-1"}}}`)),
+		}, nil
+	})}
+	prediction, err := Poll(client, "https://api.atlascloud.ai", "atlas-key", Prediction{ID: "pred-1"})
+	if err != nil {
+		t.Fatalf("a failed prediction carried by an error status must not surface as a transport error: %v", err)
+	}
+	if !prediction.Failed() || prediction.ID != "pred-1" {
+		t.Fatalf("prediction = %#v", prediction)
+	}
+	if !strings.Contains(prediction.FailureMessage(), "images") {
+		t.Fatalf("failure message = %q", prediction.FailureMessage())
+	}
+}
+
+func TestPollKeepsTransportErrorsForNonPredictionBodies(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Status:     "502 Bad Gateway",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("upstream unavailable")),
+		}, nil
+	})}
+	if _, err := Poll(client, "https://api.atlascloud.ai", "atlas-key", Prediction{ID: "pred-1"}); err == nil {
+		t.Fatal("a non-prediction error body must stay a retryable transport error")
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }

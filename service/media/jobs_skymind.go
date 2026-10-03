@@ -78,7 +78,7 @@ func (m *MediaService) submitSkymindVideo(job MediaJob, credential MediaCredenti
 		return MediaJob{}, errors.New("running Skymind asset was not linked to its media job")
 	}
 	if task.Failed() {
-		m.failRemoteAsset(job.ID, asset.ID, skymindTaskFailureMessage(task))
+		m.failRemoteAssetTerminal(job.ID, asset.ID, skymindTaskFailureMessage(task))
 		return m.getJob(job.ID)
 	}
 	if task.Succeeded() {
@@ -275,7 +275,7 @@ func (m *MediaService) reconcileSkymindTask(task skymindTask) bool {
 	}
 	if taskStatus.Failed() {
 		m.clearSkymindPollingDiagnostic(task.job.ID, task.asset.ID)
-		m.failRemoteAsset(task.job.ID, task.asset.ID, skymindTaskFailureMessage(taskStatus))
+		m.failRemoteAssetTerminal(task.job.ID, task.asset.ID, skymindTaskFailureMessage(taskStatus))
 		return true
 	}
 	if !taskStatus.Succeeded() {

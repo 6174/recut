@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 AgentBridge 会话鉴权、AppHost 双 target 运行时、Catalog 的 App 与 skill 树、MediaService 与 JSON-RPC 请求/响应模型
- * [OUTPUT]: 对外提供项目/App-state target 解析、Skill 读取、跨 App operation 路由、受限 Component Author 调度及平台工具清单
+ * [OUTPUT]: 对外提供项目/App-state target 解析、Skill 读取、跨 App operation 路由、受限 Component Author 调度、有界历史会话读取（recut.agent-session.list/detail）及平台工具清单
  * [POS]: service 的 MCP Host；不把页面上下文变成全局 capability 或 operation 权限限制
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,6 +84,14 @@ var mcpToolDescriptions = map[string]map[Locale]string{
 	"recut.project_context": {
 		LocaleZh: "读取一个项目的深层上下文：owner App 的 workflow.context、已产出 Artifact、appState 与项目绝对路径（paths.projectFilesRoot）。",
 		LocaleEn: "Read a project's deep context: the owner App's workflow.context, produced Artifacts, appState, and the project's absolute paths (paths.projectFilesRoot).",
+	},
+	"recut.agent-session.list": {
+		LocaleZh: "列出之前的 Agent 会话（历史对话），用于回顾此前做过什么。默认只列父会话、排除子 Agent 会话；可按 scope（general / media / app:<appId>）、projectId 或 title 关键词过滤，并用 since/until（RFC3339）限定 updatedAt 时间窗。结果分页：limit（默认 20，上限 100）、offset；返回 {sessions,total,hasMore}。**历史可能无限增长，务必用时间窗与分页收窄结果**，不要依赖默认一次拉全量。拿到 sessionId 后用 recut.agent-session.detail 读取内容。",
+		LocaleEn: "List past Agent sessions (conversation history) to recall what was done before. By default only parent sessions are listed (child sub-agent sessions are excluded). Filter by scope (general / media / app:<appId>), projectId, or a title keyword, and bound updatedAt with since/until (RFC3339). Results are paged: limit (default 20, max 100) and offset; returns {sessions,total,hasMore}. **History can grow unbounded, so always narrow results with a time window and paging** rather than relying on a full dump. Use the returned sessionId with recut.agent-session.detail to read content.",
+	},
+	"recut.agent-session.detail": {
+		LocaleZh: "读取一个之前 Agent 会话的详细内容（turns 与 events）。**历史可能非常大，必须分页**：events 用 afterEventId 作为游标（只取 id 大于它的），maxEvents（默认 100，上限 500）；turns 取最近 maxTurns 条（默认 20，上限 200），单条 turn 正文超长会被截断。返回 lastEventId 供下一页续取，以及 totalTurns/totalEvents 与 turnsTruncated/eventsTruncated 标志判断是否还有更多。",
+		LocaleEn: "Read the detail (turns and events) of one past Agent session. **A session can be huge, so paging is required**: page events with afterEventId as the cursor (only events with a larger id) and maxEvents (default 100, max 500); turns return the most recent maxTurns (default 20, max 200) and an over-long turn body is truncated. The response returns lastEventId for the next page plus totalTurns/totalEvents and turnsTruncated/eventsTruncated flags so you can tell whether more data remains.",
 	},
 	"recut.job.status": {
 		LocaleZh: "读取一个或多个任务（job）的当前状态：queued / running / completed / failed / cancelled / interrupted。统一观察层同时覆盖本地 App shell job（如 audio.install/transcribe、depth.generate、render.export）、延迟 Handle（deferred）与平台媒体生成 job（recut.image/video/speech.generate 返回的 jobId）；返回视图带 kind 区分 shell / deferred / media / sub-agent。批量生成时用 `jobIds` 一次读取多个，返回 {jobs, summary, pending, allTerminal}。",
@@ -337,6 +346,8 @@ func platformMCPToolDefinitions(locale Locale) []map[string]any {
 		platformTool("recut.project.list", mcpDescription(locale, "recut.project.list"), map[string]any{"type": "object", "properties": map[string]any{}}),
 		platformTool("recut.project.get", mcpDescription(locale, "recut.project.get"), map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string"}}}),
 		platformTool("recut.project_context", mcpDescription(locale, "recut.project_context"), map[string]any{"type": "object", "required": []string{"projectId"}, "properties": map[string]any{"projectId": map[string]string{"type": "string", "description": "要读取上下文的 Project Doc ID。"}}}),
+		agentSessionListToolDefinition(locale),
+		agentSessionDetailToolDefinition(locale),
 		platformTool("recut.agent.run", mcpDescription(locale, "recut.agent.run"), map[string]any{"type": "object", "required": []string{"app", "operation", "payload"}, "properties": map[string]any{
 			"app":       map[string]string{"type": "string", "description": "承载该子 Agent 运行的 App ID。"},
 			"operation": map[string]string{"type": "string", "description": "App 用于声明 SubAgentRequest 的 background operation（返回 {subAgent:{allowedTools,prompt,...}}）。"},
@@ -353,6 +364,33 @@ func platformMCPToolDefinitions(locale Locale) []map[string]any {
 	tools = append(tools, worldsMCPToolDefinitions(locale)...)
 	tools = append(tools, motionGraphicMCPToolDefinitions(locale)...)
 	return tools
+}
+
+// agentSessionListToolDefinition describes the ranged past-session list tool.
+// Every filter is optional; the time window and paging exist so an Agent can
+// narrow an unbounded history instead of pulling it whole.
+func agentSessionListToolDefinition(locale Locale) map[string]any {
+	return platformTool("recut.agent-session.list", mcpDescription(locale, "recut.agent-session.list"), map[string]any{"type": "object", "properties": map[string]any{
+		"scope":     map[string]string{"type": "string", "description": "可选；general（通用）/ media / app:<appId>。缺省不按 scope 过滤。"},
+		"projectId": map[string]string{"type": "string", "description": "可选；只列某项目的会话（优先于 scope）。"},
+		"query":     map[string]string{"type": "string", "description": "可选；title 模糊匹配关键词。"},
+		"since":     map[string]string{"type": "string", "description": "可选；RFC3339 起始时间，按 updatedAt >= since 过滤。"},
+		"until":     map[string]string{"type": "string", "description": "可选；RFC3339 结束时间，按 updatedAt <= until 过滤。"},
+		"limit":     map[string]any{"type": "integer", "minimum": 1, "maximum": 100, "description": "分页大小，默认 20，上限 100。"},
+		"offset":    map[string]any{"type": "integer", "minimum": 0, "description": "分页偏移；结合返回的 total/hasMore 翻页。"},
+	}})
+}
+
+// agentSessionDetailToolDefinition describes the ranged past-session detail
+// tool. afterEventId cursors event paging; maxEvents/maxTurns bound each side.
+func agentSessionDetailToolDefinition(locale Locale) map[string]any {
+	return platformTool("recut.agent-session.detail", mcpDescription(locale, "recut.agent-session.detail"), map[string]any{"type": "object", "required": []string{"sessionId"}, "properties": map[string]any{
+		"sessionId":    map[string]string{"type": "string", "description": "要读取的会话 ID（来自 recut.agent-session.list）。"},
+		"afterEventId": map[string]any{"type": "integer", "minimum": 0, "description": "事件游标；只取 id 大于它的 events，用于向后翻页。缺省 0=从头。"},
+		"maxEvents":    map[string]any{"type": "integer", "minimum": 1, "maximum": 500, "description": "本次最多返回的 events，默认 100，上限 500。"},
+		"maxTurns":     map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "最多返回的最近 turns，默认 20，上限 200。"},
+		"maxTurnChars": map[string]any{"type": "integer", "minimum": 0, "description": "单条 turn 正文的字符上限（按 rune），超出截断；缺省 4096，0 使用默认上限。"},
+	}})
 }
 
 // appMCPToolDefinitions returns the MCP tools an App exposes through its
@@ -453,6 +491,10 @@ func mcpToolCall(bridge *AgentBridge, host *AppHost, media *MediaService, sessio
 		return recutContextTool(bridge, media, session, locale)
 	case "recut.project_context":
 		return projectContextTool(bridge, host, media, session, arguments, locale)
+	case "recut.agent-session.list":
+		return agentSessionListTool(bridge, arguments)
+	case "recut.agent-session.detail":
+		return agentSessionDetailTool(bridge, arguments)
 	case "recut.project.create":
 		return projectMCPTool(bridge.store, arguments)
 	case "recut.project.list":
@@ -2677,4 +2719,105 @@ func projectContextTool(bridge *AgentBridge, host *AppHost, media *MediaService,
 	}
 	data, _ := json.Marshal(result)
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+// agentSessionListTool lists past Agent sessions behind a bounded, scoped,
+// time-windowed query. It requires the AgentManager (injected on the bridge);
+// without it the tool reports the dependency rather than panicking.
+func agentSessionListTool(bridge *AgentBridge, arguments map[string]any) (any, error) {
+	if bridge == nil || bridge.agents == nil {
+		return nil, errors.New("agent session store is unavailable")
+	}
+	opts := AgentSessionListOptions{
+		Scope:     strings.TrimSpace(stringArgument(arguments, "scope")),
+		ProjectID: strings.TrimSpace(stringArgument(arguments, "projectId")),
+		Query:     strings.TrimSpace(stringArgument(arguments, "query")),
+		Offset:    intArgument(arguments, "offset"),
+		Limit:     intArgument(arguments, "limit"),
+	}
+	since, err := timeArgument(arguments, "since")
+	if err != nil {
+		return nil, err
+	}
+	until, err := timeArgument(arguments, "until")
+	if err != nil {
+		return nil, err
+	}
+	opts.Since, opts.Until = since, until
+	result, err := bridge.agents.ListRange(opts)
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+// agentSessionDetailTool reads one past session with bounded turns and events.
+// afterEventId is the event cursor; maxEvents/maxTurns/maxTurnChars cap the
+// payload so an old, event-heavy session cannot overflow the tool budget.
+func agentSessionDetailTool(bridge *AgentBridge, arguments map[string]any) (any, error) {
+	if bridge == nil || bridge.agents == nil {
+		return nil, errors.New("agent session store is unavailable")
+	}
+	sessionID := strings.TrimSpace(stringArgument(arguments, "sessionId"))
+	if sessionID == "" {
+		return nil, errors.New("sessionId is required")
+	}
+	opts := AgentSessionDetailOptions{
+		AfterEventID: int64(intArgument(arguments, "afterEventId")),
+		MaxEvents:    intArgument(arguments, "maxEvents"),
+		MaxTurns:     intArgument(arguments, "maxTurns"),
+		MaxTurnChars: intArgument(arguments, "maxTurnChars"),
+	}
+	result, err := bridge.agents.DetailRange(sessionID, opts)
+	if err != nil {
+		return nil, err
+	}
+	data, _ := json.Marshal(result)
+	return map[string]any{"content": []map[string]string{{"type": "text", "text": string(data)}}, "structuredContent": structuredMCPContent(result)}, nil
+}
+
+// stringArgument reads a string tool argument, tolerating absent/null values.
+func stringArgument(arguments map[string]any, key string) string {
+	value, _ := arguments[key].(string)
+	return value
+}
+
+// intArgument reads a numeric tool argument across the JSON number and string
+// shapes MCP clients use; absent or unparsable values return 0.
+func intArgument(arguments map[string]any, key string) int {
+	switch value := arguments[key].(type) {
+	case float64:
+		return int(value)
+	case int:
+		return value
+	case json.Number:
+		parsed, err := value.Int64()
+		if err != nil {
+			return 0
+		}
+		return int(parsed)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return 0
+		}
+		return parsed
+	default:
+		return 0
+	}
+}
+
+// timeArgument parses an optional RFC3339 timestamp argument; an empty value
+// yields the zero time, an unparsable value is a caller error.
+func timeArgument(arguments map[string]any, key string) (time.Time, error) {
+	raw := strings.TrimSpace(stringArgument(arguments, key))
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s must be an RFC3339 timestamp", key)
+	}
+	return parsed.UTC(), nil
 }

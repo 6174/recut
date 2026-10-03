@@ -148,6 +148,18 @@ func uploadPartHeader(input MediaUpload) textproto.MIMEHeader {
 	return header
 }
 
+// TerminalFailure marks a provider-reported terminal prediction failure (as
+// opposed to a transport/transient status-read error). Callers must not keep
+// polling or resubmit the same prediction; they surface the provider reason.
+type TerminalFailure struct{ Message string }
+
+func (e TerminalFailure) Error() string {
+	if strings.TrimSpace(e.Message) == "" {
+		return "Atlas Cloud prediction failed"
+	}
+	return e.Message
+}
+
 type predictionResponse struct {
 	ID      string   `json:"id"`
 	Status  string   `json:"status"`
@@ -158,6 +170,41 @@ type predictionResponse struct {
 		Get string `json:"get"`
 	} `json:"urls"`
 	Data *predictionResponse `json:"data"`
+}
+
+// decodeFailedPrediction extracts an explicit terminal prediction failure from a
+// response body. Atlas can report a failed prediction with a non-2xx status
+// while still returning the failed prediction object; recognizing it here keeps
+// the caller from retrying an already-dead prediction forever.
+func decodeFailedPrediction(data []byte) (Prediction, bool) {
+	value := predictionResponse{}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return Prediction{}, false
+	}
+	if value.Data != nil {
+		inner := *value.Data
+		if inner.Message == "" {
+			inner.Message = value.Message
+		}
+		if inner.Error == "" {
+			inner.Error = value.Error
+		}
+		value = inner
+	}
+	prediction := Prediction{ID: value.ID, Status: value.Status, Outputs: value.Outputs, Error: value.Error, Message: value.Message, PollURL: value.URLs.Get}
+	if prediction.ID == "" && prediction.Status == "" {
+		return Prediction{}, false
+	}
+	if prediction.Failed() {
+		return prediction, true
+	}
+	// An error payload without an explicit status is still a terminal failure;
+	// normalize it so callers see Failed() instead of an endless "processing".
+	if strings.TrimSpace(prediction.Error) != "" && !prediction.Completed() {
+		prediction.Status = "failed"
+		return prediction, true
+	}
+	return Prediction{}, false
 }
 
 // Submit performs only Atlas' POST /generateVideo request. A successful
@@ -464,6 +511,13 @@ func request(client *http.Client, baseURL, secret, method, endpoint string, body
 	defer response.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(response.Body, 8<<20))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		// Atlas reports an explicit prediction failure with a non-2xx status and
+		// the failed prediction in the body (e.g. 500 + status:"failed"). Return
+		// that terminal state instead of a generic HTTP error so callers fail the
+		// task with the provider's own reason rather than retrying it forever.
+		if failure, ok := decodeFailedPrediction(data); ok {
+			return failure, nil
+		}
 		return Prediction{}, fmt.Errorf("provider returned %s: %s", response.Status, string(data))
 	}
 	value := predictionResponse{}

@@ -82,7 +82,7 @@ func (m *MediaService) submitAtlasSpeech(job MediaJob, credential MediaCredentia
 		return MediaJob{}, err
 	}
 	if prediction.Failed() {
-		m.failRemoteAsset(job.ID, asset.ID, prediction.FailureMessage())
+		m.failRemoteAssetTerminal(job.ID, asset.ID, prediction.FailureMessage())
 		return m.getJob(job.ID)
 	}
 	if prediction.Completed() {
@@ -146,7 +146,7 @@ func (m *MediaService) submitAtlasVideo(job MediaJob, credential MediaCredential
 		return MediaJob{}, errors.New("running Atlas asset was not linked to its media job")
 	}
 	if prediction.Failed() {
-		m.failRemoteAsset(job.ID, asset.ID, prediction.FailureMessage())
+		m.failRemoteAssetTerminal(job.ID, asset.ID, prediction.FailureMessage())
 		return m.getJob(job.ID)
 	}
 	if prediction.Completed() {
@@ -211,7 +211,7 @@ func (m *MediaService) reconcileAtlasTask(task atlasTask) (bool, time.Duration) 
 		return false, atlasPollingRetryDelay(attempt)
 	}
 	if prediction.Failed() {
-		m.failRemoteAsset(task.job.ID, task.asset.ID, prediction.FailureMessage())
+		m.failRemoteAssetTerminal(task.job.ID, task.asset.ID, prediction.FailureMessage())
 		return true, 0
 	}
 	if !prediction.Completed() {

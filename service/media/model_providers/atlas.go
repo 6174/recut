@@ -89,12 +89,12 @@ func (atlasCloudProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 			pollErrorAttempt = 0
 			prediction = next
 			if prediction.Failed() {
-				return ImageResult{}, errors.New("Atlas Cloud image generation failed: " + prediction.FailureMessage())
+				return ImageResult{}, atlas.TerminalFailure{Message: "Atlas Cloud image generation failed: " + prediction.FailureMessage()}
 			}
 			if prediction.Completed() {
 				url := prediction.FirstOutput()
 				if url == "" {
-					return ImageResult{}, errors.New("Atlas Cloud image completed without an output URL")
+					return ImageResult{}, atlas.TerminalFailure{Message: "Atlas Cloud image completed without an output URL"}
 				}
 				return downloadImage(client, url)
 			}

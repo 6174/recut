@@ -70,7 +70,7 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; appId?: unknown; appTaskId?: unknown; generation?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; document?: ReferenceMetadata; component?: ComponentPreviewMeta };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; appId?: unknown; appTaskId?: unknown; generation?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; generationResumedAt?: unknown; remoteTerminalFailure?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; document?: ReferenceMetadata; component?: ComponentPreviewMeta };
 };
 
 // Motion Graphic 组件素材的预览元数据：聊天卡片把组件的精确版本信息挂在这里，
@@ -1134,18 +1134,21 @@ function PendingAssetContent({ apiBase, asset, status }: { apiBase: string; asse
   return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-muted-foreground" : "text-foreground"}`}>{status === "failed" ? "生成失败" : proposed ? "待确认生成" : "生成中"}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{proposed ? "这是一条生成提案；确认后才提交生成并消耗额度。" : "素材引用已经建立；完成后会在这里原位可预览。"}</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryGenerationButton apiBase={apiBase} asset={asset} />}</div></div>;
 }
 
-// 失败/超时恢复：只要已经拿到远端任务 ID（remoteId），就说明这一次已经付费提交，只能“手动同步”
-// 复取（强制轮询一次远端任务），绝不重发；只有提交阶段就失败（没有 remoteId，大概率未计费）才给“重试”重新提交。
+// 失败/超时恢复：只要已经拿到远端任务 ID（remoteId），就说明这一次已经付费提交，默认只能“手动同步”
+// 复取（强制轮询一次远端任务），绝不重发；但若 provider 已明确回报该远端任务终态失败
+// （metadata.remoteTerminalFailure），远端任务已死，重发才是唯一出路，此时给“重新生成”。
+// 只有提交阶段就失败（没有 remoteId，大概率未计费）才给“重试”重新提交。
 function RetryGenerationButton({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
   const { upsertAsset } = useMediaAssetEvents();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   if (!asset.jobId) return null;
-  const remoteRecoverable = !!asset.remoteId;
+  const terminal = asset.metadata?.remoteTerminalFailure === true;
+  const remoteRecoverable = !terminal && !!asset.remoteId;
   const action = remoteRecoverable ? "sync" : "retry";
-  const idleLabel = remoteRecoverable ? "手动同步" : "重试";
-  const busyLabel = remoteRecoverable ? "正在同步…" : "正在重试…";
-  const failedLabel = remoteRecoverable ? "同步失败，请稍后重试。" : "重试失败，请稍后重试。";
+  const idleLabel = remoteRecoverable ? "手动同步" : terminal ? "重新生成" : "重试";
+  const busyLabel = remoteRecoverable ? "正在同步…" : terminal ? "正在重新生成…" : "正在重试…";
+  const failedLabel = remoteRecoverable ? "同步失败，请稍后重试。" : terminal ? "重新生成失败，请稍后重试。" : "重试失败，请稍后重试。";
   async function run() {
     setPending(true);
     setError("");

@@ -509,6 +509,14 @@ func (m *MediaService) execute(job MediaJob, credential MediaCredential) {
 
 func (m *MediaService) failExecution(job MediaJob, cause error) {
 	if len(job.AssetIDs) == 1 {
+		// A provider-reported terminal failure is not a local glitch: flag it so
+		// recovery knows the remote task is dead (resubmission is safe) instead of
+		// treating it as a still-paid job to keep polling.
+		var terminal model_providers.TerminalFailure
+		if errors.As(cause, &terminal) {
+			m.failRemoteAssetTerminal(job.ID, job.AssetIDs[0], cause.Error())
+			return
+		}
 		m.failRemoteAsset(job.ID, job.AssetIDs[0], cause.Error())
 		return
 	}
@@ -547,22 +555,35 @@ func (m *MediaService) RetryGeneration(assetID string) (MediaAsset, error) {
 		return MediaAsset{}, err
 	}
 	// A checkpointed remote ID means the paid call already happened: recover the
-	// existing remote task (poll/collect) instead of resubmitting it. This is the
-	// provider-agnostic invariant — resubmission is only ever allowed when no
-	// remote ID exists, i.e. the submission itself never reached the provider.
-	if job.RemoteID != "" {
+	// existing remote task (poll/collect) instead of resubmitting it. The one
+	// exception is a provider-reported terminal failure — that remote task is
+	// dead, so resubmission is safe and the only way forward. Resubmission is
+	// otherwise only allowed when no remote ID exists, i.e. the submission
+	// itself never reached the provider.
+	if job.RemoteID != "" && !assetRemoteTerminalFailure(asset) {
 		return m.RetryRemoteJob(assetID)
 	}
 	if len(job.AssetIDs) != 1 || job.AssetIDs[0] != asset.ID {
 		return MediaAsset{}, errors.New("该素材不是任务的待完成产物，无法原位重试")
 	}
+	metadata := asset.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	// A resubmission starts a fresh remote task: drop the previous terminal flag
+	// and stale poll-error counters so they cannot leak into the new attempt.
+	delete(metadata, remoteTerminalFailureKey)
+	delete(metadata, generationPollErrorCountKey)
+	delete(metadata, generationLastPollErrorKey)
+	delete(metadata, generationLastPollErrorAtKey)
+	serializedMetadata, _ := json.Marshal(metadata)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	tx, err := db.Begin()
 	if err != nil {
 		return MediaAsset{}, err
 	}
 	rollback := func(cause error) (MediaAsset, error) { _ = tx.Rollback(); return MediaAsset{}, cause }
-	if _, err := tx.Exec("update media_assets set status = 'queued', error = '', remote_id = '', remote_poll_url = '', updated_at = ? where id = ? and status = 'failed'", now, asset.ID); err != nil {
+	if _, err := tx.Exec("update media_assets set status = 'queued', error = '', remote_id = '', remote_poll_url = '', metadata_json = ?, updated_at = ? where id = ? and status = 'failed'", string(serializedMetadata), now, asset.ID); err != nil {
 		return rollback(err)
 	}
 	if _, err := tx.Exec("update media_jobs set status = 'queued', error = '', remote_id = '', remote_poll_url = '', submission_started_at = '', updated_at = ? where id = ? and status = 'failed'", now, job.ID); err != nil {
