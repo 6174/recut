@@ -1,8 +1,8 @@
 /*
- * [INPUT]: 依赖 react、canvas-store（contextMenu 与 rename/inline-edit/setContext/startRelating/
- * setDeleteTarget/removeElement/promoting 动作）
- * [OUTPUT]: 对外提供 CanvasContextMenu（T3 右键菜单）：实体 = 重命名 / 进入内部 / 建立关系… / 删除…；
- * 便签/文本 = 就地编辑 / 提升为设定… / 删除
+ * [INPUT]: 依赖 react、canvas-store（contextMenu 与 copy/cut/delete、rename/inline-edit/setContext/
+ * startRelating/setDeleteTarget/removeElement/removeRelation/setDeleteSelectionIds 动作）
+ * [OUTPUT]: 对外提供 CanvasContextMenu（T3 右键菜单）：复制 / 剪切（对当前选中集合）恒在；实体 = 重命名 /
+ * 进入内部 / 建立关系…；便签/文本 = 就地编辑 / 提升为设定…；关系 = 删除；末尾删除（多选走批量确认弹框）
  * [POS]: worlds/[worldID]/canvas 的右键菜单层（锚点与动作用 store，组件只做投影）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -16,6 +16,7 @@ export function CanvasContextMenu() {
   const menu = useWorldCanvasStore((state) => state.contextMenu);
   const setContextMenu = useWorldCanvasStore((state) => state.setContextMenu);
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
+  const selectedIds = useWorldCanvasStore((state) => state.selectedIds);
   if (!menu) return null;
   const close = () => setContextMenu(null);
   const run = (action: () => void) => {
@@ -24,20 +25,37 @@ export function CanvasContextMenu() {
   };
   const entity = menu.kind === "entity" && menu.entityId ? useWorldCanvasStore.getState().entities.find((item) => item.id === menu.entityId) : null;
   const element = menu.kind === "element" && menu.elementId ? useWorldCanvasStore.getState().elements.find((item) => item.id === menu.elementId) : null;
-  const items: Array<{ label: string; danger?: boolean; disabled?: boolean; action: () => void }> = [];
-  if (entity) {
+  const relation = menu.kind === "relation" && menu.relationId ? useWorldCanvasStore.getState().relations.find((item) => item.id === menu.relationId) : null;
+  const multi = selectedIds.length > 1;
+  const items: Array<{ label: string; danger?: boolean; disabled?: boolean; action: () => void }> = [
+    { label: "复制", disabled: selectedIds.length === 0, action: () => run(() => useWorldCanvasStore.getState().copySelection()) },
+    { label: "剪切", disabled: readOnly || selectedIds.length === 0, action: () => run(() => void useWorldCanvasStore.getState().cutSelection()) },
+  ];
+  if (entity && !multi) {
     items.push(
       { label: "重命名", action: () => run(() => startRename(entity.id)) },
       { label: "进入内部", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setContext({ entityId: entity.id, title: entity.name })) },
       { label: "建立关系…", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().startRelating(entity.id)) },
-      { label: "删除…", danger: true, disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setDeleteTarget(entity)) },
     );
-  } else if (element && (element.kind === "note" || element.kind === "text")) {
+  } else if (element && !multi && (element.kind === "note" || element.kind === "text")) {
     items.push(
       { label: "就地编辑", action: () => run(() => startElementEdit(element.id, element.kind === "note" ? "note-body" : "text-body")) },
       { label: "提升为设定…", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setPromoting(element.id)) },
-      { label: "删除", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().removeElement(element.id)) },
     );
+  }
+  if (multi) {
+    items.push({
+      label: `删除 ${selectedIds.length} 项…`,
+      danger: true,
+      disabled: readOnly,
+      action: () => run(() => useWorldCanvasStore.getState().setDeleteSelectionIds([...selectedIds])),
+    });
+  } else if (entity) {
+    items.push({ label: "删除…", danger: true, disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setDeleteTarget(entity)) });
+  } else if (element) {
+    items.push({ label: "删除", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().removeElement(element.id)) });
+  } else if (relation) {
+    items.push({ label: "删除", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().removeRelation(relation.id)) });
   }
   if (!items.length) return null;
   return (
@@ -48,7 +66,7 @@ export function CanvasContextMenu() {
         onPointerDown={(event) => event.stopPropagation()}
         style={{
           left: Math.min(menu.screenX, (typeof window !== "undefined" ? window.innerWidth - 190 : 600)),
-          top: Math.min(menu.screenY, (typeof window !== "undefined" ? window.innerHeight - 160 : 400)),
+          top: Math.min(menu.screenY, (typeof window !== "undefined" ? window.innerHeight - (items.length * 30 + 20) : 400)),
         }}
       >
         {items.map((item) => (

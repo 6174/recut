@@ -17,8 +17,10 @@
  * 边即属性关联，不新建节点），其余落点（含 World 节点）= 属性引导菜单（setAttrCreator，创建属性节点 +
  * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击媒体节点（独立媒体卡 / 媒体属性卡，含图片/视频/音频）
  * 有 assetId = 全局素材详情弹框（setAssetDetail，proposal/计划态照常呈现）、仅 url = 预览浮层、无内容 = 全局素材选择弹框（setMediaPicker，按模态过滤）挑素材或上传；双击空白 = 最近类型快捷建卡
- * （Alt = 创建菜单）；右键 = 实体/便签文本上下文菜单（T3）；Delete/Backspace 删除关系/草稿、
- * 实体走删除确认（B.6）；Cmd/Ctrl+Z = 语义撤销、Cmd/Ctrl+Shift+Z = 语义重做（store.undoLastChange/redoLastChange，画布真相在 store/服务端）；
+ * （Alt = 创建菜单）；右键 = 实体/任意自由元素/语义关系上下文菜单（T3，含复制/剪切/删除，右键未选中项先收敛选择）；
+ * Delete/Backspace 删除关系/草稿、实体走删除确认（B.6）；Cmd/Ctrl+Z = 语义撤销、Cmd/Ctrl+Shift+Z = 语义重做
+ * （store.undoLastChange/redoLastChange，画布真相在 store/服务端）；Cmd/Ctrl+C/X/V = 复制/剪切/粘贴
+ * （store.copySelection/cutSelection/pasteClipboard，实体与画布元素，world 根节点由 store 过滤）；
  * 选区 overlay（关系线三控制点由 arrow-geometry.linkHandlePoints 给出：start/end 落在箭头与节点边缘
  * 的交点、mid 在可视段中点，避免默认锚点（节点中心）把控制点画到元素卡片上）+ 「+」手柄 +
  * 引导草稿线（overlay 屏幕空间 / draft 世界空间，transform 变化自动重绘）
@@ -1145,24 +1147,35 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       }
     };
 
-    // 右键菜单（T3）：实体 / 便签文本元素 → CanvasContextMenu；空白 = 关闭即可（浏览器默认菜单保留无妨）
+    // 右键菜单（T3）：实体 / 任意自由元素 / 语义关系 → CanvasContextMenu（复制/剪切/删除在菜单内）。
+    // 右键未选中对象先把选择收敛到它，菜单动作才有明确目标；已选中则保留多选（菜单按整组操作）。
+    // 空白与 world 根节点不开菜单（根节点不与 sub 一起复制/剪切）。
     const onContextMenu = (event: MouseEvent) => {
       event.preventDefault();
-      const rect = view.getBoundingClientRect();
       const world = toWorld({ clientX: event.clientX, clientY: event.clientY } as unknown as PointerEvent);
       const hit = hitTest(world);
       const store = useWorldCanvasStore.getState();
-      if (!hit || hit.kind !== "node") {
+      if (!hit || hit.blockId === WORLD_ELEMENT_ID) {
         store.setContextMenu(null);
         return;
       }
-      if (hit.blockId.startsWith("entity:")) {
-        store.setContextMenu({ kind: "entity", entityId: hit.blockId.slice("entity:".length), screenX: event.clientX, screenY: event.clientY });
-      } else if (hit.blockId.startsWith("shape:note-") || hit.blockId.startsWith("shape:text-")) {
-        store.setContextMenu({ kind: "element", elementId: hit.blockId, screenX: event.clientX, screenY: event.clientY });
-      } else {
-        store.setContextMenu(null);
+      const blockId = hit.blockId;
+      if (!store.selectedIds.includes(blockId)) store.selectMany([blockId]);
+      // 语义关系边 block id = `arrow:<relationId>`；自由箭头元素（属性边）复用 link 命中但 id 是元素 id。
+      if (blockId.startsWith(RELATION_PREFIX)) {
+        store.setContextMenu({
+          kind: "relation",
+          relationId: blockId.slice(RELATION_PREFIX.length),
+          screenX: event.clientX,
+          screenY: event.clientY,
+        });
+        return;
       }
+      if (blockId.startsWith("entity:")) {
+        store.setContextMenu({ kind: "entity", entityId: blockId.slice("entity:".length), screenX: event.clientX, screenY: event.clientY });
+        return;
+      }
+      store.setContextMenu({ kind: "element", elementId: blockId, screenX: event.clientX, screenY: event.clientY });
     };
 
     // Delete/Backspace：只作用于可删对象（关系/自由草稿）；实体与世界节点是投影，不可删。
@@ -1192,6 +1205,28 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         if (event.shiftKey) void store.redoLastChange();
         else void store.undoLastChange();
         return;
+      }
+      // Cmd/Ctrl + C = 复制选中、+ X = 剪切、+ V = 粘贴（实体与画布元素；world 根节点由 store 过滤）
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+        if (event.repeat) return;
+        const shortcut = event.key.toLowerCase();
+        if (shortcut === "c") {
+          if (store.selectedIds.length === 0) return;
+          event.preventDefault();
+          store.copySelection();
+          return;
+        }
+        if (shortcut === "x" && !store.readOnly) {
+          if (store.selectedIds.length === 0) return;
+          event.preventDefault();
+          void store.cutSelection();
+          return;
+        }
+        if (shortcut === "v" && !store.readOnly) {
+          event.preventDefault();
+          void store.pasteClipboard();
+          return;
+        }
       }
       if ((event.key === "Delete" || event.key === "Backspace") && !store.readOnly) {
         if (store.selectedIds.length > 1) {

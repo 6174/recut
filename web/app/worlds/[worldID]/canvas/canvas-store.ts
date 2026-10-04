@@ -9,6 +9,8 @@
  * 多选 selectedIds 为 pomelo block id 集合，select 单选/selectMany 框选保持同步）
  * 与全部写动作（关系原位改 updateRelation：类型/方向 patch，保留 id/scope 与画布锚点）；画布元素写 world_canvas 不产 revision，
  * 多选对齐/分布间距/网格排布（arrangeSelection，几何单一实现在 lib/pomelo/world-canvas/arrange.ts）只改元素 x/y，整批合并为一条撤销，
+ * 剪贴板 copySelection/cutSelection/pasteClipboard（片段由 canvas-clipboard.buildCanvasFragment 抽取：实体+投影卡+自由元素+
+ * 两端都在选中集合内的关系/属性边；world 根节点恒过滤；copy 与跨 world cut 克隆新 id、同 world cut 按原 id 真移动；整次粘贴合并为一条撤销），
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
  * 内容定尺类节点（实体卡封面、图片/视频媒体与属性卡）的尺寸由实测比例派生：fitEntityCover / fitMediaVisualElement
  * 在素材**加载成功时**测出比例，回写元素 props（coverAspect / visualAspect + Key，落库）并推进 dataVersion；
@@ -28,6 +30,11 @@
  * 避免按当前导航 context 把旧层整包覆盖写进新层文档。
  * canonicalizeCanvasElements：load 时把导入 bundle 的实体元素 id 归一为 shape:<entityId>（源世界沿用
  * shape:<sourceId>）、重映射箭头端点并去重，修复导入世界拖拽后位置回退（一次性迁移落库）。
+ * 属性反向投影（实体 → 画布属性卡）：实体 attrs/intro/detail 是单一数据源，画布 kind=attr|media 卡
+ * （含 promote 的 props.binding=property 引用投影）只是引用；load（AI/MCP 只写实体后 reload）与
+ * saveEntityField（面板改字段）后经 projectEntityAttrsIntoElements 把绑定卡片的显示值刷新到
+ * 渲染真正读取的键（text 卡 props.text / 媒体卡 assetId·url·assetName），变化卡片标 props 脏随统一保存落库；
+ * 本地未落盘脏元素跳过（人机并发以本地为准），实体无该值时不动（保留画布侧「只落节点未沉淀 Canon」的表达）。
  * 统一 Entity 模型（RFC 2026-09-09）：实体字段 = title/kind/content → name/typeId/intro/detail/attrs；
  * saveEntityField 签名改为 {name?, intro?, detail?, attrKey?, value?} 单字段 patch（attrs 全量替换语义，
   * 按 attrKey 原位 patch 当前 full attrs 后整包 upsert）；实体素材 = media 属性（attachMediaAttr/
@@ -54,6 +61,7 @@ import { ARRANGE_LABELS, computeArrange, type ArrangeMode, type ArrangeRect } fr
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import {
   createRecutWorldsClient,
+  entityAttrMediaRef,
   isRetiredEntityKind,
   type EntityAttr,
   type EntityAttrMediaValue,
@@ -65,6 +73,7 @@ import {
   type WorldRelationType,
 } from "@/lib/recut-worlds-client";
 import { applyCanvasError } from "./canvas-errors";
+import { buildCanvasFragment, clearCanvasClipboard, readCanvasClipboard, writeCanvasClipboard, type CanvasClipboardEntity, type CanvasClipboardFragment } from "./canvas-clipboard";
 import { entityCoverMedia, entityPhotoUrls } from "./canvas-image";
 import { attrValueOf, entityFieldKeyOfLabel } from "./entity-attrs";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
@@ -143,9 +152,10 @@ export type InlineEdit =
 
 // 右键菜单（T3）：实体 / 便签文本元素；screen 坐标由宿主渲染菜单
 export type CanvasContextMenu = {
-  kind: "entity" | "element";
+  kind: "entity" | "element" | "relation";
   entityId?: string;
   elementId?: string;
+  relationId?: string;
   screenX: number;
   screenY: number;
 } | null;
@@ -393,6 +403,54 @@ function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
   return list.some((existing) => existing.id === item.id)
     ? list.map((existing) => (existing.id === item.id ? item : existing))
     : [...list, item];
+}
+
+// ---- 剪贴板（复制/剪切/粘贴）----
+// 粘贴整体相对原始几何偏移一个网格量，多次粘贴在片段内保持相对布局，只整体错开。
+const PASTE_OFFSET = 32;
+
+function offsetGeometry(geometry: WorldCanvasElement["geometry"] | undefined): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...(geometry ?? {}) };
+  const x = Number(next.x);
+  const y = Number(next.y);
+  next.x = Math.round((Number.isFinite(x) ? x : 0) + PASTE_OFFSET);
+  next.y = Math.round((Number.isFinite(y) ? y : 0) + PASTE_OFFSET);
+  return next;
+}
+
+// 克隆自由元素的新 id：保留 kind 前缀（note/text/attr/media/arrow…），时间戳 + 随机尾号避免同日碰撞。
+function freshElementId(kind: string): string {
+  return `shape:${kind || "el"}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// 落库顺序：节点先于箭头。服务端在同一保存批次内按序校验 arrow 的 fromElementId 必须已存在
+// （validateCanvasDocLinkStart），克隆/移动时箭头指向新 id 节点，若箭头先落会报 link start not found。
+function nodeFirstElements(elements: WorldCanvasElement[]): WorldCanvasElement[] {
+  return [...elements].sort((a, b) => Number(a.kind === "arrow") - Number(b.kind === "arrow"));
+}
+
+// 片段实体拓扑排序：父实体先于子实体创建（parentId 才能映射到新建 id）。
+function orderEntitiesParentFirst(entities: CanvasClipboardEntity[]): CanvasClipboardEntity[] {
+  const byId = new Map(entities.map((entity) => [entity.id, entity]));
+  const ordered: CanvasClipboardEntity[] = [];
+  const placed = new Set<string>();
+  const visit = (entity: CanvasClipboardEntity) => {
+    if (placed.has(entity.id)) return;
+    if (entity.parentId && byId.has(entity.parentId)) visit(byId.get(entity.parentId)!);
+    placed.add(entity.id);
+    ordered.push(entity);
+  };
+  for (const entity of entities) visit(entity);
+  return ordered;
+}
+
+function describeFragment(fragment: CanvasClipboardFragment): string {
+  const parts: string[] = [];
+  if (fragment.entities.length) parts.push(`${fragment.entities.length} 个设定`);
+  const freeCount = fragment.elements.filter((element) => element.kind !== "entity" && element.refKind !== "entity").length;
+  if (freeCount) parts.push(`${freeCount} 个元素`);
+  if (fragment.relations.length) parts.push(`${fragment.relations.length} 条关系`);
+  return parts.join("、") || "对象";
 }
 
 // 生成提案：确认后轮询任务，完成后把首个可用产物采纳为节点素材并把提案置 done。
@@ -823,6 +881,110 @@ function modalityLabelOf(modality: string): string {
   return labels[modality] ?? "素材";
 }
 
+// ---- 反向投影：实体属性（单一数据源）→ 画布属性卡（引用投影）----
+// 语义真相只在 entity.attrs / intro / detail；画布上 kind=attr|media 的卡片（以及 promote 生成的
+// props.binding="property" 引用投影）只是引用。实体在面板或 AI/MCP 侧被改写后，这里把绑定卡片的
+// **显示值**刷新到渲染层真正读取的键：文本卡写 props.text，媒体卡写 assetId/url/assetName——
+// 渲染（canvas-pomelo.buildPomeloRecords 读 props.text）与就地编辑同源，不再出现「实体变了、卡没变」。
+// 只在实体确实有该值时才投影（缺失=画布上「只落节点未沉淀 Canon」的卡保持原样，不被清空）。
+// 本地未落盘的脏元素跳过：人机并发时以本地编辑为准（见 RFC 2026-10-03）。
+
+// 属性卡 → 绑定实体 id：直接引用模型（refId+props.field）、promote 引用投影（boundEntityId），
+// 或交互模型（edgeType=attr 属性边 to 指向该卡、from 指向实体）。
+function attrBindingEntityId(element: WorldCanvasElement, elements: WorldCanvasElement[]): string {
+  if (element.refKind === "entity" && element.refId && String(element.props?.field ?? "").trim()) return element.refId;
+  if (String(element.props?.binding ?? "") === "property" && element.props?.boundEntityId) {
+    return String(element.props.boundEntityId);
+  }
+  const edge = elements.find(
+    (item) =>
+      item.kind === "arrow" &&
+      String(item.props?.toElementId ?? "") === element.id &&
+      String(item.props?.edgeType ?? "attr") === "attr",
+  );
+  return entityIdOfElementRef(String(edge?.props?.fromElementId ?? ""), elements);
+}
+
+// 边起点引用 → 实体 id：`shape:<entityId>` 镜像 id、实体元素自身 id，或裸 id（同服务端 resolveEntityIDRef）。
+function entityIdOfElementRef(ref: string, elements: WorldCanvasElement[]): string {
+  const trimmed = ref.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("shape:")) return trimmed.slice(6);
+  const found = elements.find((item) => item.id === trimmed);
+  if (found && (found.kind === "entity" || found.refKind === "entity")) return String(found.refId ?? "");
+  return trimmed;
+}
+
+// 卡片绑定的实体值：保留标签（简介/正文）→ intro/detail；否则 field key 优先，再按 label 映射
+// type schema 字段 key，落不到 schema 时以 label 为 attr key。实体没有该属性时返回 undefined。
+function entityProjectedValue(
+  entity: WorldEntity,
+  entityType: WorldEntityType | undefined,
+  element: WorldCanvasElement,
+): unknown {
+  const directField = String(element.props?.field ?? element.props?.boundField ?? "").trim();
+  const label = directField || String(element.props?.label ?? "").trim() || String(element.name ?? "").replace(/^属性 · /, "").trim();
+  if (!label) return undefined;
+  const fieldKey = entityFieldKeyOfLabel(label);
+  if (fieldKey === "intro") return entity.intro;
+  if (fieldKey === "detail") return entity.detail;
+  const matched = (entityType?.fields ?? []).find((field) => (field.label ?? field.key) === label || field.key === label);
+  const key = matched?.key ?? label;
+  return attrValueOf(entity, key);
+}
+
+// 把实体值写进卡片显示键；无变化返回 null（避免无谓的脏标记与重建）。
+function applyProjectedValue(element: WorldCanvasElement, value: unknown): WorldCanvasElement | null {
+  const media = String(element.props?.media ?? element.props?.modality ?? "");
+  const isMedia = element.kind === "media" || (media !== "" && media !== "text");
+  const props: Record<string, unknown> = { ...(element.props ?? {}) };
+  let changed = false;
+  if (isMedia) {
+    const ref = entityAttrMediaRef(value);
+    if (!ref) return null; // 实体无有效媒体值：不动画布卡（保留画布侧表达）
+    const assetId = ref.assetId ?? "";
+    const url = ref.url ?? "";
+    const name = ref.name ?? "";
+    if (String(props.assetId ?? "") !== assetId) { props.assetId = assetId; changed = true; }
+    if (String(props.url ?? "") !== url) { props.url = url; changed = true; }
+    if (String(props.assetName ?? "") !== name) { props.assetName = name; changed = true; }
+    // 不动 props.assetStatus：未就绪素材的等待态由它驱动，提前清掉会让画布去请求未就绪 URL（404 重试）。
+  } else {
+    const text = value == null ? "" : typeof value === "string" ? value : String(value);
+    if (String(props.text ?? "") !== text) { props.text = text; changed = true; }
+  }
+  return changed ? { ...element, props } : null;
+}
+
+// 对一层画布元素做实体 → 画布反向投影：返回更新后的元素与真正变化的 id（供调用方标脏落库）。
+// 导出供单测直接覆盖（纯函数，不依赖 store）。
+export function projectEntityAttrsIntoElements(
+  elements: WorldCanvasElement[],
+  entities: WorldEntity[],
+  entityTypes: WorldEntityType[],
+  skipIds?: Set<string>,
+): { elements: WorldCanvasElement[]; changedIds: string[] } {
+  const entityById = new Map(entities.map((entity) => [entity.id, entity]));
+  const typeById = new Map(entityTypes.map((type) => [type.id, type]));
+  const changedIds: string[] = [];
+  const next = elements.map((element) => {
+    const candidate =
+      element.kind === "attr" ||
+      element.kind === "media" ||
+      String(element.props?.binding ?? "") === "property";
+    if (!candidate || skipIds?.has(element.id)) return element;
+    const entity = entityById.get(attrBindingEntityId(element, elements));
+    if (!entity) return element;
+    const value = entityProjectedValue(entity, typeById.get(entity.typeId), element);
+    if (value === undefined) return element;
+    const projected = applyProjectedValue(element, value);
+    if (!projected) return element;
+    changedIds.push(element.id);
+    return projected;
+  });
+  return { elements: changedIds.length ? next : elements, changedIds };
+}
+
 // 命名态定位（已不再于创建时启动；EntityCardBlockV 渲染公式参考值）
 
 export type CanvasElementInput = {
@@ -1008,6 +1170,11 @@ type WorldCanvasState = {
   setDeleteSelectionIds: (ids: string[] | null) => void;
   // 执行多选删除：关系/自由元素直接删；设定默认 deleteEntity（hideEntities=true 时仅从画布移除）；完成后清空多选集
   deleteSelection: (ids: string[], opts?: { hideEntities?: boolean }) => Promise<void>;
+  // 剪贴板（Cmd/Ctrl+C/X/V 与右键菜单）：复制为克隆副本；同 world 剪切粘贴为真移动（保留 id 与外部关系），
+  // 跨 world 剪切粘贴克隆新 id 并删除源实体；当前 world 根节点（shape:world）恒被过滤。
+  copySelection: () => void;
+  cutSelection: () => Promise<void>;
+  pasteClipboard: () => Promise<void>;
   setAddFieldFor: (kind: string | null) => void;
   // T8 媒体：素材来源浮层（仅独立素材；实体媒体 = media 属性，无独立「挂接目标」状态）与预览浮层
   mediaSource: { modality?: "image" | "video" | "audio" } | null;
@@ -1244,6 +1411,19 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         // 一次性迁移：归一后的文档立即落库，避免每次加载重复归一。
         for (const element of nextElements) markCanvasDirty(element.id);
       }
+      // 反向投影（实体 → 画布属性卡）：AI/MCP 只写实体（recut.worlds.entity）或面板改字段后，
+      // 本次远端 reload 把绑定卡片的显示值刷新（text/assetId…）；变化的卡片标脏随统一保存落库。
+      // 本地未落盘的脏元素跳过，人机并发以本地编辑为准。
+      const projected = projectEntityAttrsIntoElements(
+        nextElements,
+        entities,
+        entityTypeData.items ?? [],
+        // 脏集只在同一层内有效：切层后 elements 仍是旧层数据，旧层脏 id 不能当作新层的跳过集
+        sameLayer ? new Set(canvasSaveState.dirty.keys()) : undefined,
+      );
+      nextElements = projected.elements;
+      // 只读世界不标脏（仅内存投影供预览，不触发落库，避免脏集跨世界泄漏）
+      if (!get().readOnly) for (const id of projected.changedIds) markCanvasDirty(id, ["props"]);
       // 远端刷新（AI/另一端的写）后按 id 重新解析当前选中，避免面板继续指向旧快照。
       const currentSelection = get().selection;
       let nextSelection: CanvasSelection = currentSelection;
@@ -2381,6 +2561,284 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
   setAddFieldFor: (addFieldFor) => set({ addFieldFor }),
 
+  // 复制选中对象为自包含片段（克隆语义：粘贴时一律生成新 id）。
+  copySelection: () => {
+    const state = get();
+    const fragment = buildCanvasFragment({
+      selectedIds: state.selectedIds,
+      entities: state.entities,
+      elements: state.elements,
+      relations: state.relations,
+      worldId: state.worldId,
+      contextId: state.elementsContextId,
+      mode: "copy",
+    });
+    if (!fragment) {
+      get().toast("没有可复制的对象", "info");
+      return;
+    }
+    writeCanvasClipboard(fragment);
+    get().toast(`已复制 ${describeFragment(fragment)}`, "success");
+  },
+
+  // 剪切：写入片段后把选中对象从当前画布移除。实体卡走 props.hidden（实体本身保留，进大纲「移除区」可找回；
+  // 同 world 粘贴按原 id 落回、外部关系不丢）；关系与自由元素真删（可撤销）。跨 world 粘贴时再删除源实体。
+  cutSelection: async () => {
+    const state = get();
+    if (state.readOnly) return;
+    const fragment = buildCanvasFragment({
+      selectedIds: state.selectedIds,
+      entities: state.entities,
+      elements: state.elements,
+      relations: state.relations,
+      worldId: state.worldId,
+      contextId: state.elementsContextId,
+      mode: "cut",
+    });
+    if (!fragment) {
+      get().toast("没有可剪切的对象", "info");
+      return;
+    }
+    writeCanvasClipboard(fragment);
+    await withChangeGroup(`剪切 ${describeFragment(fragment)}`, async () => {
+      for (const relation of fragment.relations) await get().removeRelation(relation.id);
+      for (const element of fragment.elements) {
+        // 实体卡走 props.hidden（进大纲「已从画布移除」放回区，可单独找回）；自由元素直接移除（可撤销）。
+        const isProjection = element.kind === "entity" || element.refKind === "entity";
+        if (isProjection && element.refId) await get().hideEntityFromCanvas(element.refId);
+        else await get().removeElement(element.id);
+      }
+    });
+    get().selectMany([]);
+    get().toast(`已剪切 ${describeFragment(fragment)}`, "success");
+  },
+
+  // 粘贴：copy 或跨 world cut = 克隆新 id；同 world cut = 真移动（复用原 id 与关系）。
+  pasteClipboard: async () => {
+    const state = get();
+    if (state.readOnly) return;
+    const fragment = readCanvasClipboard();
+    if (!fragment) {
+      get().toast("剪贴板为空", "info");
+      return;
+    }
+    const sameWorld = fragment.sourceWorldId === state.worldId;
+    const isMove = fragment.mode === "cut" && sameWorld;
+    const targetContextId = state.elementsContextId;
+    const targetParentId = state.context?.entityId ?? "";
+    const client = createRecutWorldsClient(state.apiBase);
+    const runWithRevision = async <T,>(action: (revisionId: string) => Promise<T>): Promise<T> => {
+      try {
+        return await action(get().revisionId);
+      } catch (cause) {
+        if (!isRevisionConflict(cause)) throw cause;
+        await get().refreshRevision();
+        return action(get().revisionId);
+      }
+    };
+    type Created = { entityIds: string[]; elementIds: string[]; relationIds: string[] };
+
+    // 同 world 移动：投影卡/自由元素按原 id 落回并整体偏移；内部关系按原两端重建（实体未删，外部关系无损）。
+    const moveFragment = async (): Promise<Created> => {
+      for (const element of nodeFirstElements(fragment.elements)) {
+        const isProjection = element.kind === "entity" || element.refKind === "entity";
+        await get().upsertElement({
+          id: element.id,
+          contextId: targetContextId,
+          kind: element.kind,
+          refKind: element.refKind ?? "",
+          refId: element.refId ?? "",
+          name: element.name ?? "",
+          // 剪切时实体卡是 props.hidden=true（进「移除区」）：落回必须显式清掉（patch 的 props 是按 key 合并）。
+          props: isProjection ? { ...(element.props ?? {}), hidden: false } : (element.props ?? {}),
+          geometry: offsetGeometry(element.geometry),
+          style: element.style ?? {},
+          layer: element.layer ?? "0",
+        });
+      }
+      const relationIds: string[] = [];
+      for (const relation of fragment.relations) {
+        try {
+          const created = await runWithRevision((revisionId) =>
+            client.relations.create({
+              worldId: state.worldId,
+              fromEntityId: relation.fromEntityId,
+              toEntityId: relation.toEntityId,
+              fromRole: relation.fromRole,
+              ...(relation.toRole ? { toRole: relation.toRole } : {}),
+              ...(relation.scopeEntityId ? { scopeEntityId: relation.scopeEntityId } : {}),
+              expectedRevisionId: revisionId,
+            }),
+          );
+          relationIds.push(created.id);
+          set((current) => ({ relations: upsertById(current.relations, created) }));
+        } catch (cause) {
+          applyCanvasError(cause);
+        }
+      }
+      return { entityIds: [], elementIds: fragment.elements.map((element) => element.id), relationIds };
+    };
+
+    // 克隆：实体 → 元素 → 内部关系，全部映射为新 id 后落位。
+    const cloneFragment = async (): Promise<Created> => {
+      const entityIdMap = new Map<string, string>();
+      const createdEntityIds: string[] = [];
+      for (const entity of orderEntitiesParentFirst(fragment.entities)) {
+        const mappedParent = entity.parentId ? entityIdMap.get(entity.parentId) : undefined;
+        const parentId = mappedParent ?? (targetParentId || undefined);
+        const created = await runWithRevision((revisionId) =>
+          client.entities.upsert({
+            worldId: state.worldId,
+            typeId: entity.typeId as EntityKind,
+            name: entity.name,
+            intro: entity.intro,
+            detail: entity.detail,
+            ...(entity.cover !== undefined ? { cover: entity.cover } : {}),
+            attrs: entity.attrs,
+            ...(parentId ? { parentId } : {}),
+            ...(entity.containerRole ? { containerRole: entity.containerRole } : {}),
+            ...(entity.isProvisional ? { isProvisional: true } : {}),
+            expectedRevisionId: revisionId,
+          }),
+        );
+        entityIdMap.set(entity.id, created.id);
+        createdEntityIds.push(created.id);
+        set((current) => ({ entities: upsertById(current.entities, created) }));
+      }
+      const elementIdMap = new Map<string, string>();
+      for (const entity of fragment.entities) {
+        const mapped = entityIdMap.get(entity.id);
+        if (mapped) elementIdMap.set(`shape:${entity.id}`, `shape:${mapped}`);
+      }
+      for (const element of fragment.elements) {
+        if (!elementIdMap.has(element.id)) elementIdMap.set(element.id, freshElementId(element.kind));
+      }
+      const remapRef = (value: unknown): unknown => {
+        const ref = typeof value === "string" ? value : "";
+        return (ref && elementIdMap.get(ref)) || value;
+      };
+      const createdElementIds: string[] = [];
+      for (const element of nodeFirstElements(fragment.elements)) {
+        const nextId = elementIdMap.get(element.id);
+        if (!nextId) continue;
+        const isProjection = element.kind === "entity" || element.refKind === "entity";
+        const mappedEntity = element.refId ? entityIdMap.get(element.refId) : undefined;
+        if (isProjection && !mappedEntity) continue;
+        const props: Record<string, unknown> = { ...(element.props ?? {}) };
+        if (element.kind === "arrow") {
+          props.fromElementId = remapRef(props.fromElementId);
+          props.toElementId = remapRef(props.toElementId);
+        }
+        await get().upsertElement({
+          id: nextId,
+          contextId: targetContextId,
+          kind: element.kind,
+          refKind: isProjection ? "entity" : (element.refKind ?? ""),
+          refId: isProjection ? (mappedEntity ?? "") : (element.refId ?? ""),
+          name: element.name ?? "",
+          props,
+          geometry: offsetGeometry(element.geometry),
+          style: element.style ?? {},
+          layer: element.layer ?? "0",
+        });
+        createdElementIds.push(nextId);
+      }
+      const createdRelationIds: string[] = [];
+      for (const relation of fragment.relations) {
+        const from = entityIdMap.get(relation.fromEntityId);
+        const to = entityIdMap.get(relation.toEntityId);
+        if (!from || !to) continue;
+        const scope = relation.scopeEntityId ? entityIdMap.get(relation.scopeEntityId) : undefined;
+        try {
+          const created = await runWithRevision((revisionId) =>
+            client.relations.create({
+              worldId: state.worldId,
+              fromEntityId: from,
+              toEntityId: to,
+              fromRole: relation.fromRole,
+              ...(relation.toRole ? { toRole: relation.toRole } : {}),
+              ...(scope ? { scopeEntityId: scope } : {}),
+              expectedRevisionId: revisionId,
+            }),
+          );
+          createdRelationIds.push(created.id);
+          set((current) => ({ relations: upsertById(current.relations, created) }));
+        } catch (cause) {
+          applyCanvasError(cause);
+        }
+      }
+      return { entityIds: createdEntityIds, elementIds: createdElementIds, relationIds: createdRelationIds };
+    };
+
+    // 跨 world 剪切：源实体已不在当前世界，克隆完成后删除源世界里的对应实体（源画布投影/自由元素已在剪切时移除）。
+    const sourceTopLevel = fragment.entities.filter(
+      (entity) => !entity.parentId || !fragment.entities.some((parent) => parent.id === entity.parentId),
+    );
+    const removeSourceEntities = async () => {
+      for (const entity of sourceTopLevel) {
+        await client.entities.remove({ worldId: fragment.sourceWorldId, entityId: entity.id }).catch(() => undefined);
+      }
+    };
+    const restoreSourceEntities = async () => {
+      for (const entity of sourceTopLevel) {
+        await client.entities.restore({ worldId: fragment.sourceWorldId, entityId: entity.id }).catch(() => undefined);
+      }
+    };
+
+    try {
+      // 粘贴 = 一次可撤销的用户操作：登记单条 changeLog（回放期抑制递归记账）。
+      if (isMove) {
+        let created = await moveFragment();
+        get().logChange(
+          `移动 ${describeFragment(fragment)}`,
+          async () => {
+            for (const id of created.relationIds) await get().removeRelation(id);
+            // 撤销移动 = 回到剪切后的状态：实体卡重新隐藏进「移除区」、自由元素移除（与 cutSelection 同型）。
+            for (const element of fragment.elements) {
+              const isProjection = element.kind === "entity" || element.refKind === "entity";
+              if (isProjection && element.refId) await get().hideEntityFromCanvas(element.refId);
+              else await get().removeElement(element.id);
+            }
+          },
+          async () => {
+            created = await moveFragment();
+          },
+        );
+        const movedBlockIds = fragment.entities.map((entity) => `entity:${entity.id}`);
+        if (movedBlockIds.length) get().selectMany(movedBlockIds);
+        get().toast("已移动所选对象", "success");
+      } else {
+        let created = await cloneFragment();
+        get().logChange(
+          `粘贴 ${describeFragment(fragment)}`,
+          async () => {
+            for (const id of created.relationIds) await get().removeRelation(id);
+            for (const id of created.elementIds) await get().removeElement(id);
+            for (const id of created.entityIds) await get().deleteEntity(id);
+            if (fragment.mode === "cut") await restoreSourceEntities();
+          },
+          async () => {
+            created = await cloneFragment();
+            if (fragment.mode === "cut") await removeSourceEntities();
+          },
+        );
+        if (fragment.mode === "cut") {
+          await removeSourceEntities();
+          clearCanvasClipboard();
+        }
+        const pastedBlockIds = [
+          ...created.entityIds.map((id) => `entity:${id}`),
+          ...created.elementIds.filter((id) => !created.entityIds.some((entityId) => id === `shape:${entityId}`)),
+        ];
+        if (pastedBlockIds.length) get().selectMany(pastedBlockIds);
+        get().toast(`已粘贴 ${describeFragment(fragment)}`, "success");
+      }
+      await get().load(false);
+    } catch (cause) {
+      applyCanvasError(cause);
+    }
+  },
+
   // 就地编辑（T4）：状态由插件双击写入，宿主渲染 DOM 编辑器；提交经 persistGeometry（props.text）
   // 就地编辑开关推进 dataVersion：文档投影按 editing 隐藏/恢复画布文字（文本框无背景，避免与 DOM 编辑器重影）
   startInlineEdit: (edit) => set((state) => ({ inlineEdit: edit, dataVersion: state.dataVersion + 1 })),
@@ -2567,9 +3025,19 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         await get().refreshRevision();
         return run(get().revisionId);
       });
+      // 反向投影（实体 → 画布属性卡）：面板改字段后，绑定该字段的属性卡同步刷新显示值
+      //（文本卡 props.text / 媒体卡 assetId…）；本地脏元素仍以本地编辑为准。
+      const mergedEntities = upsertById(get().entities, saved);
+      const projected = projectEntityAttrsIntoElements(
+        get().elements,
+        mergedEntities,
+        get().entityTypes,
+        new Set(canvasSaveState.dirty.keys()),
+      );
+      for (const id of projected.changedIds) markCanvasDirty(id, ["props"]);
       set((state) => ({
-        entities: upsertById(state.entities, saved),
-        elements: state.elements.map((element) =>
+        entities: mergedEntities,
+        elements: projected.elements.map((element) =>
           element.refKind === "entity" && element.refId === saved.id ? { ...element, name: saved.name } : element,
         ),
         // 面板渲染读 selection.entity：保存后同步为最新快照，字段（含封面）立即反映
