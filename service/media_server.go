@@ -563,6 +563,20 @@ func (s *Server) syncMediaAssetRemote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, asset)
 }
 
+// recoverMediaAsset re-attaches an uncertain submission's orphaned remote task
+// (checkpoint crossed, but no local remote ID was ever persisted) by provider
+// history lookup, without resubmitting it. It is the safe first action for a
+// "submission result uncertain" failure; generation "retry" is a separate,
+// resubmitting path that risks a duplicate paid call.
+func (s *Server) recoverMediaAsset(w http.ResponseWriter, r *http.Request) {
+	asset, err := s.media.RecoverGeneration(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, asset)
+}
+
 // retryMediaAssetGeneration re-runs a failed generation asset in place, so the
 // canvas/timeline keeps the same assetId. Atlas download-only failures are
 // delegated to the remote recovery path.

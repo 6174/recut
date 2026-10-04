@@ -58,10 +58,12 @@ type providerCatalogIndex struct {
 type providerCatalogFile struct {
 	Schema   string `json:"schema"`
 	Provider struct {
-		ID             string `json:"id"`
-		Name           string `json:"name"`
-		Protocol       string `json:"protocol"`
-		DefaultAPIBase string `json:"defaultApiBase"`
+		ID                 string `json:"id"`
+		Name               string `json:"name"`
+		Protocol           string `json:"protocol"`
+		DefaultAPIBase     string `json:"defaultApiBase"`
+		MaxConcurrent      int    `json:"maxConcurrent,omitempty"`
+		MaxStartsPerMinute int    `json:"maxStartsPerMinute,omitempty"`
 	} `json:"provider"`
 	Revision   int                        `json:"revision"`
 	UpdatedAt  string                     `json:"updatedAt"`
@@ -233,11 +235,13 @@ func (l *providerCatalogLoader) writeCache(providers []MediaProvider) error {
 		file := providerCatalogFile{
 			Schema: "recut.provider-catalog@1",
 			Provider: struct {
-				ID             string `json:"id"`
-				Name           string `json:"name"`
-				Protocol       string `json:"protocol"`
-				DefaultAPIBase string `json:"defaultApiBase"`
-			}{provider.ID, provider.Name, provider.Protocol, provider.DefaultAPIBase},
+				ID                 string `json:"id"`
+				Name               string `json:"name"`
+				Protocol           string `json:"protocol"`
+				DefaultAPIBase     string `json:"defaultApiBase"`
+				MaxConcurrent      int    `json:"maxConcurrent,omitempty"`
+				MaxStartsPerMinute int    `json:"maxStartsPerMinute,omitempty"`
+			}{provider.ID, provider.Name, provider.Protocol, provider.DefaultAPIBase, provider.MaxConcurrent, provider.MaxStartsPerMinute},
 			Revision:   provider.Revision,
 			UpdatedAt:  provider.UpdatedAt,
 			Models:     provider.Models,
@@ -311,15 +315,17 @@ func parseProviderCatalog(data []byte) (MediaProvider, error) {
 		}
 	}
 	return MediaProvider{
-		ID:             file.Provider.ID,
-		Name:           file.Provider.Name,
-		Protocol:       file.Provider.Protocol,
-		DefaultAPIBase: file.Provider.DefaultAPIBase,
-		Models:         file.Models,
-		Revision:       file.Revision,
-		UpdatedAt:      file.UpdatedAt,
-		Source:         "cdn",
-		Extensions:     file.Extensions,
+		ID:                 file.Provider.ID,
+		Name:               file.Provider.Name,
+		Protocol:           file.Provider.Protocol,
+		DefaultAPIBase:     file.Provider.DefaultAPIBase,
+		MaxConcurrent:      file.Provider.MaxConcurrent,
+		MaxStartsPerMinute: file.Provider.MaxStartsPerMinute,
+		Models:             file.Models,
+		Revision:           file.Revision,
+		UpdatedAt:          file.UpdatedAt,
+		Source:             "cdn",
+		Extensions:         file.Extensions,
 	}, nil
 }
 

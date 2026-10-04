@@ -132,6 +132,14 @@ func (m *MediaService) GenerateSync(input GenerateMediaInput) (MediaJob, error) 
 			if job, err = m.submitAtlasSpeech(job, credential, true); err != nil {
 				return job, err
 			}
+		} else if isWavespeedVideoJob(job, credential) {
+			if job, err = m.submitWavespeedVideo(job, credential, true); err != nil {
+				return job, err
+			}
+		} else if isWavespeedSpeechJob(job, credential) {
+			if job, err = m.submitWavespeedSpeech(job, credential, true); err != nil {
+				return job, err
+			}
 		} else if isSkymindVideoJob(job, credential) {
 			if job, err = m.submitSkymindVideo(job, credential, true); err != nil {
 				return job, err
@@ -692,13 +700,17 @@ func (m *MediaService) generateImage(job MediaJob, credential MediaCredential, m
 	if err != nil {
 		return MediaAsset{}, err
 	}
-	return m.saveGeneratedAsset(job, result.Content, "image", result.MimeType, map[string]any{
+	metadata := map[string]any{
 		"prompt":       job.Prompt,
 		"modelId":      job.ModelID,
 		"provider":     credential.Provider,
 		"capability":   job.Capability,
 		"referenceIds": job.ReferenceIDs,
-	})
+	}
+	for key, value := range result.Metadata {
+		metadata[key] = value
+	}
+	return m.saveGeneratedAsset(job, result.Content, "image", result.MimeType, metadata)
 }
 
 // imageReferences decodes a job's image references into the byte form a

@@ -10,7 +10,7 @@ marketing-narrative-diagrams.tsx: 官网叙事示意层；六张可循环「抽�
 audio-waveform-player.tsx: 音频预览原子；原生 `HTMLAudioElement` 先加载元数据并开放播放、定位、静音与下载，wavesurfer.js 随后共享该媒体元素在后台解码和绘制波形，波形失败时不阻塞播放。
 generation-duration.tsx: 媒体生成耗时原子；活跃任务本地逐秒计时，终态只显示后端持久化的最终耗时，不发起状态请求。
 use-media-asset-events.tsx: Recut 媒体 SSE 缓存边界；以首次快照和增量 Asset 事件维护唯一前端真相，嵌套入口复用已有连接且绝不轮询 Atlas 或单个素材；保留 ASR 转写 bundle 的 `transcript`、可跨项目研究资料的 `reference` 与 Motion Graphic 的 `component` 类型，未知 kind 按 mimeType 推断（`application/vnd.recut.component+json` → component），绝不把组件错判成图片。
-asset-preview-dialog.tsx: 跨页面统一素材详情模态框；素材库与 Agent 对话都通过它预览图片、按需视频播放器、可定位波形音频、转写 bundle（源声音播放、分段列表、SRT/JSON parts 预览下载）和无本地二进制的 `reference` 资料链接，从共享 Asset 缓存原位更新运行/终态与生成耗时，查看提示词与参考素材，并复制符合 `<media>` 协议的素材上下文给 Agent。
+asset-preview-dialog.tsx: 跨页面统一素材详情模态框；素材库与 Agent 对话都通过它预览图片、按需视频播放器、可定位波形音频、转写 bundle（源声音播放、分段列表、SRT/JSON parts 预览下载）和无本地二进制的 `reference` 资料链接，从共享 Asset 缓存原位更新运行/终态与生成耗时，查看提示词与参考素材，并复制符合 `<media>` 协议的素材上下文给 Agent。生成阶段显式三段：提交（queued）→ 等待结果（running 且已拿到 `providerTaskUrl`，突出上游任务链接）→ 结果（completed/failed）；提交结果不确定时先给「尝试恢复」（按 provider 历史找回已存在的远端任务，绝不重发），找不回再给「重新生成」。
 asset-reference-picker.tsx: 资源引用交互层；解析素材库复制的 `<media>` 协议，提供 @ 素材候选与进入全局世界观/素材选择器的统一入口；素材选择面板使用正常高度真实预览卡，直接显示名称、类型、来源、创建时间、提示词/时长，并分离“详情”和“选择”操作。
 platform-media-picker.tsx: iframe App 的平台级素材桥；复用带元信息、详情预览与明确选择操作的全局素材面板，返回指定类型（含转写稿）、完成态素材的稳定 assetId 与展示元数据；转写稿选择只从库中读取，避免错误上传类型。
 image-lightbox.tsx: 平台级全屏图片预览；Portal 到 body，点击遮罩/Esc 关闭并支持 25%–600% 缩放，`PlatformImagePreview` 承接 iframe App 的 `image.preview` 请求（App 只传绝对地址与名称），素材详情与各 iframe 宿主共用同一预览面。

@@ -1,0 +1,461 @@
+{
+  "schema": "recut.provider-catalog@1",
+  "provider": {
+    "id": "wavespeed",
+    "name": "WaveSpeedAI",
+    "protocol": "wavespeed",
+    "defaultApiBase": "https://api.wavespeed.ai"
+  },
+  "revision": 1,
+  "updatedAt": "fixture",
+  "models": [
+    {
+      "provider": "wavespeed",
+      "available": true,
+      "configurable": true,
+      "id": "wavespeed/openai/gpt-image-2",
+      "apiModelId": "openai/gpt-image-2/text-to-image",
+      "name": "GPT Image 2 · 文生图",
+      "capability": "image.generate",
+      "inputModes": [
+        "text"
+      ],
+      "parameters": [
+        {
+          "name": "aspectRatio",
+          "providerKey": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "1:1",
+            "16:9",
+            "9:16"
+          ]
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "1k",
+            "2k",
+            "4k"
+          ],
+          "default": "1k"
+        },
+        {
+          "name": "quality",
+          "providerKey": "quality",
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "medium"
+        },
+        {
+          "name": "outputFormat",
+          "providerKey": "output_format",
+          "type": "string",
+          "enum": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "default": "png"
+        }
+      ],
+      "outputModes": [
+        "aspectRatio",
+        "resolution",
+        "quality",
+        "outputFormat"
+      ],
+      "status": "stable",
+      "referenceBudgets": []
+    },
+    {
+      "provider": "wavespeed",
+      "available": true,
+      "configurable": true,
+      "id": "wavespeed/openai/gpt-image-2/edit",
+      "apiModelId": "openai/gpt-image-2/edit",
+      "name": "GPT Image 2 · 图像编辑",
+      "capability": "image.generate",
+      "inputModes": [
+        "text",
+        "image"
+      ],
+      "referenceFields": {
+        "image": "images"
+      },
+      "parameters": [
+        {
+          "name": "aspectRatio",
+          "providerKey": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "1:1",
+            "16:9",
+            "9:16"
+          ]
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "1k",
+            "2k",
+            "4k"
+          ],
+          "default": "1k"
+        },
+        {
+          "name": "quality",
+          "providerKey": "quality",
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "medium"
+        },
+        {
+          "name": "outputFormat",
+          "providerKey": "output_format",
+          "type": "string",
+          "enum": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "default": "png"
+        }
+      ],
+      "outputModes": [
+        "aspectRatio",
+        "resolution",
+        "quality",
+        "outputFormat"
+      ],
+      "status": "stable",
+      "referenceBudgets": []
+    },
+    {
+      "provider": "wavespeed",
+      "available": true,
+      "configurable": true,
+      "id": "wavespeed/bytedance/seedance-2.0",
+      "apiModelId": "bytedance/seedance-2.0/text-to-video",
+      "name": "Seedance 2.0 · 文生视频",
+      "capability": "video.generate",
+      "inputModes": [
+        "text",
+        "image",
+        "video",
+        "audio"
+      ],
+      "referenceFields": {
+        "image": "reference_images",
+        "video": "reference_videos",
+        "audio": "reference_audios"
+      },
+      "parameters": [
+        {
+          "name": "durationSeconds",
+          "providerKey": "duration",
+          "type": "integer",
+          "default": 5,
+          "minimum": 4,
+          "maximum": 15
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "480p",
+            "720p",
+            "1080p",
+            "4k"
+          ],
+          "default": "720p"
+        },
+        {
+          "name": "aspectRatio",
+          "providerKey": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "1:1",
+            "21:9"
+          ],
+          "default": "16:9"
+        },
+        {
+          "name": "generateAudio",
+          "providerKey": "generate_audio",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "name": "enableWebSearch",
+          "providerKey": "enable_web_search",
+          "type": "boolean",
+          "default": false
+        }
+      ],
+      "outputModes": [
+        "durationSeconds",
+        "resolution",
+        "aspectRatio",
+        "generateAudio",
+        "enableWebSearch"
+      ],
+      "status": "stable",
+      "referenceBudgets": [
+        {
+          "maxImages": 9,
+          "maxVideos": 3,
+          "maxAudios": 3,
+          "image": {
+            "maxBytes": 31457280,
+            "mimes": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          },
+          "video": {
+            "maxBytes": 52428800,
+            "mimes": [
+              "video/mp4",
+              "video/quicktime"
+            ]
+          },
+          "audio": {
+            "maxBytes": 15728640,
+            "mimes": [
+              "audio/wav",
+              "audio/mpeg"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "provider": "wavespeed",
+      "available": true,
+      "configurable": true,
+      "id": "wavespeed/bytedance/seedance-2.0/image-to-video",
+      "apiModelId": "bytedance/seedance-2.0/image-to-video",
+      "name": "Seedance 2.0 · 图生视频",
+      "capability": "video.generate",
+      "inputModes": [
+        "text",
+        "image"
+      ],
+      "referenceFields": {
+        "image": "image"
+      },
+      "parameters": [
+        {
+          "name": "durationSeconds",
+          "providerKey": "duration",
+          "type": "integer",
+          "default": 5,
+          "minimum": 4,
+          "maximum": 15
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "480p",
+            "720p",
+            "1080p",
+            "4k"
+          ],
+          "default": "720p"
+        },
+        {
+          "name": "aspectRatio",
+          "providerKey": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "1:1",
+            "21:9"
+          ]
+        },
+        {
+          "name": "generateAudio",
+          "providerKey": "generate_audio",
+          "type": "boolean",
+          "default": true
+        }
+      ],
+      "outputModes": [
+        "durationSeconds",
+        "resolution",
+        "aspectRatio",
+        "generateAudio"
+      ],
+      "status": "stable",
+      "referenceBudgets": [
+        {
+          "requirements": [
+            "images>=1",
+            "videos==0",
+            "audios==0"
+          ],
+          "maxImages": 1,
+          "image": {
+            "maxBytes": 31457280,
+            "mimes": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "provider": "wavespeed",
+      "available": true,
+      "configurable": true,
+      "id": "wavespeed/bytedance/seedance-2.5",
+      "apiModelId": "bytedance/seedance-2.5/text-to-video",
+      "name": "Seedance 2.5 · 文生视频",
+      "capability": "video.generate",
+      "inputModes": [
+        "text",
+        "image",
+        "video",
+        "audio"
+      ],
+      "referenceFields": {
+        "image": "reference_images",
+        "video": "reference_videos",
+        "audio": "reference_audios"
+      },
+      "parameters": [
+        {
+          "name": "durationSeconds",
+          "providerKey": "duration",
+          "type": "integer",
+          "default": 5,
+          "minimum": 4,
+          "maximum": 15
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "480p",
+            "720p",
+            "1080p",
+            "4k"
+          ],
+          "default": "720p"
+        },
+        {
+          "name": "aspectRatio",
+          "providerKey": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "1:1",
+            "21:9"
+          ],
+          "default": "16:9"
+        },
+        {
+          "name": "generateAudio",
+          "providerKey": "generate_audio",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "name": "enableWebSearch",
+          "providerKey": "enable_web_search",
+          "type": "boolean",
+          "default": false
+        }
+      ],
+      "outputModes": [
+        "durationSeconds",
+        "resolution",
+        "aspectRatio",
+        "generateAudio",
+        "enableWebSearch"
+      ],
+      "status": "stable",
+      "referenceBudgets": [
+        {
+          "maxImages": 9,
+          "maxVideos": 3,
+          "maxAudios": 3,
+          "image": {
+            "maxBytes": 31457280,
+            "mimes": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          },
+          "video": {
+            "maxBytes": 52428800,
+            "mimes": [
+              "video/mp4",
+              "video/quicktime"
+            ]
+          },
+          "audio": {
+            "maxBytes": 15728640,
+            "mimes": [
+              "audio/wav",
+              "audio/mpeg"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "provider": "wavespeed",
+      "available": true,
+      "configurable": true,
+      "id": "wavespeed/bytedance/seed-audio-1.0",
+      "apiModelId": "bytedance/seed-audio-1.0",
+      "name": "Seed Audio 1.0",
+      "capability": "speech.generate",
+      "inputModes": [
+        "text"
+      ],
+      "referenceFields": {},
+      "outputModes": [
+        "format",
+        "sampleRate",
+        "speed",
+        "volume",
+        "pitch"
+      ],
+      "status": "stable",
+      "referenceBudgets": []
+    }
+  ]
+}

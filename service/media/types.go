@@ -135,6 +135,15 @@ type MediaProvider struct {
 	Protocol       string       `json:"protocol"`
 	DefaultAPIBase string       `json:"defaultApiBase"`
 	Models         []MediaModel `json:"models"`
+	// MaxConcurrent is the provider's advertised per-account concurrent
+	// prediction ceiling (0 = unlimited). The daemon uses it as a per-credential
+	// submission gate so a burst of queued jobs does not trip the upstream 429.
+	MaxConcurrent int `json:"maxConcurrent,omitempty"`
+	// MaxStartsPerMinute is the provider's advertised per-account prediction
+	// start rate (0 = unlimited). The daemon uses it as a per-credential
+	// rolling-window gate alongside MaxConcurrent (e.g. WaveSpeed Bronze allows
+	// 5 starts/min AND 2 concurrent).
+	MaxStartsPerMinute int `json:"maxStartsPerMinute,omitempty"`
 	// Catalog provenance, filled by the CDN catalog loader; seed entries leave
 	// them empty. Source is "cdn" or "seed".
 	Revision  int    `json:"revision,omitempty"`

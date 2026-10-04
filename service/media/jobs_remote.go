@@ -132,8 +132,83 @@ func (m *MediaService) remoteRecoveryProvider(credentialID string) (string, erro
 
 func supportsRemoteRecovery(providerID string) bool {
 	switch providerID {
-	case "atlas-cloud", "skymind-token":
+	case "atlas-cloud", "skymind-token", "wavespeed":
 		return true
+	default:
+		return false
+	}
+}
+
+// supportsUnboundRecovery reports whether the provider can re-attach a paid
+// submission whose remote task ID was lost locally. This needs a history
+// lookup, so only providers with one qualify; unknown providers fail closed
+// rather than resubmitting a possibly-billed call.
+func supportsUnboundRecovery(providerID string) bool {
+	switch providerID {
+	case "wavespeed":
+		return true
+	default:
+		return false
+	}
+}
+
+// RecoverGeneration is the manual recovery path for an "uncertain submission":
+// the job crossed the non-replayable submission checkpoint, but the provider
+// response was lost before the remote task ID could be persisted, so the paid
+// call may still be running upstream. It tries to re-attach that existing
+// remote task by provider history lookup and never resubmits; resubmission is
+// left to the explicit RetryGeneration path. When a remote ID is already known
+// it simply delegates to RetryRemoteJob (a plain sync).
+func (m *MediaService) RecoverGeneration(assetID string) (MediaAsset, error) {
+	db, err := m.database()
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	asset, err := scanAsset(db, db.QueryRow("select "+assetColumns+" from media_assets where id = ?", assetID))
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if asset.Status != "failed" {
+		return MediaAsset{}, errors.New("只有失败的素材可以尝试恢复")
+	}
+	if asset.JobID == "" {
+		return MediaAsset{}, errors.New("该素材没有关联的生成任务")
+	}
+	job, err := m.getJob(asset.JobID)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	// A known remote ID means we already have a handle: this is an ordinary sync.
+	if job.RemoteID != "" {
+		return m.RetryRemoteJob(assetID)
+	}
+	uncertain, _ := asset.Metadata[submissionUncertainMetadataKey].(bool)
+	if !uncertain {
+		return MediaAsset{}, errors.New("该任务没有可恢复的远端提交，请重新生成")
+	}
+	var credentialID string
+	if err := db.QueryRow("select credential_id from media_jobs where id = ?", job.ID).Scan(&credentialID); err != nil {
+		return MediaAsset{}, err
+	}
+	provider, err := m.remoteRecoveryProvider(credentialID)
+	if err != nil {
+		return MediaAsset{}, err
+	}
+	if !supportsUnboundRecovery(provider) {
+		return MediaAsset{}, errors.New("该 provider 暂不支持恢复提交结果，请重新生成")
+	}
+	if !m.recoverUnboundTask(provider, job.ID, asset.ID, job.ModelID) {
+		return MediaAsset{}, errors.New("暂时没有找到对应的远端任务，可重新生成")
+	}
+	return m.getAsset(assetID)
+}
+
+// recoverUnboundTask dispatches to the provider's history-lookup recovery
+// primitive. It reports whether a remote task was found and re-attached.
+func (m *MediaService) recoverUnboundTask(provider, jobID, assetID, modelID string) bool {
+	switch provider {
+	case "wavespeed":
+		return m.recoverWavespeedUnboundTask(jobID, assetID, modelID)
 	default:
 		return false
 	}
@@ -159,6 +234,14 @@ func (m *MediaService) advanceRemoteJob(provider, jobID string) error {
 		}
 		if !m.reconcileSkymindTask(task) {
 			m.startSkymindPolling(jobID)
+		}
+	case "wavespeed":
+		task, ok := m.wavespeedTask(jobID)
+		if !ok {
+			return errors.New("远端任务暂不可恢复，请稍后重试")
+		}
+		if terminal, _ := m.reconcileWavespeedTask(task); !terminal {
+			m.startWavespeedPolling(jobID)
 		}
 	default:
 		return errors.New("该 provider 暂不支持远端任务恢复")

@@ -292,6 +292,163 @@ func TestRecoverAtlasPredictionFromOneSidedBinding(t *testing.T) {
 	}
 }
 
+func TestRecoverWavespeedUncertainSubmissionFromHistory(t *testing.T) {
+	var submits int
+	var callsMu sync.Mutex
+	var wavespeed *httptest.Server
+	wavespeed = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callsMu.Lock()
+		defer callsMu.Unlock()
+		switch r.URL.Path {
+		case "/api/v3/openai/gpt-image-2.5-flare/edit":
+			// A recovery must never reach the paid submit path; the counter
+			// guards that invariant.
+			submits++
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "prediction-orphan", "status": "processing", "urls": map[string]any{"get": "/api/v3/predictions/prediction-orphan/result"}}})
+		case "/api/v3/predictions":
+			// History lookup: the paid call is still processing upstream.
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"items": []map[string]any{{"id": "prediction-orphan", "status": "processing", "urls": map[string]any{"get": "/api/v3/predictions/prediction-orphan/result"}}}}})
+		case "/api/v3/predictions/prediction-orphan/result":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "prediction-orphan", "status": "completed", "outputs": []string{wavespeed.URL + "/orphan.png"}}})
+		case "/orphan.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("recovered image"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer wavespeed.Close()
+
+	store := NewStore(t.TempDir(), nil)
+	submitter := NewMediaService(store)
+	credential, err := submitter.SaveCredential(MediaCredential{Provider: "wavespeed", Name: "WaveSpeed", APIBase: wavespeed.URL}, "wavespeed-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := submitter.ImportImage("reference.png", "image/png", []byte("reference"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := submitter.Generate(GenerateMediaInput{Capability: ImageGenerate, Prompt: "edit", ModelID: "wavespeed/openai/gpt-image-2.5-flare/edit", CredentialID: credential.ID, ReferenceIDs: []string{image.ID}, IdempotencyKey: "wavespeed-uncertain-recover"})
+	if err != nil || job.Status != "queued" || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued WaveSpeed job = %#v, %v", job, err)
+	}
+
+	// Simulate a daemon that wrote its submission checkpoint and then died
+	// before it could persist the prediction ID returned by a successful submit.
+	db, err := submitter.Database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().UTC().Add(-3 * time.Minute)
+	if _, err := db.Exec("update media_jobs set submission_started_at = ?, updated_at = ? where id = ?", past.Format(time.RFC3339Nano), past.Format(time.RFC3339Nano), job.ID); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("insert into media_task_leases (job_id, owner_id, expires_at_ms, updated_at) values (?, ?, ?, ?)", job.ID, "dead-daemon", past.UnixMilli(), past.Format(time.RFC3339Nano)); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	daemon := NewMediaService(store)
+	if reconciled, err := daemon.ReconcilePendingJobs(); err != nil || reconciled != 1 {
+		t.Fatalf("ReconcilePendingJobs() = %d, %v", reconciled, err)
+	}
+	failed := waitForMediaJobStatus(t, daemon, job.ID, "failed")
+	if failed.RemoteID != "" || len(failed.AssetIDs) != 1 || failed.AssetIDs[0] != job.AssetIDs[0] {
+		t.Fatalf("uncertain WaveSpeed job = %#v", failed)
+	}
+	asset, err := daemon.GetAsset(job.AssetIDs[0])
+	if err != nil || asset.Status != "failed" {
+		t.Fatalf("uncertain WaveSpeed asset = %#v, %v", asset, err)
+	}
+	// The unsafe "new task retry" is demoted: the asset is flagged recoverable.
+	if asset.Metadata["submissionUncertain"] != true {
+		t.Fatalf("uncertain WaveSpeed asset missing recoverable flag: %#v", asset.Metadata)
+	}
+	if asset.RemoteID != "" {
+		t.Fatalf("uncertain WaveSpeed asset must not carry a remote id: %#v", asset)
+	}
+
+	// Recovery re-attaches the orphaned paid prediction from history — without
+	// a second submission — and collects the completed output in place.
+	recovered, err := daemon.RecoverGeneration(asset.ID)
+	if err != nil {
+		t.Fatalf("RecoverGeneration() = %#v, %v", recovered, err)
+	}
+	completed := waitForMediaJobStatus(t, daemon, job.ID, "completed")
+	if completed.RemoteID != "prediction-orphan" || len(completed.AssetIDs) != 1 || completed.AssetIDs[0] != asset.ID {
+		t.Fatalf("recovered WaveSpeed job = %#v", completed)
+	}
+	final, err := daemon.GetAsset(asset.ID)
+	if err != nil || final.Status != "completed" || final.RemoteID != "prediction-orphan" || final.ID != asset.ID {
+		t.Fatalf("recovered WaveSpeed asset = %#v, %v", final, err)
+	}
+	if _, flagged := final.Metadata["submissionUncertain"]; flagged {
+		t.Fatalf("recovered WaveSpeed asset kept the uncertainty flag: %#v", final.Metadata)
+	}
+	callsMu.Lock()
+	defer callsMu.Unlock()
+	if submits != 0 {
+		t.Fatalf("recovery must not submit; WaveSpeed submits = %d, want 0", submits)
+	}
+}
+
+func TestRecoverWavespeedUncertainSubmissionFailsClosedWithoutHistory(t *testing.T) {
+	wavespeed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/predictions" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"items": []map[string]any{}}})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer wavespeed.Close()
+
+	store := NewStore(t.TempDir(), nil)
+	submitter := NewMediaService(store)
+	credential, err := submitter.SaveCredential(MediaCredential{Provider: "wavespeed", Name: "WaveSpeed", APIBase: wavespeed.URL}, "wavespeed-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := submitter.Generate(GenerateMediaInput{Capability: SpeechGenerate, Prompt: "你好", ModelID: "wavespeed/bytedance/seed-audio-1.0", CredentialID: credential.ID, Output: map[string]any{"voiceId": "x"}, IdempotencyKey: "wavespeed-uncertain-no-history"})
+	if err != nil || len(job.AssetIDs) != 1 {
+		t.Fatalf("queued WaveSpeed speech job = %#v, %v", job, err)
+	}
+	db, err := submitter.Database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().UTC().Add(-3 * time.Minute)
+	if _, err := db.Exec("update media_jobs set submission_started_at = ?, updated_at = ? where id = ?", past.Format(time.RFC3339Nano), past.Format(time.RFC3339Nano), job.ID); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("insert into media_task_leases (job_id, owner_id, expires_at_ms, updated_at) values (?, ?, ?, ?)", job.ID, "dead-daemon", past.UnixMilli(), past.Format(time.RFC3339Nano)); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	daemon := NewMediaService(store)
+	if _, err := daemon.ReconcilePendingJobs(); err != nil {
+		t.Fatal(err)
+	}
+	waitForMediaJobStatus(t, daemon, job.ID, "failed")
+
+	// No matching remote task: recovery fails closed (no resubmission), leaving
+	// the asset failed so the user can still explicitly regenerate.
+	if _, err := daemon.RecoverGeneration(job.AssetIDs[0]); err == nil {
+		t.Fatal("recovery without a matching remote task must report failure")
+	}
+	asset, err := daemon.GetAsset(job.AssetIDs[0])
+	if err != nil || asset.Status != "failed" || asset.RemoteID != "" {
+		t.Fatalf("asset after failed recovery = %#v, %v", asset, err)
+	}
+}
+
 func TestTwoDaemonsSubmitQueuedAtlasTaskOnlyOnce(t *testing.T) {
 	postStarted := make(chan struct{}, 2)
 	releasePost := make(chan struct{})

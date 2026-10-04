@@ -41,6 +41,12 @@ const (
 	// safe to resubmit; unlike an unknown/interrupted remote task it must not be
 	// blindly polled forever or treated as a still-paid job.
 	remoteTerminalFailureKey = "remoteTerminalFailure"
+	// submissionUncertainMetadataKey marks a job whose provider submission
+	// crossed the non-replayable checkpoint but whose remote task ID was never
+	// persisted locally (the process died, or the submit response was lost). The
+	// paid call may still be running upstream with no local handle, so history-
+	// based recovery must be attempted before any resubmission.
+	submissionUncertainMetadataKey = "submissionUncertain"
 )
 
 const atlasPollingDiagnosticPrefix = "Atlas Cloud reconciliation retry"

@@ -57,6 +57,9 @@ type ImageInput struct {
 type ImageResult struct {
 	Content  []byte
 	MimeType string
+	// Metadata carries provider-observed fields merged into the Asset metadata
+	// (e.g. a provider task ID and its public share URL).
+	Metadata map[string]any
 }
 
 // Provider is a per-provider generation strategy. Implementations own only the

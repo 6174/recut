@@ -70,7 +70,7 @@ export type PreviewAsset = {
   error?: string;
   createdAt: string;
   updatedAt: string;
-  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; appId?: unknown; appTaskId?: unknown; generation?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; generationResumedAt?: unknown; remoteTerminalFailure?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; document?: ReferenceMetadata; component?: ComponentPreviewMeta };
+  metadata: { prompt?: string; capability?: unknown; modelId?: unknown; output?: Record<string, unknown>; referenceIds?: unknown; appId?: unknown; appTaskId?: unknown; provider?: unknown; providerTaskId?: unknown; providerTaskUrl?: unknown; generation?: unknown; generationStartedAt?: unknown; generationDurationMs?: unknown; generationResumedAt?: unknown; remoteTerminalFailure?: unknown; submissionUncertain?: unknown; content?: unknown; contentMeta?: unknown; attributes?: unknown; transcript?: { sourceAssetId?: string; model?: string; language?: string; duration?: number; segmentCount?: number }; document?: ReferenceMetadata; component?: ComponentPreviewMeta };
 };
 
 // Motion Graphic 组件素材的预览元数据：聊天卡片把组件的精确版本信息挂在这里，
@@ -250,7 +250,16 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
   const sourceTaskHref = sourceAppID && sourceTaskID
     ? `/workspace-app/app?id=${encodeURIComponent(sourceAppID)}&task=${encodeURIComponent(sourceTaskID)}`
     : "";
-  const statusText = status === "failed" ? "生成失败" : plan ? "计划中" : status === "proposed" ? "待确认生成" : ready ? "已完成" : "生成中";
+  // 云 provider 生成后回写的上游任务锚点（providerTaskUrl/providerTaskId）：直接跳该
+  // provider 的任务详情页，方便到源头查看这次生成的参数与结果。App 侧同源概念是
+  // appId/appTaskId（见上方 sourceTaskHref）。
+  const providerTaskUrl = typeof metadata.providerTaskUrl === "string" ? metadata.providerTaskUrl : "";
+  const providerTaskID = typeof metadata.providerTaskId === "string" ? metadata.providerTaskId : "";
+  const providerLabel = typeof metadata.provider === "string" ? metadata.provider : "";
+  // 生成阶段显式三段：提交（queued，还没 provider 任务信息）→ 等待结果（running 且已拿到远端任务锚点）
+  // → 结果（completed/failed）。pending 阶段必须能看到上游任务链接，否则用户无法判断是否提交成功。
+  const submitted = status === "running" && Boolean(providerTaskUrl || providerTaskID);
+  const statusText = status === "failed" ? "生成失败" : plan ? "计划中" : status === "proposed" ? "待确认生成" : ready ? "已完成" : submitted ? "等待结果" : status === "running" ? "提交中" : "排队中";
   const statusLabel = <><span>{statusText}</span><GenerationDuration className="font-mono text-[10px] text-muted-foreground" item={asset} /></>;
   // Remix：把已完成素材的可复用配方复制成一个新的提案资产，并让弹框切到它的编辑态。
   const canRemix = !isComponent && ready && typeof metadata.prompt === "string" && metadata.prompt.trim().length > 0;
@@ -374,6 +383,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
                   <>
                     {modelName && <div><dt className="text-muted-foreground">模型</dt><dd className="mt-1 break-words">{modelName}</dd></div>}
                     {sourceTaskHref && <div><dt className="text-muted-foreground">生成任务</dt><dd className="mt-1 break-words"><a className="inline-flex items-center gap-1 text-primary hover:underline" href={sourceTaskHref} rel="noopener noreferrer" target="_blank">{sourceApp?.manifest.name ?? "在应用中打开任务"}<ExternalLink className="size-3" /></a><span className="mt-1 block break-all font-mono text-[10px] text-muted-foreground">{sourceTaskID}</span></dd></div>}
+                    {providerTaskUrl && <div><dt className="text-muted-foreground">{submitted ? "已提交 · 上游任务" : "上游任务"}</dt><dd className="mt-1 break-words"><a className="inline-flex items-center gap-1 text-primary hover:underline" href={providerTaskUrl} rel="noopener noreferrer" target="_blank">{providerLabel ? `在 ${providerLabel} 查看` : "查看上游任务"}<ExternalLink className="size-3" /></a>{providerTaskID && <span className="mt-1 block break-all font-mono text-[10px] text-muted-foreground">{providerTaskID}</span>}</dd></div>}
                     {metadata.prompt !== undefined && <PromptSection prompt={String(metadata.prompt ?? "")} />}
                     {references.length > 0 && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-3 gap-2">{references.map((ref) => <ReferencePreview key={ref.id} apiBase={apiBase} reference={ref} />)}</dd></div>}
                   </>
@@ -1131,29 +1141,44 @@ function PendingAssetContent({ apiBase, asset, status }: { apiBase: string; asse
   if (plan) {
     return <div className="grid max-w-sm gap-3 text-center text-muted-foreground"><div><p className="text-sm font-medium text-muted-foreground">计划中</p><p className="mt-1 text-xs leading-5">这是一条生成计划（只有说明与属性，还没有配方）；复制素材上下文交给 AI 去生成。</p></div></div>;
   }
-  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-muted-foreground" : "text-foreground"}`}>{status === "failed" ? "生成失败" : proposed ? "待确认生成" : "生成中"}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{proposed ? "这是一条生成提案；确认后才提交生成并消耗额度。" : "素材引用已经建立；完成后会在这里原位可预览。"}</p>{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryGenerationButton apiBase={apiBase} asset={asset} />}</div></div>;
+  const metadata = asset.metadata || {};
+  const providerTaskUrl = typeof metadata.providerTaskUrl === "string" ? metadata.providerTaskUrl : "";
+  const providerLabel = typeof metadata.provider === "string" && metadata.provider ? metadata.provider : "上游";
+  // running 且已拿到远端任务锚点 = 已提交，正在等待 provider 出结果；否则仍是本地提交中。
+  const submitted = status === "running" && Boolean(providerTaskUrl);
+  const pendingTitle = status === "failed" ? "生成失败" : proposed ? "待确认生成" : submitted ? "已提交，等待结果" : "提交中";
+  const pendingHint = proposed
+    ? "这是一条生成提案；确认后才提交生成并消耗额度。"
+    : submitted
+      ? "任务已在 provider 侧运行，完成后会在这里原位可预览。"
+      : "正在向 provider 提交任务；提交成功后这里会显示上游任务链接。";
+  return <div className="grid max-w-sm gap-3 text-center text-muted-foreground">{!proposed && <LoaderCircle className={`mx-auto size-8 ${status === "failed" ? "text-destructive" : "animate-spin text-primary"}`} />}<div><p className={`text-sm font-medium ${proposed ? "text-muted-foreground" : "text-foreground"}`}>{pendingTitle}</p>{!proposed && <GenerationDuration className="mt-1 block font-mono text-[11px] text-muted-foreground" item={asset} />}<p className="mt-1 text-xs leading-5">{pendingHint}</p>{submitted && providerTaskUrl && <a className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline" href={providerTaskUrl} rel="noopener noreferrer" target="_blank">在 {providerLabel} 查看任务<ExternalLink className="size-3" /></a>}{asset.error && <p className="mt-2 text-xs text-destructive">{asset.error}</p>}{status === "failed" && <RetryGenerationButton apiBase={apiBase} asset={asset} />}</div></div>;
 }
 
-// 失败/超时恢复：只要已经拿到远端任务 ID（remoteId），就说明这一次已经付费提交，默认只能“手动同步”
-// 复取（强制轮询一次远端任务），绝不重发；但若 provider 已明确回报该远端任务终态失败
-// （metadata.remoteTerminalFailure），远端任务已死，重发才是唯一出路，此时给“重新生成”。
-// 只有提交阶段就失败（没有 remoteId，大概率未计费）才给“重试”重新提交。
+// 失败/超时恢复的三种动作，优先级从高到低：
+// 1) 提交结果不确定（submissionUncertain：已跨越提交检查点但没落远端 ID）：这次大概率已付费提交，
+//    先给“尝试恢复”——按 provider 历史把已存在的远端任务找回并复取，绝不重发；找回再渲染出重新生成。
+// 2) 已拿到远端任务 ID（remoteId）：说明已付费提交且任务仍可能存活，给“手动同步”复取，绝不重发。
+// 3) provider 已明确回报远端任务终态失败（metadata.remoteTerminalFailure，远端任务已死）：给“重新生成”。
+// 只有提交阶段就失败（没有 remoteId，且不是提交结果不确定）才给“重试”重新提交。
 function RetryGenerationButton({ apiBase, asset }: { apiBase: string; asset: PreviewAsset }) {
   const { upsertAsset } = useMediaAssetEvents();
   const [pending, setPending] = useState(false);
+  const [recoverFailed, setRecoverFailed] = useState(false);
   const [error, setError] = useState("");
   if (!asset.jobId) return null;
   const terminal = asset.metadata?.remoteTerminalFailure === true;
+  const uncertain = asset.metadata?.submissionUncertain === true && !asset.remoteId && !terminal;
   const remoteRecoverable = !terminal && !!asset.remoteId;
-  const action = remoteRecoverable ? "sync" : "retry";
-  const idleLabel = remoteRecoverable ? "手动同步" : terminal ? "重新生成" : "重试";
-  const busyLabel = remoteRecoverable ? "正在同步…" : terminal ? "正在重新生成…" : "正在重试…";
-  const failedLabel = remoteRecoverable ? "同步失败，请稍后重试。" : terminal ? "重新生成失败，请稍后重试。" : "重试失败，请稍后重试。";
-  async function run() {
+  const action = uncertain ? "recover" : remoteRecoverable ? "sync" : "retry";
+  const idleLabel = uncertain ? "尝试恢复" : remoteRecoverable ? "手动同步" : terminal ? "重新生成" : "重试";
+  const busyLabel = uncertain ? "正在尝试恢复…" : remoteRecoverable ? "正在同步…" : terminal ? "正在重新生成…" : "正在重试…";
+  const failedLabel = uncertain ? "暂时没有找到对应的远端任务。" : remoteRecoverable ? "同步失败，请稍后重试。" : terminal ? "重新生成失败，请稍后重试。" : "重试失败，请稍后重试。";
+  async function run(path: string) {
     setPending(true);
     setError("");
     try {
-      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/${action}`, { method: "POST" });
+      const response = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(asset.id)}/${path}`, { method: "POST" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.error || failedLabel);
@@ -1161,12 +1186,13 @@ function RetryGenerationButton({ apiBase, asset }: { apiBase: string; asset: Pre
       const updated = await response.json().catch(() => null);
       if (updated) upsertAsset(updated);
     } catch (err) {
+      if (path === "recover") setRecoverFailed(true);
       setError(err instanceof Error ? err.message : failedLabel);
     } finally {
       setPending(false);
     }
   }
-  return <div className="grid gap-1.5"><button className="mx-auto flex h-8 items-center gap-1.5 rounded-xs border px-3 text-xs hover:bg-muted disabled:opacity-60" disabled={pending} onClick={() => void run()} type="button">{pending ? <LoaderCircle className="size-3.5 animate-spin text-primary" /> : remoteRecoverable ? <RefreshCw className="size-3.5" /> : <RotateCcw className="size-3.5" />}{pending ? busyLabel : idleLabel}</button>{error && <p className="text-xs text-destructive">{error}</p>}</div>;
+  return <div className="grid gap-1.5"><button className="mx-auto flex h-8 items-center gap-1.5 rounded-xs border px-3 text-xs hover:bg-muted disabled:opacity-60" disabled={pending} onClick={() => void run(action)} type="button">{pending ? <LoaderCircle className="size-3.5 animate-spin text-primary" /> : uncertain || remoteRecoverable ? <RefreshCw className="size-3.5" /> : <RotateCcw className="size-3.5" />}{pending ? busyLabel : idleLabel}</button>{uncertain && recoverFailed && <button className="mx-auto text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-60" disabled={pending} onClick={() => void run("retry")} type="button">找不到远端任务，重新生成</button>}{error && <p className="text-xs text-destructive">{error}</p>}</div>;
 }
 
 function ReferencePreview({ apiBase, reference }: { apiBase: string; reference: PreviewAsset }) {

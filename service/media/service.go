@@ -49,6 +49,9 @@ type MediaService struct {
 	// videoProposalGate 是平台生成策略钩子：返回 true 时视频生成先落待用户确认
 	// 的资产（默认）。service 层注入它读取用户偏好；nil 时按默认 true。
 	videoProposalGate func() bool
+	// providerGates 是按 provider ID 的并发提交门控：登录用户忙时，超出上限的
+	// 立即可重试（不消耗远端配额）。大小取自目录 MediaProvider.MaxConcurrent。
+	providerGates providerGateRegistry
 }
 
 // SetLocalVoiceProvider wires one local provider's voice catalog (e.g. Audio

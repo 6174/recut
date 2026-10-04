@@ -57,6 +57,10 @@ func (m *MediaService) reconcileDurableJobs() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	wavespeedIDs, err := m.runningWavespeedJobIDs()
+	if err != nil {
+		return 0, err
+	}
 	queuedIDs, err := m.queuedJobIDs()
 	if err != nil {
 		return 0, err
@@ -67,10 +71,13 @@ func (m *MediaService) reconcileDurableJobs() (int64, error) {
 	for _, id := range skymindIDs {
 		m.startSkymindReconciliation(id)
 	}
+	for _, id := range wavespeedIDs {
+		m.startWavespeedReconciliation(id)
+	}
 	for _, id := range queuedIDs {
 		m.startQueuedExecution(id)
 	}
-	return repaired + uncertain + unavailable + int64(len(atlasIDs)+len(skymindIDs)+len(queuedIDs)), nil
+	return repaired + uncertain + unavailable + int64(len(atlasIDs)+len(skymindIDs)+len(wavespeedIDs)+len(queuedIDs)), nil
 }
 
 // StartReconciler runs only inside the long-lived Daemon. Each tick is an
@@ -129,6 +136,19 @@ func (m *MediaService) runningSkymindJobIDs() ([]string, error) {
 		return nil, err
 	}
 	rows, err := db.Query(`select distinct j.id from media_jobs j join media_assets a on a.job_id = j.id join media_credentials c on c.id = j.credential_id where j.status = 'running' and j.remote_id != '' and a.status = 'running' and c.provider = 'skymind-token'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanJobIDs(rows)
+}
+
+func (m *MediaService) runningWavespeedJobIDs() ([]string, error) {
+	db, err := m.database()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`select distinct j.id from media_jobs j join media_assets a on a.job_id = j.id join media_credentials c on c.id = j.credential_id where j.status = 'running' and j.remote_id != '' and a.status = 'running' and c.provider = 'wavespeed'`)
 	if err != nil {
 		return nil, err
 	}
@@ -354,6 +374,16 @@ func (m *MediaService) startSkymindReconciliation(jobID string) {
 	})
 }
 
+func (m *MediaService) startWavespeedReconciliation(jobID string) {
+	m.startTask(jobID, func() {
+		task, active := m.wavespeedTask(jobID)
+		if !active {
+			return
+		}
+		_, _ = m.reconcileWavespeedTask(task)
+	})
+}
+
 func (m *MediaService) executeQueuedTask(jobID string) {
 	job, credential, active, err := m.queuedTask(jobID)
 	if err != nil || !active {
@@ -362,7 +392,22 @@ func (m *MediaService) executeQueuedTask(jobID string) {
 		}
 		return
 	}
-	if isAtlasVideoJob(job, credential) || isSkymindVideoJob(job, credential) || isAtlasSpeechJob(job, credential) {
+	if isAtlasVideoJob(job, credential) || isSkymindVideoJob(job, credential) || isAtlasSpeechJob(job, credential) || isWavespeedVideoJob(job, credential) || isWavespeedSpeechJob(job, credential) {
+		// Provider concurrency gate: WaveSpeed enforces a per-account ceiling on
+		// concurrent predictions. Acquire a slot BEFORE the submission checkpoint
+		// (which is the non-replayable boundary); when the ceiling is reached the
+		// job simply stays queued and the next scheduler tick retries, so a burst
+		// is throttled locally instead of tripping the upstream 429.
+		release := func() {}
+		if isWavespeedVideoJob(job, credential) || isWavespeedSpeechJob(job, credential) {
+			var ok bool
+			concurrency, perMinute := providerGateLimits(credential.Provider)
+			release, ok = m.providerGates.acquire(credential.Provider, concurrency, perMinute)
+			if !ok {
+				return
+			}
+		}
+		defer release()
 		job, active, err = m.checkpointQueuedSubmission(job)
 		if err != nil || !active {
 			if err != nil {
@@ -374,6 +419,10 @@ func (m *MediaService) executeQueuedTask(jobID string) {
 			_, _ = m.submitAtlasVideo(job, credential, false)
 		} else if isAtlasSpeechJob(job, credential) {
 			_, _ = m.submitAtlasSpeech(job, credential, false)
+		} else if isWavespeedVideoJob(job, credential) {
+			_, _ = m.submitWavespeedVideo(job, credential, false)
+		} else if isWavespeedSpeechJob(job, credential) {
+			_, _ = m.submitWavespeedSpeech(job, credential, false)
 		} else {
 			_, _ = m.submitSkymindVideo(job, credential, false)
 		}
@@ -614,6 +663,10 @@ func (m *MediaService) bindQueuedAtlasPrediction(job MediaJob, assetID, remoteID
 }
 
 func (m *MediaService) failQueuedAsset(jobID, assetID, message string) {
+	m.failQueuedAssetWith(jobID, assetID, message, nil)
+}
+
+func (m *MediaService) failQueuedAssetWith(jobID, assetID, message string, extraMetadata map[string]any) {
 	asset, err := m.getAsset(assetID)
 	if err != nil || asset.JobID != jobID || asset.Status != "queued" {
 		return
@@ -628,6 +681,9 @@ func (m *MediaService) failQueuedAsset(jobID, assetID, message string) {
 	}
 	now := time.Now().UTC()
 	metadata := completedGenerationMetadata(asset.Metadata, asset.CreatedAt, now)
+	for key, value := range extraMetadata {
+		metadata[key] = value
+	}
 	serialized, _ := json.Marshal(metadata)
 	result, err := tx.Exec("update media_assets set status = ?, error = ?, metadata_json = ?, updated_at = ? where id = ? and job_id = ? and status = 'queued'", "failed", message, string(serialized), now.Format(time.RFC3339Nano), assetID, jobID)
 	if err != nil {
@@ -697,11 +753,21 @@ func (m *MediaService) failUncertainUnboundTasks() (int64, error) {
 		if strings.HasPrefix(task.modelID, "skymind-token/") {
 			message = "Skymind 提交结果不确定，请用新任务重试。"
 		}
+		// A provider with a history lookup can re-attach the orphaned paid call
+		// instead of forcing a resubmission. Mark the asset so the UI offers
+		// "recover" first, and only fall back to a fresh task if nothing matches.
+		var metadata map[string]any
+		if model, ok := modelByID(task.modelID); ok && supportsUnboundRecovery(model.Provider) {
+			metadata = map[string]any{submissionUncertainMetadataKey: true}
+			if model.Provider == "wavespeed" {
+				message = "WaveSpeed 提交结果不确定，可先尝试恢复；恢复不到再重新生成。"
+			}
+		}
 		if task.status == "queued" {
-			m.failQueuedAsset(task.jobID, task.assetID, message)
+			m.failQueuedAssetWith(task.jobID, task.assetID, message, metadata)
 			continue
 		}
-		m.failRemoteAsset(task.jobID, task.assetID, message)
+		m.failRemoteAssetWith(task.jobID, task.assetID, message, metadata)
 	}
 	return int64(len(tasks)), nil
 }

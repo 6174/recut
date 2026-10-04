@@ -134,6 +134,70 @@ func geminiSeedParameters() []MediaParameter {
 	}
 }
 
+// wavespeedImageSeedParameters 是 WaveSpeed GPT Image 2 / 2.5 系列的 per-model
+// 参数面（text-to-image 与 edit 同形）。
+func wavespeedImageSeedParameters() []MediaParameter {
+	return []MediaParameter{
+		{Name: "aspectRatio", ProviderKey: "aspect_ratio", Type: "string", Enum: []string{"1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}},
+		{Name: "resolution", ProviderKey: "resolution", Type: "string", Enum: []string{"1k", "2k", "4k"}, Default: "1k"},
+		{Name: "quality", ProviderKey: "quality", Type: "string", Enum: []string{"low", "medium", "high"}, Default: "medium"},
+		{Name: "outputFormat", ProviderKey: "output_format", Type: "string", Enum: []string{"png", "jpeg", "webp"}, Default: "png"},
+	}
+}
+
+// wavespeedSeedanceReferenceBudget 是 Seedance 2.0/2.5 文本转视频统一参考预算
+// （图 ≤9 / 视频 ≤3 / 音频 ≤3），与 WaveSpeed 文档一致。
+func wavespeedSeedanceReferenceBudget() []ReferenceBudget {
+	return []ReferenceBudget{{
+		MaxImages: 9,
+		MaxVideos: 3,
+		MaxAudios: 3,
+		Image:     &ReferenceKindSpec{MaxBytes: 30 << 20, Mimes: []string{"image/jpeg", "image/jpg", "image/png", "image/webp"}},
+		Video:     &ReferenceKindSpec{MaxBytes: seedanceVideoReferenceMaxBytes, Mimes: []string{"video/mp4", "video/quicktime"}},
+		Audio:     &ReferenceKindSpec{MaxBytes: 15 << 20, Mimes: []string{"audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3"}},
+	}}
+}
+
+// wavespeedImageToVideoReferenceBudget 是 Seedance 2.0/2.5 图生视频的参考预算：
+// 必须 1 张首图，不接受视频/音频参考。
+func wavespeedImageToVideoReferenceBudget() []ReferenceBudget {
+	return []ReferenceBudget{{
+		Requirements: []string{"images>=1", "videos==0", "audios==0"},
+		MaxImages:    1,
+		Image:        &ReferenceKindSpec{MaxBytes: 30 << 20, Mimes: []string{"image/jpeg", "image/jpg", "image/png", "image/webp"}},
+	}}
+}
+
+// wavespeedTextVideoParameters 是 Seedance 2.0/2.5 文本转视频的参数面。
+func wavespeedTextVideoParameters() []MediaParameter {
+	return []MediaParameter{
+		{Name: "durationSeconds", ProviderKey: "duration", Type: "integer", Default: float64(5), Minimum: floatPtr(4), Maximum: floatPtr(15)},
+		{Name: "resolution", ProviderKey: "resolution", Type: "string", Enum: []string{"480p", "720p", "1080p", "4k"}, Default: "720p"},
+		{Name: "aspectRatio", ProviderKey: "aspect_ratio", Type: "string", Enum: []string{"16:9", "9:16", "4:3", "3:4", "1:1", "21:9"}, Default: "16:9"},
+		{Name: "generateAudio", ProviderKey: "generate_audio", Type: "boolean", Default: true},
+		{Name: "enableWebSearch", ProviderKey: "enable_web_search", Type: "boolean", Default: false},
+	}
+}
+
+// wavespeedImageVideoParameters 是 Seedance 2.0/2.5 图生视频的参数面（首图 image +
+// 尾帧 last_image）。
+func wavespeedImageVideoParameters() []MediaParameter {
+	return []MediaParameter{
+		{Name: "durationSeconds", ProviderKey: "duration", Type: "integer", Default: float64(5), Minimum: floatPtr(4), Maximum: floatPtr(15)},
+		{Name: "resolution", ProviderKey: "resolution", Type: "string", Enum: []string{"480p", "720p", "1080p", "4k"}, Default: "720p"},
+		{Name: "aspectRatio", ProviderKey: "aspect_ratio", Type: "string", Enum: []string{"16:9", "9:16", "4:3", "3:4", "1:1", "21:9"}},
+		{Name: "generateAudio", ProviderKey: "generate_audio", Type: "boolean", Default: true},
+	}
+}
+
+// wavespeedTextVideoReferenceFields / wavespeedImageVideoReferenceFields：Seedance
+// 系列文生视频参考走复数数组；图生视频首图走单数 image 标量。
+var (
+	wavespeedTextVideoReferenceFields  = map[string]string{"image": "reference_images", "video": "reference_videos", "audio": "reference_audios"}
+	wavespeedImageVideoReferenceFields = map[string]string{"image": "image"}
+	wavespeedImageEditReferenceFields  = map[string]string{"image": "images"}
+)
+
 // seedProviders 是编译期内嵌种子目录：CDN providers/<id>.catalog.json 加载失败
 // 时的最终回退，契约与 CDN 目录一致（新增模型优先走 CDN，不再改这里发版）。
 var seedProviders = []MediaProvider{
@@ -153,6 +217,19 @@ var seedProviders = []MediaProvider{
 		{ID: "skymind-token/gpt-image-2", Provider: "skymind-token", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, OutputModes: []string{"size", "quality", "background"}, Available: true, Configurable: true, Parameters: openAIImageSeedParameters()},
 		{ID: skymindSeedance20, Provider: "skymind-token", Name: "Seedance 2.0 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2.0", InputModes: []string{"text", "image", "video", "audio"}, Available: true, Configurable: true, ReferenceBudgets: seedanceReferenceBudget(false), Parameters: skymindVideoSeedParameters(), ReferenceFields: skymindVideoReferenceFields},
 		{ID: skymindSeedance25, Provider: "skymind-token", Name: "Seedance 2.5 · 文/参考视频", Capability: VideoGenerate, APIModelID: "doubao-seedance-2-5-260628", InputModes: []string{"text", "image", "video", "audio"}, Available: true, Configurable: true, ReferenceBudgets: seedanceReferenceBudget(false), Parameters: skymindVideoSeedParameters(), ReferenceFields: skymindVideoReferenceFields},
+	}},
+	{ID: "wavespeed", Name: "WaveSpeedAI", Protocol: "wavespeed", DefaultAPIBase: "https://api.wavespeed.ai", MaxConcurrent: 300, MaxStartsPerMinute: 500, Models: []MediaModel{
+		{ID: "wavespeed/openai/gpt-image-2", Provider: "wavespeed", Name: "GPT Image 2 · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2/text-to-image", InputModes: []string{"text"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters()},
+		{ID: "wavespeed/openai/gpt-image-2/edit", Provider: "wavespeed", Name: "GPT Image 2 · 图像编辑", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2/edit", InputModes: []string{"text", "image"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters(), ReferenceFields: wavespeedImageEditReferenceFields},
+		{ID: "wavespeed/openai/gpt-image-2.5-flare", Provider: "wavespeed", Name: "GPT Image 2.5 Flare · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-flare/text-to-image", InputModes: []string{"text"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters()},
+		{ID: "wavespeed/openai/gpt-image-2.5-flare/edit", Provider: "wavespeed", Name: "GPT Image 2.5 Flare · 图像编辑", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-flare/edit", InputModes: []string{"text", "image"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters(), ReferenceFields: wavespeedImageEditReferenceFields},
+		{ID: "wavespeed/openai/gpt-image-2.5-sunburst", Provider: "wavespeed", Name: "GPT Image 2.5 Sunburst · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-sunburst/text-to-image", InputModes: []string{"text"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters()},
+		{ID: "wavespeed/openai/gpt-image-2.5-sunburst/edit", Provider: "wavespeed", Name: "GPT Image 2.5 Sunburst · 图像编辑", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-sunburst/edit", InputModes: []string{"text", "image"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters(), ReferenceFields: wavespeedImageEditReferenceFields},
+		{ID: "wavespeed/bytedance/seedance-2.0", Provider: "wavespeed", Name: "Seedance 2.0 · 文生视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0/text-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio", "enableWebSearch"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedSeedanceReferenceBudget(), Parameters: wavespeedTextVideoParameters(), ReferenceFields: wavespeedTextVideoReferenceFields},
+		{ID: "wavespeed/bytedance/seedance-2.0/image-to-video", Provider: "wavespeed", Name: "Seedance 2.0 · 图生视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0/image-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedImageToVideoReferenceBudget(), Parameters: wavespeedImageVideoParameters(), ReferenceFields: wavespeedImageVideoReferenceFields},
+		{ID: "wavespeed/bytedance/seedance-2.5", Provider: "wavespeed", Name: "Seedance 2.5 · 文生视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.5/text-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio", "enableWebSearch"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedSeedanceReferenceBudget(), Parameters: wavespeedTextVideoParameters(), ReferenceFields: wavespeedTextVideoReferenceFields},
+		{ID: "wavespeed/bytedance/seedance-2.5/image-to-video", Provider: "wavespeed", Name: "Seedance 2.5 · 图生视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.5/image-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedImageToVideoReferenceBudget(), Parameters: wavespeedImageVideoParameters(), ReferenceFields: wavespeedImageVideoReferenceFields},
+		{ID: "wavespeed/bytedance/seed-audio-1.0", Provider: "wavespeed", Name: "Seed Audio 1.0", Capability: SpeechGenerate, APIModelID: "bytedance/seed-audio-1.0", InputModes: []string{"text"}, OutputModes: []string{"format", "sampleRate", "speed", "volume", "pitch"}, Available: true, Configurable: true},
 	}},
 	{ID: "openai", Name: "OpenAI", Protocol: "openai", DefaultAPIBase: "https://api.openai.com/v1", Models: []MediaModel{{ID: "openai/gpt-image-2", Provider: "openai", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, OutputModes: []string{"size", "quality", "background"}, Available: true, Configurable: true, Parameters: openAIImageSeedParameters()}}},
 	{ID: "openai-compatible", Name: "OpenAI Compatible", Protocol: "openai-compatible", Models: []MediaModel{{ID: "openai-compatible/image", Provider: "openai-compatible", Name: "GPT Image 2 · OpenAI-compatible", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, OutputModes: []string{"size", "quality", "background"}, Available: true, Configurable: true, Parameters: openAIImageSeedParameters()}}},

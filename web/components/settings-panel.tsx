@@ -137,6 +137,10 @@ const providerGuidance: Record<string, { useKey: string; noteKey: string }> = {
     useKey: "provider.skymind-token.use",
     noteKey: "provider.skymind-token.note",
   },
+  wavespeed: {
+    useKey: "provider.wavespeed.use",
+    noteKey: "provider.wavespeed.note",
+  },
   openai: { useKey: "provider.openai.use", noteKey: "provider.openai.note" },
   "openai-compatible": {
     useKey: "provider.openai-compatible.use",

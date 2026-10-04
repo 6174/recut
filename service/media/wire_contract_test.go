@@ -17,12 +17,13 @@ import (
 
 	"recut-service/media/providers/atlas"
 	"recut-service/media/providers/skymind"
+	"recut-service/media/providers/wavespeed"
 )
 
 func contractModels(t *testing.T) map[string]MediaModel {
 	t.Helper()
 	models := map[string]MediaModel{}
-	for _, name := range []string{"atlas-cloud", "skymind-token", "minimax"} {
+	for _, name := range []string{"atlas-cloud", "skymind-token", "minimax", "wavespeed"} {
 		data, err := os.ReadFile(filepath.Join("testdata", name+".contract.catalog.json"))
 		if err != nil {
 			t.Fatalf("contract catalog %s missing: %v", name, err)
@@ -184,6 +185,57 @@ func TestCatalogWireContract(t *testing.T) {
 		assertBody(t, "gemini", body, map[string]any{
 			"images": []string{image}, "duration": float64(10), "aspect_ratio": "16:9",
 			"resolution": "720p", "thinking_level": "default", "seed": float64(-1),
+		})
+	})
+
+	// —— WaveSpeed：统一预测协议参数面 + 参考字段映射 ——
+	t.Run("wavespeed image text-to-image", func(t *testing.T) {
+		model := models["wavespeed/openai/gpt-image-2"]
+		body := wavespeed.BuildPayload(wavespeed.GenerateInput{
+			Model: model.APIModelID, Prompt: "a fox",
+			Params: providerOutput(model, normalizedFor(t, model, map[string]any{"resolution": "1k", "quality": "low", "outputFormat": "png"})),
+		})
+		assertBody(t, "wavespeed image", body, map[string]any{
+			"model": "openai/gpt-image-2/text-to-image", "prompt": "a fox",
+			"resolution": "1k", "quality": "low", "output_format": "png",
+		})
+		if _, present := body["images"]; present {
+			t.Fatalf("text-to-image must not carry images: %#v", body)
+		}
+	})
+	t.Run("wavespeed image edit uses edit model and plural field", func(t *testing.T) {
+		model := models["wavespeed/openai/gpt-image-2/edit"]
+		body := wavespeed.BuildPayload(wavespeed.GenerateInput{
+			Model: model.APIModelID, Prompt: "make it night", Images: []string{image},
+			ReferenceFields: model.ReferenceFields,
+		})
+		assertBody(t, "wavespeed edit", body, map[string]any{
+			"model": "openai/gpt-image-2/edit", "images": []string{image},
+		})
+	})
+	t.Run("wavespeed seedance text-to-video reference fields", func(t *testing.T) {
+		model := models["wavespeed/bytedance/seedance-2.0"]
+		body := wavespeed.BuildPayload(wavespeed.GenerateInput{
+			Model: model.APIModelID, Prompt: "cars move",
+			Images: []string{image}, Audios: []string{audio},
+			Params:          providerOutput(model, normalizedFor(t, model, map[string]any{"durationSeconds": float64(6), "resolution": "720p", "generateAudio": false})),
+			ReferenceFields: model.ReferenceFields,
+		})
+		assertBody(t, "wavespeed seedance", body, map[string]any{
+			"model": "bytedance/seedance-2.0/text-to-video", "prompt": "cars move",
+			"reference_images": []string{image}, "reference_audios": []string{audio},
+			"duration": float64(6), "resolution": "720p", "generate_audio": false,
+		})
+	})
+	t.Run("wavespeed seedance image-to-video singular image", func(t *testing.T) {
+		model := models["wavespeed/bytedance/seedance-2.0/image-to-video"]
+		body := wavespeed.BuildPayload(wavespeed.GenerateInput{
+			Model: model.APIModelID, Prompt: "move", Images: []string{image},
+			Params:          providerOutput(model, normalizedFor(t, model, map[string]any{"durationSeconds": float64(5)})),
+			ReferenceFields: model.ReferenceFields,
+		})
+		assertBody(t, "wavespeed image-to-video", body, map[string]any{
+			"model": "bytedance/seedance-2.0/image-to-video", "image": image, "duration": float64(5),
 		})
 	})
 
