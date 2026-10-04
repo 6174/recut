@@ -1,7 +1,8 @@
 /*
  * [INPUT]: 依赖 node:test/assert 与被测的多选对齐纯几何（arrange.ts）
- * [OUTPUT]: 覆盖对齐/分布/网格排布契约：六向对齐沿并集包围盒落位且只改一个轴、首尾不参与位移、
- *          分布首尾不动且间隙均等、网格排布按当前行结构摊平（行内顶对齐 + 等间隙、锚定左上角）、
+ * [OUTPUT]: 覆盖对齐/分布/网格/树形排布契约：六向对齐沿并集包围盒落位且只改一个轴、首尾不参与位移、
+ *          分布首尾不动且间隙均等、网格排布按顶边邻近聚类成行（高卡片不吞并后续行；行内顶对齐 + 等间隙、
+ *          锚定左上角）、树形排布按关系边竖/横成树（同级有序、森林、无边退化单排）、
  *          结果与输入同序、选中数不足返回 null
  * [POS]: lib/pomelo/world-canvas 的对齐几何回归（画布工具栏「对齐」菜单的落位依据）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -9,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ARRANGE_GAP, arrangeMinCount, computeArrange, type ArrangeRect } from "./arrange";
+import { ARRANGE_GAP, TREE_LAYER_GAP, arrangeMinCount, computeArrange, computeTreeLayout, type ArrangeEdge, type ArrangeNode, type ArrangeRect } from "./arrange";
 
 // 三个不等宽/不等高的矩形：并集包围盒 = (0,0) 700×200
 const rects: ArrangeRect[] = [
@@ -112,6 +113,24 @@ test("grid keeps the existing row structure and equalizes gaps within and betwee
   ]);
 });
 
+test("grid does not let a tall card swallow the rows beneath it", () => {
+  // 回归：旧算法用「中心点落进行的纵向包围盒」判定，高卡片会把下面一行整体吞掉（塌成一条横排）
+  const cascade: ArrangeRect[] = [
+    { x: 0, y: 0, width: 100, height: 400 }, // 高卡片
+    { x: 0, y: 300, width: 80, height: 60 }, // 下一行
+    { x: 300, y: 300, width: 80, height: 60 },
+  ];
+  const targets = computeArrange(cascade, "grid");
+  assert.ok(targets);
+  const secondRowY = 400 + ARRANGE_GAP;
+  // 第一行只放高卡片；下面一行单独成行，不再被高卡片吞并
+  assert.deepEqual(targets, [
+    { x: 0, y: 0 },
+    { x: 0, y: secondRowY },
+    { x: 80 + ARRANGE_GAP, y: secondRowY },
+  ]);
+});
+
 test("insufficient selection returns null and the required count matches the mode", () => {
   const pair = rects.slice(0, 2);
   assert.equal(computeArrange([rects[0]], "left"), null);
@@ -119,6 +138,63 @@ test("insufficient selection returns null and the required count matches the mod
   assert.ok(computeArrange(pair, "grid"));
   assert.equal(arrangeMinCount("left"), 2);
   assert.equal(arrangeMinCount("distribute-y"), 3);
+});
+
+test("tree mode is not handled by computeArrange", () => {
+  assert.equal(computeArrange(rects, "tree-down"), null);
+  assert.equal(computeArrange(rects, "tree-right"), null);
+});
+
+// 树形排布夹具：A 为根，B/C 为其子（父 A 居两子上方/左侧居中）
+const treeNodes: ArrangeNode[] = [
+  { id: "a", x: 0, y: 0, width: 100, height: 40 },
+  { id: "b", x: 0, y: 200, width: 80, height: 40 },
+  { id: "c", x: 300, y: 200, width: 120, height: 40 },
+];
+const treeEdges: ArrangeEdge[] = [
+  { from: "a", to: "b" },
+  { from: "a", to: "c" },
+];
+
+test("tree layout (vertical) stacks children below and centers the parent", () => {
+  const targets = computeTreeLayout(treeNodes, treeEdges, "vertical");
+  assert.ok(targets);
+  const span = 80 + ARRANGE_GAP + 120;
+  const rowY = 40 + TREE_LAYER_GAP;
+  assert.deepEqual(targets, [
+    { x: (span - 100) / 2, y: 0 },
+    { x: 0, y: rowY },
+    { x: 80 + ARRANGE_GAP, y: rowY },
+  ]);
+});
+
+test("tree layout (horizontal) stacks children to the right and centers the parent", () => {
+  const targets = computeTreeLayout(treeNodes, treeEdges, "horizontal");
+  assert.ok(targets);
+  const colX = 100 + TREE_LAYER_GAP;
+  const span = 40 + ARRANGE_GAP + 40;
+  assert.deepEqual(targets, [
+    { x: 0, y: (span - 40) / 2 },
+    { x: colX, y: 0 },
+    { x: colX, y: 40 + ARRANGE_GAP },
+  ]);
+});
+
+test("disconnected nodes degrade to a single row and never overlap", () => {
+  const forest: ArrangeNode[] = [
+    { id: "a", x: 0, y: 0, width: 100, height: 40 },
+    { id: "b", x: 300, y: 0, width: 60, height: 40 },
+  ];
+  const targets = computeTreeLayout(forest, [], "vertical");
+  assert.ok(targets);
+  assert.deepEqual(targets, [
+    { x: 0, y: 0 },
+    { x: 100 + ARRANGE_GAP * 2, y: 0 },
+  ]);
+});
+
+test("tree layout needs at least two nodes", () => {
+  assert.equal(computeTreeLayout([treeNodes[0]], [], "vertical"), null);
 });
 
 test("alignment never touches the untouched axis or the sizes", () => {

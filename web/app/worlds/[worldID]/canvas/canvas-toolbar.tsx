@@ -6,8 +6,8 @@
  * 居中渲染于全局 Header，无浮动容器）——选择/抓手模式、连线工具、历史菜单（T12：最近变更逐条撤销 /
  * 版本快照回滚）、独立插入（图片/音频/视频/文本 + 扩展占位）、undo/redo（语义双栈）、
  * 缩放菜单（放大/缩小/50%/100%/200%/适应项目/适应所选内容——按 selectedIds 求多选并集包围盒）、
- * 多选「对齐」下拉（仅 selectedIds.length>1 时出现：六向对齐 / 分布间距 / 网格排布，经 store.arrangeSelection
- * 按各元素有效矩形落位，整批一条撤销）与帮助面板；
+ * 多选「对齐」下拉（仅 selectedIds.length>1 时出现：六向对齐 / 分布间距 / 网格排布 / 树形排布（从上到下·从左到右），
+ * 经 store.arrangeSelection 按各元素有效矩形（树形排布另按选中节点间关系边）落位，整批一条撤销）与帮助面板；
  * 抓手模式的全画布平移 overlay 由 canvas-pomelo.tsx 宿主渲染（panMode 读自 canvas-store）
  * [POS]: worlds/[worldID]/canvas 的工具组；由 canvas-top-bar.tsx 包装后进页面最顶 Header 居中位
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -29,11 +29,13 @@ import {
   Hand,
   History as HistoryIcon,
   LayoutGrid,
+  ListTree,
   MousePointer2,
   Plus,
   Redo2,
   Spline,
   Undo2,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
@@ -65,6 +67,8 @@ const LAYOUT_ITEMS: Array<{ mode: ArrangeMode; icon: LucideIcon }> = [
   { mode: "distribute-x", icon: AlignHorizontalSpaceBetween },
   { mode: "distribute-y", icon: AlignVerticalSpaceBetween },
   { mode: "grid", icon: LayoutGrid },
+  { mode: "tree-down", icon: ListTree },
+  { mode: "tree-right", icon: Workflow },
 ];
 
 export function CanvasToolbarItems() {
@@ -284,7 +288,7 @@ export function CanvasToolbarItems() {
               <li>• 单击卡/元素/线：选中（右侧面板）</li>
               <li>• 空白拖拽：框选多个元素/关系；Shift 拖拽：追加框选</li>
               <li>• Shift 点选：在多选集合中增删；多选后拖拽整体位移、Del 批量删除</li>
-              <li>• 多选后工具栏「对齐」：六向对齐 / 分布间距 / 网格排布（⌘Z 一次撤销整批）</li>
+              <li>• 多选后工具栏「对齐」：六向对齐 / 分布间距 / 网格排布 / 树形排布（⌘Z 一次撤销整批）</li>
               <li>• 双击实体卡：进入内部；双击便签/文本：就地编辑</li>
               <li>• 双击空白：按最近类型建卡（Alt = 创建菜单）</li>
               <li>• 悬停卡拖「＋」手柄：连到实体 = 建关系，落空 = 加属性</li>
@@ -307,7 +311,7 @@ export function CanvasToolbarItems() {
                 aria-label={`对齐与排布（已选 ${selectedIds.length} 个）`}
                 className="grid size-7 place-items-center rounded-md text-zinc-300 transition-colors hover:bg-zinc-700/60 hover:text-white disabled:opacity-40"
                 disabled={readOnly}
-                title="对齐与排布：六向对齐 / 分布间距 / 网格排布"
+                title="对齐与排布：六向对齐 / 分布间距 / 网格排布 / 树形排布"
                 type="button"
               >
                 <AlignHorizontalJustifyCenter className="size-4" />

@@ -57,7 +57,7 @@ import { ENTITY_CARD_PAD, entityCardContentHeight, entityCardImageHeight } from 
 import { MEDIA_VISUAL_SIZE, isMediaVisualModality, measureMediaVisualRatio } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
 import { textAttrHeight, textElementHeight } from "@/lib/pomelo/world-canvas/blocks/text-block-metrics";
 import { blockRect } from "@/lib/pomelo/world-canvas/arrow-geometry";
-import { ARRANGE_LABELS, computeArrange, type ArrangeMode, type ArrangeRect } from "@/lib/pomelo/world-canvas/arrange";
+import { ARRANGE_LABELS, computeArrange, computeTreeLayout, type ArrangeEdge, type ArrangeMode, type ArrangeRect } from "@/lib/pomelo/world-canvas/arrange";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import {
   createRecutWorldsClient,
@@ -198,6 +198,36 @@ export function canvasSelectionBlockId(selection: CanvasSelection): string | nul
 // 与 CanvasBindsPlugin 的提交路径共用同一映射（插件内不再各写一份）。
 export function canvasElementIdOfBlock(blockId: string): string {
   return blockId.startsWith("entity:") ? `shape:${blockId.slice("entity:".length)}` : blockId;
+}
+
+// 树形排布的边收集：只保留两端都在选中集里的边（语义关系与自由箭头两端）。
+// 节点键统一用画布元素 id（实体 → `shape:<entityId>`），与 arrangeSelection 的 entry.canvasId 对齐。
+// 方向即父 → 子，与连线的 from→to 一致。
+function treeEdgesAmong(
+  state: Pick<WorldCanvasState, "relations" | "elements" | "entities">,
+  selected: Set<string>,
+): ArrangeEdge[] {
+  const edges: ArrangeEdge[] = [];
+  for (const relation of state.relations) {
+    const from = `shape:${relation.fromEntityId}`;
+    const to = `shape:${relation.toEntityId}`;
+    if (from !== to && selected.has(from) && selected.has(to)) edges.push({ from, to });
+  }
+  const keyOf = (value: unknown): string | null => {
+    const text = typeof value === "string" ? value : "";
+    if (!text) return null;
+    if (selected.has(text)) return text;
+    const stripped = text.replace(/^(shape|entity):/, "");
+    const entity = `shape:${stripped}`;
+    return selected.has(entity) ? entity : null;
+  };
+  for (const element of state.elements) {
+    if (element.kind !== "arrow") continue;
+    const from = keyOf(element.props?.fromElementId);
+    const to = keyOf(element.props?.toElementId);
+    if (from && to && from !== to) edges.push({ from, to });
+  }
+  return edges;
 }
 
 // block id → CanvasSelection（框选/Shift 点选落回单选的解析出口）；对象已不在当前层时返回 null。
@@ -1839,8 +1869,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     });
   },
 
-  // 多选对齐 / 分布间距 / 网格排布（顶部工具栏「对齐」菜单）：矩形取 blockRect（渲染真源，与命中/连线/吸附同源），
-  // 只改 x/y、不改尺寸；关系边（arrow:）与无几何的 block 不参与；选中数不足直接不动（computeArrange 返回 null）。
+  // 多选对齐 / 分布间距 / 网格排布 / 树形排布（顶部工具栏「对齐」菜单）：矩形取 blockRect（渲染真源，与命中/连线/吸附同源），
+  // 只改 x/y、不改尺寸；关系边（arrow:）与无几何的 block 不参与；选中数不足直接不动（返回 null）。
+  // 树形排布额外读选中节点间的关系边（treeEdgesAmong）建森林，由 computeTreeLayout 落位。
   // 整批只记一条撤销（logGeometryChange），与拖拽提交同一撤销口径。
   arrangeSelection: (mode) => {
     const state = get();
@@ -1858,7 +1889,14 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       if (!state.elements.some((element) => element.id === canvasId)) continue;
       entries.push({ canvasId, rect });
     }
-    const targets = computeArrange(entries.map((entry) => entry.rect), mode);
+    const isTree = mode === "tree-down" || mode === "tree-right";
+    const targets = isTree
+      ? computeTreeLayout(
+          entries.map((entry) => ({ id: entry.canvasId, ...entry.rect })),
+          treeEdgesAmong(state, new Set(entries.map((entry) => entry.canvasId))),
+          mode === "tree-right" ? "horizontal" : "vertical",
+        )
+      : computeArrange(entries.map((entry) => entry.rect), mode);
     if (!targets) return;
     const history: Array<{ id: string; before: Record<string, unknown>; after: Record<string, unknown> }> = [];
     entries.forEach((entry, index) => {
