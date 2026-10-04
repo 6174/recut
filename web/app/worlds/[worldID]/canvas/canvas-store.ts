@@ -100,6 +100,17 @@ export function persistedAspect(props: Record<string, unknown> | undefined, fiel
   return aspect;
 }
 
+// 是否需要（重新）测量比例：已存比例**只在 key 明确等于当前素材 key 时**才可信。
+// 旧数据可能只写了 aspect 没写 key（无法判定它对应哪张素材）——此前被永久信任，导致素材换图后
+// 陈旧比例一直生效（如角色封面存了 1.5 而真实是 1:1，卡片高度永远按横图算）。这里要求 key 匹配，
+// 空/不匹配则重测一次并补写 key（幂等，只多测一次）。
+export function needsAspectMeasure(props: Record<string, unknown> | undefined, field: string, currentKey: string): boolean {
+  if (!currentKey) return false;
+  const aspect = Number(props?.[field]);
+  if (!(aspect > 0)) return true;
+  return String(props?.[`${field}Key`] ?? "") !== currentKey;
+}
+
 // 视觉媒体测量：加载成功后把比例回写元素 props（DB），并推进 dataVersion 重建画布。
 // 已回写（key 匹配）或同一次会话内在途则跳过，幂等，可安全放进加载循环。
 function fitVisualMediaElement(elementId: string, apiBase: string, source: { assetId?: string; url?: string }, modality: unknown) {
@@ -107,7 +118,7 @@ function fitVisualMediaElement(elementId: string, apiBase: string, source: { ass
   const key = source.assetId || source.url || "";
   if (!key) return;
   const element = useWorldCanvasStore.getState().elements.find((item) => item.id === elementId);
-  if (persistedAspect(element?.props, "visualAspect", key)) return;
+  if (!needsAspectMeasure(element?.props, "visualAspect", key)) return;
   const guard = `${elementId}:${key}`;
   if (visualMeasureInFlight.has(guard)) return;
   const src = resolveMediaPropsSrc(apiBase, source);
@@ -3610,7 +3621,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const cover = entityCoverMedia(state.apiBase, entity);
     if (!cover || cover.kind !== "image") return;
     const key = cover.assetId || cover.url;
-    if (!key || persistedAspect(element.props, "coverAspect", key)) return;
+    if (!key || !needsAspectMeasure(element.props, "coverAspect", key)) return;
     const guard = `${element.id}:cover:${key}`;
     if (visualMeasureInFlight.has(guard)) return;
     visualMeasureInFlight.add(guard);

@@ -4,7 +4,9 @@
  *           以及 chunk 增删改与 position/content 失效；direct 模式下支持：
  *           - 保留场景底图（buildSceneBacking/presentSceneBacking/beginSceneBacking/stepSceneBacking：
  *             内容不变时平移/缩放只贴一张自适应底图纹理；覆盖不足时贴旧底图占位并**分帧增量**重建，
- *             内容变化时**一次性**重建以避免闪现旧画面；对齐 open-pencil sceneBacking）；
+ *             内容变化时走**分批构建**（begin+step 循环，每批一次独立 vello resolve 再累积）——
+ *             避免整场所有图像挤进单次 resolve 触发 vello 单张 image atlas 溢出（装不下的图被静默丢弃
+ *             → 缩小视野让更多图同时可见时随机空白）；对齐 open-pencil sceneBacking）；
  *           - 拖拽内容会话（beginContentSession/endContentSession：静态内容只渲一次，会话帧只重渲 live chunks）。
  *           open-pencil tiles/controller.ts 直译，光栅器经 TileRasterizer seam 注入（vello）。
  * [POS]: pomelo-tiles 的编排核心；对上只暴露 renderFrame 与 chunk 操作，renderer 无关。
@@ -274,7 +276,22 @@ export class TileController<TTarget, THandle> {
         };
         const buildOneShot = (): TileFrameResult => {
           const { bv, chunks } = searchBackingChunks();
-          oneShotBacking(chunks, bv);
+          // 分批构建底图：把整场拆成小批，每批一次独立 vello resolve 再累积到同一底图。
+          // 关键：vello 的持久 image atlas 只需容纳「相邻 1~2 批」的图像（老批次的图会在下一次
+          // 分配失败时按 stale 淘汰回收）；若整场所有大图塞进单次 Scene 一次 resolve，图集装不下
+          // 的图会被 resolver 静默丢弃（xy=None）→ 缩小视野让更多图同时可见时随机几张空白。
+          try {
+            beginBacking(chunks, bv);
+            let guard = 0;
+            // step_scene_backing 每次只推进一个 batch（MAX_BATCHES_PER_STEP=1），循环到完成。
+            while (!stepBacking(Number.POSITIVE_INFINITY) && guard++ < 4096) {
+              // 逐批推进
+            }
+          } catch (error) {
+            // 分批路径异常时回退整场单次构建，保证画面正确优先
+            console.warn("[pomelo-tiles] batched backing build failed, fallback to one-shot", error);
+            oneShotBacking(chunks, bv);
+          }
           this.backingGeneration = gen;
           presentBacking(viewport, false);
           return finish(chunks.length, false);

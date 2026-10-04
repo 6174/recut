@@ -15,7 +15,9 @@
  *           让 contentGeneration 自增并触发整场底图重建（整场重渲 + 整场 vello resolve）。
  *           图片纹理按视口缩放/元素尺寸自适应分辨率：首次基准档 512，放大时 512→1024→2048→4096
  *           升档（复用缓存的源 Image 重栅格并原位替换纹理），避免放大发糊；
- *           加载失败（404/CORS/非图片）做负缓存，杜绝「渲染→失败→重渲染→再请求」请求风暴。
+ *           加载失败（404/CORS/非图片）做负缓存，杜绝「渲染→失败→重渲染→再请求」请求风暴；
+ *           但负缓存带指数退避重试（2^n 秒，上限 30s，最多 6 次）——服务重启/连接挤占等瞬时失败
+ *           恢复后无需重建文档结构即可自动补图，避免图片被永久判死留在空白。
  *           对外提供 refreshBlocks()：图片/音频波形等外部异步数据就绪后重跑 block 绘制并同步 chunk。
  *           WebGPU 不可用时不降级，抛 RendererUnsupportedError（带 reason）；wasm 产物缺失/设备初始化失败抛
  *           RendererInitError（reason=resource/device），由宿主区分提示「构建产物」还是「升级浏览器/开硬件加速」。
@@ -97,6 +99,12 @@ function withCacheBust(url: string): string {
 const IMAGE_TIERS = [512, 1024, 2048, 4096] as const;
 const IMAGE_BASE_TIER = IMAGE_TIERS[0];
 
+// 图片加载失败的退避重试：负载/网络瞬时失败（服务重启、连接被挤占、CORS 竞态）不应永久失图。
+// 首次失败后按 2^n 秒退避重试（上限 30s），最多 6 次；成功即清除，达上限视为永久失败。
+const IMAGE_RETRY_BASE_MS = 2000;
+const IMAGE_RETRY_MAX_MS = 30_000;
+const IMAGE_RETRY_MAX_ATTEMPTS = 6;
+
 /** 源图长边自然像素。 */
 function naturalLongSide(image: HTMLImageElement): number {
   return Math.max(image.naturalWidth || 0, image.naturalHeight || 0);
@@ -163,8 +171,9 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private readonly removedBlocks = new Set<string>();
   private readonly imageIds = new Map<string, number>();
   private readonly imagePending = new Set<string>();
-  /** url → 已确认加载失败（非图片/404/CORS）；负缓存，避免反复请求。结构重建时清空以便重试。 */
-  private readonly imageFailed = new Set<string>();
+  /** url → 已确认加载失败（非图片/404/CORS）；负缓存避免反复请求，但带退避重试（见 IMAGE_RETRY_*）。 */
+  private readonly imageFailed = new Map<string, { attempts: number; nextRetryAt: number }>();
+  private imageRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly imageSizes = new Map<number, { width: number; height: number }>();
   /** url → 已注册纹理的当前档位（长边设备像素）；用于按视口放大升档。 */
   private readonly imageTier = new Map<string, number>();
@@ -467,8 +476,10 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
 
     if (structural) {
       this.controller?.endContentSession();
-      // 文档结构重建（block 增删）→ 素材引用可能已变化：清空失败缓存，允许新 URL 重试。
+      // 文档结构重建（block 增删）→ 素材引用可能已变化：清空失败缓存与待重试排程，允许新 URL 立即重试。
       if (this.imageFailed.size > 0) this.imageFailed.clear();
+      if (this.imageRetryTimer) clearTimeout(this.imageRetryTimer);
+      this.imageRetryTimer = null;
     }
 
     if (changed) {
@@ -489,7 +500,9 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     const frame = this.editor.ticker.frameId;
     if (!force && this.lastFlushFrame === frame) return;
     // 未 covered 也继续渲染（补偿确定性），直到瓦片补齐
-    if (!this.dirty && controller.scheduler.pending() === 0 && this.isCovered()) return;
+    if (!this.dirty && controller.scheduler.pending() === 0 && this.isCovered()) {
+      return;
+    }
     this.lastFlushFrame = frame;
     // 缩放变化：帧内一次重绘 zoom 常量 block 并把 drawVersion 变化同步成 chunk（此前分散在事件回调里逐次执行）。
     // 导航期不消费：重绘 zoom 常量块 → drawVersion 变 → contentDirty → contentGeneration++ → 底图 generation 不符
@@ -526,7 +539,12 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       }
       return cached;
     }
-    if (this.imageFailed.has(url)) return null;
+    const failure = this.imageFailed.get(url);
+    if (failure) {
+      // 达重试上限 = 永久失败；冷却期内返回 null，避免失败重绘形成请求风暴。
+      if (failure.attempts >= IMAGE_RETRY_MAX_ATTEMPTS || Date.now() < failure.nextRetryAt) return null;
+      // 冷却已过：放行本次重试（记录保留，成功时删除、失败时继续累计/退避）。
+    }
     if (this.imagePending.has(url)) return null;
     this.imagePending.add(url);
     const id = this.nextImageId++;
@@ -554,12 +572,42 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
         console.warn("[pomelo-vello-adapter] image load failed", url, error);
       } finally {
         this.imagePending.delete(url);
-        // 只有成功才触发重绘：失败重绘会让所有 block 再调 ensureImage 形成请求死循环。
-        if (ok) this.refreshBlocks();
-        else this.imageFailed.add(url);
+        if (ok) {
+          this.imageFailed.delete(url);
+          // 只有成功才立即触发重绘：失败立即重绘会让所有 block 再调 ensureImage 形成请求死循环。
+          this.refreshBlocks();
+        } else {
+          // 失败不立即重绘（避免死循环），改为按退避定时重试：服务/网络恢复后无需重建结构即可补图。
+          this.recordImageFailure(url);
+        }
       }
     })().catch(() => undefined);
     return null;
+  }
+
+  /** 记录一次图片加载失败并按指数退避安排重试（成功时由 ensureImage 清除记录）。 */
+  private recordImageFailure(url: string): void {
+    const attempts = (this.imageFailed.get(url)?.attempts ?? 0) + 1;
+    const delay = Math.min(IMAGE_RETRY_MAX_MS, IMAGE_RETRY_BASE_MS * 2 ** (attempts - 1));
+    this.imageFailed.set(url, { attempts, nextRetryAt: Date.now() + delay });
+    this.scheduleImageRetry();
+  }
+
+  /** 把最近一次待重试排进单个定时器；到点重跑 block 绘制，冷却已过的 URL 会重新请求。 */
+  private scheduleImageRetry(): void {
+    if (this.imageRetryTimer) clearTimeout(this.imageRetryTimer);
+    this.imageRetryTimer = null;
+    let next = Infinity;
+    for (const state of this.imageFailed.values()) {
+      if (state.attempts < IMAGE_RETRY_MAX_ATTEMPTS && state.nextRetryAt < next) next = state.nextRetryAt;
+    }
+    if (!Number.isFinite(next)) return;
+    this.imageRetryTimer = setTimeout(() => {
+      this.imageRetryTimer = null;
+      if (!this.controller) return;
+      this.refreshBlocks();
+      this.scheduleImageRetry();
+    }, Math.max(0, next - Date.now()));
   }
 
   /** 已注册纹理随视口放大升档：重栅格后用**新 id** 注册（不注销旧纹理）。 */
@@ -703,6 +751,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   destroy(): void {
     if (this.navTimer) clearTimeout(this.navTimer);
     this.navTimer = null;
+    if (this.imageRetryTimer) clearTimeout(this.imageRetryTimer);
+    this.imageRetryTimer = null;
     this.disposeTicker?.dispose();
     this.disposeTicker = null;
     // 释放保留场景底图（纹理与合成绑定）

@@ -18,12 +18,13 @@ use vello::wgpu::{
     ShaderSource, ShaderStages, StoreOp, TextureSampleType, TextureView, TextureViewDimension, VertexState,
 };
 
-const UNIFORM_BYTES: u64 = 32;
+const UNIFORM_BYTES: u64 = 48;
 
 const SHADER: &str = r#"
 struct Uniforms {
     dst: vec4<f32>,
     uv: vec4<f32>,
+    shape: vec4<f32>,   // x = 圆角半径(设备像素, 0=直角)，yz = 半个目标尺寸(设备像素)
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var tex: texture_2d<f32>;
@@ -32,6 +33,7 @@ struct Uniforms {
 struct VOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) quad: vec2<f32>,
 };
 
 @vertex
@@ -44,12 +46,26 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
     var out: VOut;
     out.pos = vec4<f32>(u.dst.xy + c * u.dst.zw, 0.0, 1.0);
     out.uv = u.uv.xy + c * (u.uv.zw - u.uv.xy);
+    out.quad = c;
     return out;
 }
 
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
-    return textureSample(tex, samp, in.uv);
+    var color = textureSample(tex, samp, in.uv);
+    let radius = u.shape.x;
+    if (radius > 0.0) {
+        // rounded-rect SDF：把 quad 归一坐标映射到目标像素空间，算到圆角矩形的有符号距离，
+        // 边缘 1px 做 AA。用于图像直采时替代 vello 的 pushClipRoundRect（圆角裁切）。
+        let half = u.shape.yz;
+        let r = min(radius, min(half.x, half.y));
+        let p = in.quad * (half * 2.0) - half;
+        let q = abs(p) - (half - vec2<f32>(r, r));
+        let d = length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
+        let cover = clamp(0.5 - d, 0.0, 1.0);
+        color = color * cover;
+    }
+    return color;
 }
 "#;
 
@@ -63,6 +79,8 @@ pub struct QuadDraw<'a> {
     /// 源纹理是否已是预乘 alpha。vello 直接渲出的瓦片/快照为**直通** alpha（false）；
     /// 经本合成器累积构建的底图为**预乘** alpha（true），需换用预乘混合，否则半透明边缘会二次预乘。
     pub premultiplied: bool,
+    /// 圆角半径（设备像素，0 = 直角）。图像直采用它做圆角裁切；瓦片/底图为 0。
+    pub radius: f32,
 }
 
 struct TileBinding {
@@ -214,7 +232,7 @@ impl Compositor {
         for draw in draws {
             let [sx, sy, sw, sh] = draw.rect;
             let [u0, v0, u1, v1] = draw.uv;
-            let uniforms: [f32; 8] = [
+            let uniforms: [f32; 12] = [
                 sx / w * 2.0 - 1.0,
                 1.0 - sy / h * 2.0,
                 sw / w * 2.0,
@@ -223,6 +241,10 @@ impl Compositor {
                 v0,
                 u1,
                 v1,
+                draw.radius,
+                sw * 0.5,
+                sh * 0.5,
+                0.0,
             ];
             let entry = self.entries.entry(draw.handle).or_insert_with(|| {
                 let buffer = device.create_buffer(&BufferDescriptor {

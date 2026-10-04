@@ -388,7 +388,7 @@ impl VelloRuntime {
                     let size = (TILE_DEVICE_SIZE as f32) * scale;
                     let inner0 = tile.bleed / tile.tex_size;
                     let inner1 = (tile.bleed + TILE_DEVICE_SIZE as f32) / tile.tex_size;
-                    QuadDraw { handle: *handle, view: &tile.view, rect: [sx, sy, size, size], uv: [inner0, inner0, inner1, inner1], premultiplied: false }
+                    QuadDraw { handle: *handle, view: &tile.view, rect: [sx, sy, size, size], uv: [inner0, inner0, inner1, inner1], premultiplied: false, radius: 0.0 }
                 })
             })
             .collect();
@@ -518,7 +518,7 @@ impl VelloRuntime {
         let scene = self.build_stream_scene(&chunks, transform)?;
         let (texture, view) = self.render_scene_to_texture(&scene, width, height)?;
         let handle = self.next_handle; self.next_handle += 1;
-        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false };
+        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0 };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
         self.compositor.dispose(handle);
         drop(texture);
@@ -556,8 +556,8 @@ impl VelloRuntime {
         let rect = [0.0f32, 0.0f32, width as f32, height as f32];
         let uv = [0.0f32, 0.0f32, 1.0f32, 1.0f32];
         let draws = [
-            QuadDraw { handle: session.handle, view: &session.view, rect, uv, premultiplied: false },
-            QuadDraw { handle: live_handle, view: &live_view, rect, uv, premultiplied: false },
+            QuadDraw { handle: session.handle, view: &session.view, rect, uv, premultiplied: false, radius: 0.0 },
+            QuadDraw { handle: live_handle, view: &live_view, rect, uv, premultiplied: false, radius: 0.0 },
         ];
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &draws)?;
         self.compositor.dispose(live_handle);
@@ -619,7 +619,7 @@ impl VelloRuntime {
         if !covered {
             return Ok(false);
         }
-        let draw = QuadDraw { handle: backing.handle, view: &backing.view, rect: [sx, sy, sw, sh], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: backing.premultiplied };
+        let draw = QuadDraw { handle: backing.handle, view: &backing.view, rect: [sx, sy, sw, sh], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: backing.premultiplied, radius: 0.0 };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
         Ok(true)
     }
@@ -677,7 +677,7 @@ impl VelloRuntime {
                 if let Err(error) = self.render_scene_into(&build.batch_view, &scene, width, height) {
                     break Err(error);
                 }
-                let draw = QuadDraw { handle: build.batch_handle, view: &build.batch_view, rect: [0.0, 0.0, build.width, build.height], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false };
+                let draw = QuadDraw { handle: build.batch_handle, view: &build.batch_view, rect: [0.0, 0.0, build.width, build.height], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0 };
                 if let Err(error) = self.accumulate_into_view(&build.target_view, width, height, &[draw]) {
                     break Err(error);
                 }
@@ -779,7 +779,7 @@ impl VelloRuntime {
 
         let handle = self.next_handle;
         self.next_handle += 1;
-        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false };
+        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0 };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
         self.compositor.dispose(handle);
         Ok(())
@@ -927,7 +927,7 @@ impl VelloRuntime {
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         // 直接以固定屏幕矩形合成这张 4×4 纹理（不进入瓦片世界坐标体系）
-        let draw = QuadDraw { handle: u32::MAX, view: &view, rect: [200.0, 200.0, 160.0, 160.0], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false };
+        let draw = QuadDraw { handle: u32::MAX, view: &view, rect: [200.0, 200.0, 160.0, 160.0], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0 };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])
     }
 }
