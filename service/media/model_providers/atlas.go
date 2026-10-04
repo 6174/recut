@@ -55,7 +55,11 @@ func (atlasCloudProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 		return ImageResult{}, err
 	}
 	if input.RecordPrediction != nil {
-		if err := input.RecordPrediction(prediction.ID, prediction.PollURL); err != nil {
+		if err := input.RecordPrediction(PredictionCheckpoint{
+			RemoteID: prediction.ID,
+			PollURL:  prediction.PollURL,
+			Metadata: map[string]any{"atlasPredictionId": prediction.ID},
+		}); err != nil {
 			return ImageResult{}, err
 		}
 	}

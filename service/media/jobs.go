@@ -677,11 +677,11 @@ func (m *MediaService) generateImage(job MediaJob, credential MediaCredential, m
 		// model variant (…/edit) distinct from text-to-image (…/text-to-image).
 		apiModelID = model.EditModelID
 	}
-	var recordPrediction func(string, string) error
+	var recordPrediction func(model_providers.PredictionCheckpoint) error
 	if len(job.AssetIDs) == 1 {
 		assetID := job.AssetIDs[0]
-		recordPrediction = func(remoteID, pollURL string) error {
-			return m.bindRunningAtlasPrediction(job.ID, assetID, remoteID, pollURL)
+		recordPrediction = func(checkpoint model_providers.PredictionCheckpoint) error {
+			return m.bindRunningPrediction(job.ID, assetID, checkpoint)
 		}
 	}
 	result, err := provider.GenerateImage(model_providers.ImageInput{
@@ -711,6 +711,47 @@ func (m *MediaService) generateImage(job MediaJob, credential MediaCredential, m
 		metadata[key] = value
 	}
 	return m.saveGeneratedAsset(job, result.Content, "image", result.MimeType, metadata)
+}
+
+// bindRunningPrediction checkpoints a provider-accepted remote prediction onto
+// an already-running image job/asset (the synchronous image path) so a failed
+// output download can be retried without resubmitting the generation. The
+// provider owns checkpoint.Metadata: its anchor fields (task id, public task
+// URL, …) are merged verbatim so the media layer never assumes a provider's
+// field names.
+func (m *MediaService) bindRunningPrediction(jobID, assetID string, checkpoint model_providers.PredictionCheckpoint) error {
+	db, err := m.database()
+	if err != nil {
+		return err
+	}
+	asset, err := m.getAsset(assetID)
+	if err != nil {
+		return err
+	}
+	if asset.JobID != jobID {
+		return errors.New("running asset does not belong to this job")
+	}
+	metadata := asset.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	for key, value := range checkpoint.Metadata {
+		metadata[key] = value
+	}
+	serialized, _ := json.Marshal(metadata)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	rollback := func(cause error) error { _ = tx.Rollback(); return cause }
+	if _, err := tx.Exec("update media_assets set remote_id = ?, remote_poll_url = ?, metadata_json = ?, updated_at = ? where id = ? and status = 'running' and remote_id = ''", checkpoint.RemoteID, checkpoint.PollURL, string(serialized), now, assetID); err != nil {
+		return rollback(err)
+	}
+	if _, err := tx.Exec("update media_jobs set remote_id = ?, remote_poll_url = ?, updated_at = ? where id = ? and status = 'running' and remote_id = ''", checkpoint.RemoteID, checkpoint.PollURL, now, jobID); err != nil {
+		return rollback(err)
+	}
+	return tx.Commit()
 }
 
 // imageReferences decodes a job's image references into the byte form a

@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Provider 注册与标准 HTTP 客户端、凭据、引用字节
- * [OUTPUT]: 媒体 Provider 策略接口、注册表与图片生成请求/结果 DTO；按 provider ID 分派到各自协议
+ * [OUTPUT]: 媒体 Provider 策略接口、注册表与图片生成请求/结果 DTO；按 provider ID 分派到各自协议；已受理任务的锚点由 provider 经 PredictionCheckpoint 自带，媒体层原样合并
  * [POS]: media/model_providers 的策略边界；每个 Provider 只实现自己的线协议，不接触工作区 SQLite、密钥存储或 Asset 持久化
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -47,10 +47,23 @@ type ImageInput struct {
 	// caller only decides how long to wait. A non-positive value falls back to
 	// the strategy's own default.
 	PollBudget time.Duration
-	// RecordPrediction checkpoints the remote task ID as soon as the provider
-	// accepted the submission, so a later download failure can be retried
-	// without resubmitting the generation.
-	RecordPrediction func(remoteID, pollURL string) error
+	// RecordPrediction checkpoints the accepted remote task as soon as the
+	// provider submission returns, so a later download failure can be retried
+	// without resubmitting the generation, and so the pending asset can link
+	// back to the upstream task while generation is still running. The provider
+	// owns Metadata: it names its own anchor fields (e.g. its task id and
+	// public task URL) and the media layer merges them verbatim, never assuming
+	// a provider's field names.
+	RecordPrediction func(PredictionCheckpoint) error
+}
+
+// PredictionCheckpoint is the provider-owned handle for one accepted remote
+// task. RemoteID/PollURL are the generic recovery handle; Metadata carries the
+// provider's own anchor fields for the pending asset's UI link.
+type PredictionCheckpoint struct {
+	RemoteID string
+	PollURL  string
+	Metadata map[string]any
 }
 
 // ImageResult is the final bytes a provider returned for an image job.

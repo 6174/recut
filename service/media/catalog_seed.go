@@ -158,16 +158,6 @@ func wavespeedSeedanceReferenceBudget() []ReferenceBudget {
 	}}
 }
 
-// wavespeedImageToVideoReferenceBudget 是 Seedance 2.0/2.5 图生视频的参考预算：
-// 必须 1 张首图，不接受视频/音频参考。
-func wavespeedImageToVideoReferenceBudget() []ReferenceBudget {
-	return []ReferenceBudget{{
-		Requirements: []string{"images>=1", "videos==0", "audios==0"},
-		MaxImages:    1,
-		Image:        &ReferenceKindSpec{MaxBytes: 30 << 20, Mimes: []string{"image/jpeg", "image/jpg", "image/png", "image/webp"}},
-	}}
-}
-
 // wavespeedTextVideoParameters 是 Seedance 2.0/2.5 文本转视频的参数面。
 func wavespeedTextVideoParameters() []MediaParameter {
 	return []MediaParameter{
@@ -179,24 +169,13 @@ func wavespeedTextVideoParameters() []MediaParameter {
 	}
 }
 
-// wavespeedImageVideoParameters 是 Seedance 2.0/2.5 图生视频的参数面（首图 image +
-// 尾帧 last_image）。
-func wavespeedImageVideoParameters() []MediaParameter {
-	return []MediaParameter{
-		{Name: "durationSeconds", ProviderKey: "duration", Type: "integer", Default: float64(5), Minimum: floatPtr(4), Maximum: floatPtr(15)},
-		{Name: "resolution", ProviderKey: "resolution", Type: "string", Enum: []string{"480p", "720p", "1080p", "4k"}, Default: "720p"},
-		{Name: "aspectRatio", ProviderKey: "aspect_ratio", Type: "string", Enum: []string{"16:9", "9:16", "4:3", "3:4", "1:1", "21:9"}},
-		{Name: "generateAudio", ProviderKey: "generate_audio", Type: "boolean", Default: true},
-	}
-}
+// wavespeedTextVideoReferenceFields：Seedance 系列文生视频参考走复数数组。该端点
+// 同时承担 text2video 与 reference2video（reference_images/reference_videos/
+// reference_audios），不再需要单独的图生视频变体。
+var wavespeedTextVideoReferenceFields = map[string]string{"image": "reference_images", "video": "reference_videos", "audio": "reference_audios"}
 
-// wavespeedTextVideoReferenceFields / wavespeedImageVideoReferenceFields：Seedance
-// 系列文生视频参考走复数数组；图生视频首图走单数 image 标量。
-var (
-	wavespeedTextVideoReferenceFields  = map[string]string{"image": "reference_images", "video": "reference_videos", "audio": "reference_audios"}
-	wavespeedImageVideoReferenceFields = map[string]string{"image": "image"}
-	wavespeedImageEditReferenceFields  = map[string]string{"image": "images"}
-)
+// wavespeedImageEditReferenceFields：图像编辑走复数 images 数组。
+var wavespeedImageEditReferenceFields = map[string]string{"image": "images"}
 
 // seedProviders 是编译期内嵌种子目录：CDN providers/<id>.catalog.json 加载失败
 // 时的最终回退，契约与 CDN 目录一致（新增模型优先走 CDN，不再改这里发版）。
@@ -225,10 +204,8 @@ var seedProviders = []MediaProvider{
 		{ID: "wavespeed/openai/gpt-image-2.5-flare/edit", Provider: "wavespeed", Name: "GPT Image 2.5 Flare · 图像编辑", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-flare/edit", InputModes: []string{"text", "image"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters(), ReferenceFields: wavespeedImageEditReferenceFields},
 		{ID: "wavespeed/openai/gpt-image-2.5-sunburst", Provider: "wavespeed", Name: "GPT Image 2.5 Sunburst · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-sunburst/text-to-image", InputModes: []string{"text"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters()},
 		{ID: "wavespeed/openai/gpt-image-2.5-sunburst/edit", Provider: "wavespeed", Name: "GPT Image 2.5 Sunburst · 图像编辑", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-sunburst/edit", InputModes: []string{"text", "image"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters(), ReferenceFields: wavespeedImageEditReferenceFields},
-		{ID: "wavespeed/bytedance/seedance-2.0", Provider: "wavespeed", Name: "Seedance 2.0 · 文生视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0/text-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio", "enableWebSearch"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedSeedanceReferenceBudget(), Parameters: wavespeedTextVideoParameters(), ReferenceFields: wavespeedTextVideoReferenceFields},
-		{ID: "wavespeed/bytedance/seedance-2.0/image-to-video", Provider: "wavespeed", Name: "Seedance 2.0 · 图生视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0/image-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedImageToVideoReferenceBudget(), Parameters: wavespeedImageVideoParameters(), ReferenceFields: wavespeedImageVideoReferenceFields},
-		{ID: "wavespeed/bytedance/seedance-2.5", Provider: "wavespeed", Name: "Seedance 2.5 · 文生视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.5/text-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio", "enableWebSearch"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedSeedanceReferenceBudget(), Parameters: wavespeedTextVideoParameters(), ReferenceFields: wavespeedTextVideoReferenceFields},
-		{ID: "wavespeed/bytedance/seedance-2.5/image-to-video", Provider: "wavespeed", Name: "Seedance 2.5 · 图生视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.5/image-to-video", InputModes: []string{"text", "image"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedImageToVideoReferenceBudget(), Parameters: wavespeedImageVideoParameters(), ReferenceFields: wavespeedImageVideoReferenceFields},
+		{ID: "wavespeed/bytedance/seedance-2.0", Provider: "wavespeed", Name: "Seedance 2.0 · 文生/参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0/text-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio", "enableWebSearch"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedSeedanceReferenceBudget(), Parameters: wavespeedTextVideoParameters(), ReferenceFields: wavespeedTextVideoReferenceFields},
+		{ID: "wavespeed/bytedance/seedance-2.5", Provider: "wavespeed", Name: "Seedance 2.5 · 文生/参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.5/text-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio", "enableWebSearch"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedSeedanceReferenceBudget(), Parameters: wavespeedTextVideoParameters(), ReferenceFields: wavespeedTextVideoReferenceFields},
 		{ID: "wavespeed/bytedance/seed-audio-1.0", Provider: "wavespeed", Name: "Seed Audio 1.0", Capability: SpeechGenerate, APIModelID: "bytedance/seed-audio-1.0", InputModes: []string{"text"}, OutputModes: []string{"format", "sampleRate", "speed", "volume", "pitch"}, Available: true, Configurable: true},
 	}},
 	{ID: "openai", Name: "OpenAI", Protocol: "openai", DefaultAPIBase: "https://api.openai.com/v1", Models: []MediaModel{{ID: "openai/gpt-image-2", Provider: "openai", Name: "GPT Image 2", Capability: ImageGenerate, APIModelID: "gpt-image-2", InputModes: []string{"text"}, OutputModes: []string{"size", "quality", "background"}, Available: true, Configurable: true, Parameters: openAIImageSeedParameters()}}},

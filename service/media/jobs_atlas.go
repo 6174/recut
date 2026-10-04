@@ -8,7 +8,6 @@ package media
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -429,42 +428,6 @@ func uploadAtlasVideos(baseURL, secret string, uploads []atlas.MediaUpload) ([]s
 		urls = append(urls, url)
 	}
 	return urls, nil
-}
-
-// bindRunningAtlasPrediction checkpoints the Atlas prediction ID onto an
-// already-running image job/asset (activateQueuedTask path) so a failed
-// output download can be retried without resubmitting the generation.
-func (m *MediaService) bindRunningAtlasPrediction(jobID, assetID, remoteID, pollURL string) error {
-	db, err := m.database()
-	if err != nil {
-		return err
-	}
-	asset, err := m.getAsset(assetID)
-	if err != nil {
-		return err
-	}
-	if asset.JobID != jobID {
-		return errors.New("running asset does not belong to this job")
-	}
-	metadata := asset.Metadata
-	if metadata == nil {
-		metadata = map[string]any{}
-	}
-	metadata["atlasPredictionId"] = remoteID
-	serialized, _ := json.Marshal(metadata)
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	rollback := func(cause error) error { _ = tx.Rollback(); return cause }
-	if _, err := tx.Exec("update media_assets set remote_id = ?, remote_poll_url = ?, metadata_json = ?, updated_at = ? where id = ? and status = 'running' and remote_id = ''", remoteID, pollURL, string(serialized), now, assetID); err != nil {
-		return rollback(err)
-	}
-	if _, err := tx.Exec("update media_jobs set remote_id = ?, remote_poll_url = ?, updated_at = ? where id = ? and status = 'running' and remote_id = ''", remoteID, pollURL, now, jobID); err != nil {
-		return rollback(err)
-	}
-	return tx.Commit()
 }
 
 func fetchMediaDetect(client *http.Client, url string) ([]byte, string, error) {

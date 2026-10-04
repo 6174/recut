@@ -41,7 +41,6 @@ import { OVERLAY_GUIDE, OVERLAY_HANDLE, OVERLAY_HANDLE_FILL, OVERLAY_SELECTION, 
 import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignment-guide-plugin";
 import { pomeloPerf } from "@/lib/pomelo/pomelo-core/pomelo-perf";
 import {
-  bezierPoint,
   bezierTangent,
   curveSegment,
   distanceToRelation,
@@ -55,7 +54,8 @@ type Point = { x: number; y: number };
 type Rect = { x: number; y: number; width: number; height: number };
 
 // 矩形节点类型：凡有矩形几何的节点类型都参与点选/双击/hover/框选命中（含 media / media-node /
-// world-node，与渲染的 block type 对齐）；关系/自由箭头不按矩形命中，改由「两端节点都被框中」判定。
+// world-node，与渲染的 block type 对齐）；关系/自由箭头不参与框选（框选只圈节点，避免密集关系网里
+// 框到边而难选节点），点选按线体距离。
 const NODE_TYPES = new Set(["entity-card", "note", "free-element", "media", "media-node", "world-node"]);
 const MARQUEE_NODE_TYPES = NODE_TYPES;
 const RELATION_PREFIX = "arrow:";
@@ -80,34 +80,6 @@ function rectOfRecord(record: { type: string; attrs: Record<string, unknown> }):
 // 两矩形是否有正面积交集（框选命中：只要与选框有交集即算选中）
 function rectsIntersect(a: Rect, b: Rect): boolean {
   return a.width > 0 && a.height > 0 && a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-}
-
-function pointInRect(point: Point, rect: Rect): boolean {
-  return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
-}
-
-function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
-  const cross = (o: Point, p: Point, q: Point) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
-  const d1 = cross(c, d, a);
-  const d2 = cross(c, d, b);
-  const d3 = cross(a, b, c);
-  const d4 = cross(a, b, d);
-  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
-}
-
-// 线段与矩形相交：端点落入矩形，或线段穿过多边形任一边
-function segmentIntersectsRect(p: Point, q: Point, rect: Rect): boolean {
-  if (pointInRect(p, rect) || pointInRect(q, rect)) return true;
-  const corners: Point[] = [
-    { x: rect.x, y: rect.y },
-    { x: rect.x + rect.width, y: rect.y },
-    { x: rect.x + rect.width, y: rect.y + rect.height },
-    { x: rect.x, y: rect.y + rect.height },
-  ];
-  for (let i = 0; i < 4; i++) {
-    if (segmentsIntersect(p, q, corners[i], corners[(i + 1) % 4])) return true;
-  }
-  return false;
 }
 
 type MoveDrag = {
@@ -854,19 +826,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const updateHover = (event: PointerEvent, forceDraw = false): void => {
       if (useWorldCanvasStore.getState().readOnly) return;
       const world = toWorld(event);
-      let hoveredId: string | null = null;
-      const nodes = editor.state.getAllBlocks((record) => NODE_TYPES.has(record.type));
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        const rect = rectOfRecord(nodes[i]);
-        if (rect.width <= 0 || rect.height <= 0) continue;
-        if (
-          world.x >= rect.x - HOT_PAD && world.x <= rect.x + rect.width + HOT_PAD &&
-          world.y >= rect.y - HOT_PAD && world.y <= rect.y + rect.height + HOT_PAD
-        ) {
-          hoveredId = nodes[i].id;
-          break;
-        }
-      }
+      const hoveredId = editor.state.hitTestBlock(world)?.id ?? null;
       if (hoveredId !== this.#hoverBlockId || forceDraw) {
         this.#hoverBlockId = hoveredId;
         // 文本卡右上角全屏入口按 hover/选中显示：把 hover 命中同步到 store（null 即收起）
@@ -1334,8 +1294,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
-  // 框选命中：与选框有交集即选中——节点按矩形重叠，关系/自由箭头按曲线与选框相交
-  // （贝塞尔采样成折线做线段-矩形相交；与「点选按线体距离」语义不同，框选是区域命中）。
+  // 框选命中：只选节点（矩形重叠），不选关系/自由箭头——框选目的是批量移动节点，
+  // 若边也参与命中，密集关系网里几乎无法框到想移的节点。边只走点选（按线体距离）。
   #marqueeBlockIds(editor: PomeloEditor, marquee: MarqueeDrag): string[] {
     const rect: Rect = {
       x: Math.min(marquee.startWorld.x, marquee.currentWorld.x),
@@ -1346,21 +1306,6 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const ids: string[] = [];
     for (const record of editor.state.getAllBlocks((item) => !item.isRoot && MARQUEE_NODE_TYPES.has(item.type))) {
       if (rectsIntersect(rectOfRecord(record), rect)) ids.push(record.id);
-    }
-    for (const record of editor.state.getAllBlocks((item) => item.type === "relation-arrow")) {
-      const from = editor.state.getBlockById(String(record.attrs.fromId ?? ""));
-      const to = editor.state.getBlockById(String(record.attrs.toId ?? ""));
-      const geo = relationGeometry(from, to, record.attrs as never);
-      if (!geo) continue;
-      const segments = 16;
-      let prev = geo.curve.p0;
-      let hit = false;
-      for (let i = 1; i <= segments && !hit; i++) {
-        const point = bezierPoint(geo.curve.p0, geo.curve.cp, geo.curve.p2, i / segments);
-        if (segmentIntersectsRect(prev, point, rect)) hit = true;
-        prev = point;
-      }
-      if (hit) ids.push(record.id);
     }
     return ids;
   }

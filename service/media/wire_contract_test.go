@@ -227,18 +227,6 @@ func TestCatalogWireContract(t *testing.T) {
 			"duration": float64(6), "resolution": "720p", "generate_audio": false,
 		})
 	})
-	t.Run("wavespeed seedance image-to-video singular image", func(t *testing.T) {
-		model := models["wavespeed/bytedance/seedance-2.0/image-to-video"]
-		body := wavespeed.BuildPayload(wavespeed.GenerateInput{
-			Model: model.APIModelID, Prompt: "move", Images: []string{image},
-			Params:          providerOutput(model, normalizedFor(t, model, map[string]any{"durationSeconds": float64(5)})),
-			ReferenceFields: model.ReferenceFields,
-		})
-		assertBody(t, "wavespeed image-to-video", body, map[string]any{
-			"model": "bytedance/seedance-2.0/image-to-video", "image": image, "duration": float64(5),
-		})
-	})
-
 	// —— Skymind：模板参数面 + metadata 下沉 + 参考字段 ——
 	t.Run("skymind video template and metadata", func(t *testing.T) {
 		model := models["skymind-token/seedance-2.0"]
