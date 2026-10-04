@@ -134,7 +134,7 @@ export const GRAPH_TEXT = {
 } as const;
 
 /** 视口缩放低于该值时进入「低细节」：只画 shape 背景，隐藏所有文字（连线标签直接消失）。 */
-export const LOW_DETAIL_SCALE = 0.2;
+export const LOW_DETAIL_SCALE = 0.3;
 
 /* ---------- 语义色（类型 / 关系 / 属性媒体） ---------- */
 
