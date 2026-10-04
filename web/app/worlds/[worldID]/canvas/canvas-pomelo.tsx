@@ -1045,12 +1045,14 @@ export function CanvasPomeloHost() {
     if (context !== undefined) fitOnNextSync.current = true;
   }, [context]);
 
-  // 选中变化 → 重绘选区 overlay
+  // 选中变化 → 重绘选区 overlay（多选只改 selectedIds、selection 为 null，必须一并作为依赖，
+  // 否则 shift 点选/框选时数组已更新但 effect 不触发，overlay 停在旧选中态）
+  const selectedIds = useWorldCanvasStore((state) => state.selectedIds);
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !ready) return;
     pluginRef.current?.drawOverlay(editor);
-  }, [selection, dataVersion, ready]);
+  }, [selection, selectedIds, dataVersion, ready]);
 
   // 素材生成等待态（AI 先落 assetId）：把画布上引用中的 assetId 纳入状态跟踪
   // （media 元素 / 媒体属性卡 / 实体 media 属性头图）；未完成则轮询，就绪/失败后停止。

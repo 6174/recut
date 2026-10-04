@@ -656,6 +656,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
           ? store.selectedIds.filter((item) => item !== hit.blockId)
           : [...store.selectedIds, hit.blockId];
         store.selectMany(next);
+        // Shift 点选不进拖拽，pointerup 会因 !dragging 提前 return 而漏画；选中已确定，这里立即重绘选区
+        this.drawOverlay(editor);
         return;
       }
       // 命中已在多选集内：保持多选（拖拽整体位移，不塌缩为单选）
@@ -826,7 +828,19 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const updateHover = (event: PointerEvent, forceDraw = false): void => {
       if (useWorldCanvasStore.getState().readOnly) return;
       const world = toWorld(event);
-      const hoveredId = editor.state.hitTestBlock(world)?.id ?? null;
+      let hoveredId: string | null = null;
+      const nodes = editor.state.getAllBlocks((record) => NODE_TYPES.has(record.type));
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const rect = rectOfRecord(nodes[i]);
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        if (
+          world.x >= rect.x - HOT_PAD && world.x <= rect.x + rect.width + HOT_PAD &&
+          world.y >= rect.y - HOT_PAD && world.y <= rect.y + rect.height + HOT_PAD
+        ) {
+          hoveredId = nodes[i].id;
+          break;
+        }
+      }
       if (hoveredId !== this.#hoverBlockId || forceDraw) {
         this.#hoverBlockId = hoveredId;
         // 文本卡右上角全屏入口按 hover/选中显示：把 hover 命中同步到 store（null 即收起）

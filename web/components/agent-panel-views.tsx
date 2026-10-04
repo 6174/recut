@@ -7,7 +7,7 @@
 "use client";
 
 import { Bot, Check, ChevronRight, CircleAlert, Copy, Layers, LoaderCircle, RefreshCw, ThumbsDown, ThumbsUp, X } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { AgentInstallGuide, CopyFeedback, copyToClipboard, recoverySubtitle, recoveryTitle, type AgentRuntimeStatus } from "@/components/agent-install-guide";
@@ -140,7 +140,7 @@ type ToolCall = {
   subagent?: { id: string; appId?: string; operation?: string };
 };
 
-export function Conversation({
+function ConversationImpl({
   apiBase,
   detail,
   now,
@@ -274,6 +274,12 @@ export function Conversation({
     </div>
   );
 }
+
+// memo：Conversation 只依赖 apiBase/detail/now，与画布选区（WorkFocus）无关；
+// 但宿主 ProjectAgentPanel 在 workFocus 每次变化时都会重渲，若不加 memo，整条会话时间线
+// （含 tool 结果 JSON.parse）会随每次画布 shift 多选重算——选中越多/会话越长越慢。
+// 用 memo 让「仅 workFocus 变化」的重渲在此截断，只保留 detail/now 真正变化时的刷新。
+export const Conversation = memo(ConversationImpl);
 
 function turnFailure(events: AgentEvent[], turnID: string) {
   return (
