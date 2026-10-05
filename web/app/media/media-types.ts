@@ -15,6 +15,8 @@ export type Asset = {
   name: string;
   origin: string;
   status: AssetStatus;
+  // 内容寻址哈希（Service Asset 真相）：同 id 内容被替换时变化，画布据此重测媒体比例。
+  contentHash?: string;
   jobId?: string;
   remoteId?: string;
   error?: string;
@@ -196,6 +198,7 @@ export function normalizeAsset(value: Partial<Asset> & { id?: string }): Asset {
     name: value.name || "未命名素材",
     origin: value.origin || "user-upload",
     status: timedOut ? "failed" : baseStatus,
+    contentHash: typeof value.contentHash === "string" && value.contentHash.trim() !== "" ? value.contentHash : undefined,
     jobId: value.jobId,
     remoteId: value.remoteId,
     error: timedOut ? value.error || GENERATION_TIMEOUT_ERROR : value.error,

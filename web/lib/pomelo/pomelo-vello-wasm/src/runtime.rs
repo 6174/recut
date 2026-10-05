@@ -13,7 +13,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 use crate::compositor::{Compositor, QuadDraw};
-use crate::ops::{build_chunk_scene, build_scene, decode_ops, push_keepalive_image, tile_transform, KEEPALIVE_IMAGE_ID};
+use crate::ops::{build_chunk_scene, build_scene, decode_ops, push_keepalive_image, split_runs, tile_transform, DrawRun, KEEPALIVE_IMAGE_ID};
 
 const TILE_DEVICE_SIZE: u32 = 256;
 const BLEED: f32 = 2.0;
@@ -39,6 +39,8 @@ struct ContentSession {
     view: wgpu::TextureView,
     /// 显式持有纹理，保证其在会话期间存活
     _texture: wgpu::Texture,
+    /// 快照 alpha 语义：vello 直出为直通（false）；经 compositor 直采累积为预乘（true）。
+    premultiplied: bool,
 }
 
 /// 保留场景底图（对齐 open-pencil `sceneBacking`）：整场渲成一张按像素预算放大的纹理
@@ -78,6 +80,29 @@ struct SceneBackingBuild {
 /// 单个 batch 覆盖的 chunk 记录数（每条 `[u64 key][u32 len][bytes]`）。
 const BACKING_BUILD_BATCH_CHUNKS: usize = 6;
 
+/// 层纹理的固定合成句柄（图像直采用；每次 compose 结束即 dispose 其绑定，下次重建）。
+const DIRECT_LAYER_HANDLE: u32 = 0xFFFF_0F00;
+/// 矢量段 Scene 缓存上限（有界，避免任意增长）。
+const RUN_SCENE_CACHE_CAP: usize = 8192;
+
+/// 图像直采中待合成的一个 quad（owned view，便于跨段累积后一次性提交）。
+struct PendingQuad {
+    handle: u32,
+    view: wgpu::TextureView,
+    rect: [f32; 4],
+    uv: [f32; 4],
+    clip: [f32; 4],
+    radius: f32,
+}
+
+/// 仿射（仅平移+缩放）作用于世界矩形 → 设备像素矩形 `[x, y, w, h]`。
+fn transform_rect(t: Affine, x: f32, y: f32, w: f32, h: f32) -> [f32; 4] {
+    use vello::kurbo::Point;
+    let p0 = t * Point::new(x as f64, y as f64);
+    let p1 = t * Point::new((x + w) as f64, (y + h) as f64);
+    [p0.x as f32, p0.y as f32, (p1.x - p0.x) as f32, (p1.y - p0.y) as f32]
+}
+
 fn now_ms() -> f32 {
     js_sys::Date::now() as f32
 }
@@ -110,10 +135,20 @@ pub struct VelloRuntime {
     fonts: HashMap<u32, FontData>,
     fallbacks: HashMap<u32, u32>,
     images: HashMap<u32, ImageData>,
+    /// image_id → 纹理 view：图像直采时由 compositor 直接采样（不走 vello atlas）。
+    image_views: HashMap<u32, wgpu::TextureView>,
     chunk_scenes: HashMap<u64, Scene>,
+    /// 图像直采的矢量段 Scene 缓存：key = (chunk key, run index)。
+    run_scenes: HashMap<(u64, u32), Scene>,
+    /// 复用的一张全屏 layer 纹理（矢量段光栅用）；尺寸变化时重建。
+    compose_layer: Option<(wgpu::Texture, wgpu::TextureView, u32, u32)>,
     content_session: Option<ContentSession>,
     scene_backing: Option<SceneBacking>,
     scene_backing_build: Option<SceneBackingBuild>,
+    /// 开启后：图像由 compositor 直采独立纹理，矢量/文字仍由 vello 光栅（脱离 image atlas）。
+    direct_image: bool,
+    /// 图像直采下底图是一次 compose 完成，begin 后置此位、step 直接返回完成。
+    direct_backing_ready: bool,
     next_handle: u32,
     clear: wgpu::Color,
     clear_color: Color,
@@ -213,10 +248,15 @@ impl VelloRuntime {
             fonts: HashMap::new(),
             fallbacks: HashMap::new(),
             images,
+            image_views: HashMap::new(),
             chunk_scenes: HashMap::new(),
+            run_scenes: HashMap::new(),
+            compose_layer: None,
             content_session: None,
             scene_backing: None,
             scene_backing_build: None,
+            direct_image: false,
+            direct_backing_ready: false,
             next_handle: 1,
             clear: wgpu::Color::TRANSPARENT,
             clear_color: Color::from_rgba8(0, 0, 0, 0),
@@ -253,6 +293,20 @@ impl VelloRuntime {
     /// 设置字体回退：主字体缺字时用 fallback_id 对应字体绘制。
     pub fn set_font_fallback(&mut self, id: u32, fallback_id: u32) {
         self.fallbacks.insert(id, fallback_id);
+    }
+
+    /// 切换图像直采模式（`?cvperf=1`）：图像交给 compositor 采样独立纹理，矢量/文字仍走 vello。
+    /// 切换时清空底图与段缓存，避免两条路径的产物混用。
+    pub fn set_direct_image(&mut self, on: bool) {
+        if self.direct_image == on {
+            return;
+        }
+        self.direct_image = on;
+        self.end_scene_backing();
+        self.end_content_session();
+        self.run_scenes.clear();
+        self.compositor.dispose(DIRECT_LAYER_HANDLE);
+        self.compose_layer = None;
     }
 
     /// atomic chunk：把整块 chunk 一次性渲到自己的纹理（世界 bounds × level），并注册为 image_id，
@@ -299,6 +353,9 @@ impl VelloRuntime {
             // 替换时注销旧纹理，避免 vello image atlas 泄漏/驱逐
             self.renderer.unregister_texture(old);
         }
+        // 图像直采：atomic 块纹理也作为独立纹理交给 compositor（view 需在移动 texture 前建好）。
+        self.image_views.insert(image_id, view);
+        self.compositor.dispose(image_id);
         Ok(())
     }
 
@@ -317,6 +374,8 @@ impl VelloRuntime {
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::COPY_SRC,
             view_formats: &[],
         });
+        // 先建 view：图像直采时 compositor 直接绑定该纹理采样（与是否交给 vello 无关）。
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
             &rgba,
@@ -327,6 +386,9 @@ impl VelloRuntime {
         if let Some(old) = self.images.insert(id, image) {
             self.renderer.unregister_texture(old);
         }
+        // 同一 id 复用（图像升档换新 id，通常不触发）：替换 view 并丢弃旧合成绑定，避免绑定悬空。
+        self.image_views.insert(id, view);
+        self.compositor.dispose(id);
         Ok(())
     }
 
@@ -388,7 +450,7 @@ impl VelloRuntime {
                     let size = (TILE_DEVICE_SIZE as f32) * scale;
                     let inner0 = tile.bleed / tile.tex_size;
                     let inner1 = (tile.bleed + TILE_DEVICE_SIZE as f32) / tile.tex_size;
-                    QuadDraw { handle: *handle, view: &tile.view, rect: [sx, sy, size, size], uv: [inner0, inner0, inner1, inner1], premultiplied: false, radius: 0.0 }
+                    QuadDraw { handle: *handle, view: &tile.view, rect: [sx, sy, size, size], uv: [inner0, inner0, inner1, inner1], premultiplied: false, radius: 0.0, clip: [0.0; 4] }
                 })
             })
             .collect();
@@ -464,6 +526,142 @@ impl VelloRuntime {
         Ok((texture, view))
     }
 
+    /// 提交一次 compositor pass（新建 encoder 并立即 submit，保证与前后 vello render 的先后顺序）。
+    fn compose_pass(&mut self, target: &wgpu::TextureView, width: u32, height: u32, draws: &[QuadDraw<'_>], load: bool) -> Result<(), JsValue> {
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pomelo-vello-direct-pass") });
+        self.compositor.render(&self.device, &self.queue, &mut encoder, target, width, height, draws, load);
+        self.queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
+    /// 图像直采的整场 compose：按 z 序交错「vello 矢量层」与「compositor 直采图像 quad」。
+    ///
+    /// 每个矢量段先经 vello 渲到一张复用的 layer 纹理，再与该段之前累积的图像 quad 一起提交；
+    /// 图像 quad 用其裁切盒做 rounded-rect SDF（复原 cover 图的圆角裁剪）。矢量段的 Scene 按
+    /// `(chunk key, run index)` 缓存（文本 shaping 复用）；照片全程不进 vello 的 image atlas。
+    ///
+    /// `precleared`：target 是否已由调用方清成透明。true 时首 pass 用 load=true（保留透明底），
+    /// false 时首 pass 用 load=false（由 compositor 清成背景色）。输出 alpha 为预乘（与 present 对齐）。
+    #[allow(clippy::too_many_arguments)]
+    fn compose_direct(
+        &mut self,
+        target: &wgpu::TextureView,
+        precleared: bool,
+        chunks: &[u8],
+        transform: Affine,
+        width: u32,
+        height: u32,
+    ) -> Result<(), JsValue> {
+        let width = width.max(1);
+        let height = height.max(1);
+        let w = width as f32;
+        let h = height as f32;
+        let scale = transform.as_coeffs()[0] as f32;
+        // 复用一张全屏 layer 纹理（避免每帧/每段新建纹理开销）；尺寸变化时重建并丢弃旧绑定。
+        let layer_view = match &self.compose_layer {
+            Some((_, view, lw, lh)) if *lw == width && *lh == height => view.clone(),
+            _ => {
+                self.compositor.dispose(DIRECT_LAYER_HANDLE);
+                let (texture, view) = self.create_render_texture(width, height);
+                let cloned = view.clone();
+                self.compose_layer = Some((texture, view, width, height));
+                cloned
+            }
+        };
+        let mut pending: Vec<PendingQuad> = Vec::new();
+        let mut first_pass = true;
+        let mut seen: Vec<(u64, u32)> = Vec::new();
+
+        let mut cursor = 0usize;
+        while cursor + 12 <= chunks.len() {
+            let key = u64::from_le_bytes(chunks[cursor..cursor + 8].try_into().unwrap());
+            let len = u32::from_le_bytes(chunks[cursor + 8..cursor + 12].try_into().unwrap()) as usize;
+            cursor += 12;
+            if cursor + len > chunks.len() {
+                break;
+            }
+            let ops = &chunks[cursor..cursor + len];
+            cursor += len;
+            let decoded = decode_ops(ops).map_err(|e| JsValue::from_str(&format!("decode ops: {e}")))?;
+            for (run_index, run) in split_runs(&decoded).into_iter().enumerate() {
+                match run {
+                    DrawRun::Image { image_id, x, y, w: iw, h: ih, clip } => {
+                        let Some(view) = self.image_views.get(&image_id) else { continue };
+                        let rect = transform_rect(transform, x, y, iw, ih);
+                        let (clip_rect, radius) = match clip {
+                            Some(c) => (transform_rect(transform, c[0], c[1], c[2], c[3]), c[4] * scale),
+                            None => ([0.0; 4], 0.0),
+                        };
+                        pending.push(PendingQuad { handle: image_id, view: view.clone(), rect, uv: [0.0, 0.0, 1.0, 1.0], clip: clip_rect, radius });
+                    }
+                    DrawRun::Vector(ops) => {
+                        let run_key = (key, run_index as u32);
+                        seen.push(run_key);
+                        if !self.run_scenes.contains_key(&run_key) {
+                            let mut scene = Scene::new();
+                            build_chunk_scene(&ops, &self.fonts, &self.fallbacks, &self.images, &mut scene);
+                            self.run_scenes.insert(run_key, scene);
+                        }
+                        // 世界坐标 Scene + 视口变换 → 复用的 layer 纹理
+                        let mut layer_scene = Scene::new();
+                        if let Some(scene) = self.run_scenes.get(&run_key) {
+                            layer_scene.append(scene, Some(transform));
+                        }
+                        self.render_scene_into(&layer_view, &layer_scene, width, height)?;
+
+                        let load = if first_pass { precleared } else { true };
+                        let mut draws: Vec<QuadDraw> = Vec::with_capacity(pending.len() + 1);
+                        for p in &pending {
+                            draws.push(QuadDraw { handle: p.handle, view: &p.view, rect: p.rect, uv: p.uv, premultiplied: false, radius: p.radius, clip: p.clip });
+                        }
+                        draws.push(QuadDraw { handle: DIRECT_LAYER_HANDLE, view: &layer_view, rect: [0.0, 0.0, w, h], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0, clip: [0.0; 4] });
+                        self.compose_pass(target, width, height, &draws, load)?;
+                        pending.clear();
+                        first_pass = false;
+                    }
+                }
+            }
+        }
+        if !pending.is_empty() {
+            let load = if first_pass { precleared } else { true };
+            let draws: Vec<QuadDraw> = pending
+                .iter()
+                .map(|p| QuadDraw { handle: p.handle, view: &p.view, rect: p.rect, uv: p.uv, premultiplied: false, radius: p.radius, clip: p.clip })
+                .collect();
+            self.compose_pass(target, width, height, &draws, load)?;
+            first_pass = false;
+        }
+        if first_pass && !precleared {
+            // 无内容：仍清一次背景
+            self.compose_pass(target, width, height, &[], false)?;
+        }
+        if self.run_scenes.len() > RUN_SCENE_CACHE_CAP {
+            let keep: std::collections::HashSet<(u64, u32)> = seen.into_iter().collect();
+            self.run_scenes.retain(|k, _| keep.contains(k));
+        }
+        Ok(())
+    }
+
+    /// 图像直采下把整场 compose 到 surface 并 present（导航期冷缓存兜底 / render_frame 用）。
+    fn render_frame_direct(&mut self, chunks: &[u8], pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
+        let width = width.max(1);
+        let height = height.max(1);
+        let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
+        let frame = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(texture) => texture,
+            wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                self.surface.configure(&self.device, &self.config);
+                return Ok(());
+            }
+            other => return Err(JsValue::from_str(&format!("surface acquisition failed: {other:?}"))),
+        };
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.compose_direct(&view, false, chunks, transform, width, height)?;
+        frame.present();
+        Ok(())
+    }
+
     /// 创建底图目标纹理（供 compositor 累积渲染 + 采样呈现）。
     /// 必须用 **surface 的 format**：compositor pipeline 的 target format 就是它，否则
     /// 往底图累积时 pipeline/attachment 格式不匹配，wgpu 会静默跳过该 pass（底图全空）。
@@ -512,13 +710,16 @@ impl VelloRuntime {
     /// 每帧整场渲染（open-pencil layer-1 思路）：命中缓存复用 chunk Scene，全部 append 进一个
     /// Scene，按视口变换一次渲染并整屏贴。入参 chunks 为 `[u64 key][u32 len][bytes...]` 记录流。
     pub fn render_frame(&mut self, chunks: Vec<u8>, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
+        if self.direct_image {
+            return self.render_frame_direct(&chunks, pan_x, pan_y, zoom, width, height);
+        }
         let width = width.max(1);
         let height = height.max(1);
         let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
         let scene = self.build_stream_scene(&chunks, transform)?;
         let (texture, view) = self.render_scene_to_texture(&scene, width, height)?;
         let handle = self.next_handle; self.next_handle += 1;
-        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0 };
+        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0, clip: [0.0; 4] };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
         self.compositor.dispose(handle);
         drop(texture);
@@ -532,11 +733,21 @@ impl VelloRuntime {
         let width = width.max(1);
         let height = height.max(1);
         let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
+        if self.direct_image {
+            // 直采：静态内容经 compose 渲成保留快照（照片也是独立纹理，无 atlas 冲突）。
+            let (texture, view) = self.create_backing_target(width, height);
+            self.clear_view_transparent(&view);
+            self.compose_direct(&view, true, &chunks, transform, width, height)?;
+            let handle = self.next_handle;
+            self.next_handle += 1;
+            self.content_session = Some(ContentSession { handle, view, _texture: texture, premultiplied: true });
+            return Ok(());
+        }
         let scene = self.build_stream_scene(&chunks, transform)?;
         let (texture, view) = self.render_scene_to_texture(&scene, width, height)?;
         let handle = self.next_handle;
         self.next_handle += 1;
-        self.content_session = Some(ContentSession { handle, view, _texture: texture });
+        self.content_session = Some(ContentSession { handle, view, _texture: texture, premultiplied: false });
         Ok(())
     }
 
@@ -545,8 +756,16 @@ impl VelloRuntime {
         let width = width.max(1);
         let height = height.max(1);
         let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
-        let live_scene = self.build_stream_scene(&live_chunks, transform)?;
-        let (live_texture, live_view) = self.render_scene_to_texture(&live_scene, width, height)?;
+        let (live_texture, live_view, live_premultiplied) = if self.direct_image {
+            let (texture, view) = self.create_backing_target(width, height);
+            self.clear_view_transparent(&view);
+            self.compose_direct(&view, true, &live_chunks, transform, width, height)?;
+            (texture, view, true)
+        } else {
+            let live_scene = self.build_stream_scene(&live_chunks, transform)?;
+            let (texture, view) = self.render_scene_to_texture(&live_scene, width, height)?;
+            (texture, view, false)
+        };
         let live_handle = self.next_handle;
         self.next_handle += 1;
         let session = match self.content_session.as_ref() {
@@ -556,8 +775,8 @@ impl VelloRuntime {
         let rect = [0.0f32, 0.0f32, width as f32, height as f32];
         let uv = [0.0f32, 0.0f32, 1.0f32, 1.0f32];
         let draws = [
-            QuadDraw { handle: session.handle, view: &session.view, rect, uv, premultiplied: false, radius: 0.0 },
-            QuadDraw { handle: live_handle, view: &live_view, rect, uv, premultiplied: false, radius: 0.0 },
+            QuadDraw { handle: session.handle, view: &session.view, rect, uv, premultiplied: session.premultiplied, radius: 0.0, clip: [0.0; 4] },
+            QuadDraw { handle: live_handle, view: &live_view, rect, uv, premultiplied: live_premultiplied, radius: 0.0, clip: [0.0; 4] },
         ];
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &draws)?;
         self.compositor.dispose(live_handle);
@@ -579,6 +798,26 @@ impl VelloRuntime {
         let width = width.max(1);
         let height = height.max(1);
         let transform = Affine::translate((pan_x as f64, pan_y as f64)) * Affine::scale(zoom as f64);
+        if self.direct_image {
+            // 图像直采：一次 compose 直接建底图（照片不进 atlas，故无需分批 resolve）。
+            let (target_texture, target_view) = self.create_backing_target(width, height);
+            self.clear_view_transparent(&target_view);
+            self.compose_direct(&target_view, true, &chunks, transform, width, height)?;
+            let handle = self.next_handle;
+            self.next_handle += 1;
+            self.scene_backing = Some(SceneBacking {
+                handle,
+                view: target_view,
+                _texture: target_texture,
+                pan_x,
+                pan_y,
+                zoom,
+                width: width as f32,
+                height: height as f32,
+                premultiplied: true,
+            });
+            return Ok(());
+        }
         let scene = self.build_stream_scene(&chunks, transform)?;
         let (texture, view) = self.render_scene_to_texture(&scene, width, height)?;
         let handle = self.next_handle;
@@ -619,13 +858,19 @@ impl VelloRuntime {
         if !covered {
             return Ok(false);
         }
-        let draw = QuadDraw { handle: backing.handle, view: &backing.view, rect: [sx, sy, sw, sh], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: backing.premultiplied, radius: 0.0 };
+        let draw = QuadDraw { handle: backing.handle, view: &backing.view, rect: [sx, sy, sw, sh], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: backing.premultiplied, radius: 0.0, clip: [0.0; 4] };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
         Ok(true)
     }
 
     /// 开始分帧构建底图：新建累积目标 + 复用 batch 纹理；**保留已提交底图**（构建期间继续用于呈现）。
     pub fn begin_scene_backing(&mut self, chunks: Vec<u8>, pan_x: f32, pan_y: f32, zoom: f32, width: u32, height: u32) -> Result<(), JsValue> {
+        if self.direct_image {
+            // 图像直采无需分批：begin 即一次性建好底图，step 直接返回完成。
+            self.build_scene_backing(chunks, pan_x, pan_y, zoom, width, height)?;
+            self.direct_backing_ready = true;
+            return Ok(());
+        }
         self.cancel_scene_backing_build();
         let width = width.max(1);
         let height = height.max(1);
@@ -654,6 +899,10 @@ impl VelloRuntime {
     /// 分帧推进底图构建：在 `budget_ms` 内尽量多渲几个 batch；返回是否构建完成。
     /// 完成时把新底图提交（替换旧的），旧的已提交底图在此之前一直可用。
     pub fn step_scene_backing(&mut self, budget_ms: f32) -> Result<bool, JsValue> {
+        if self.direct_image {
+            self.direct_backing_ready = false;
+            return Ok(true);
+        }
         let started = now_ms();
         let mut build = match self.scene_backing_build.take() {
             Some(build) => build,
@@ -677,7 +926,7 @@ impl VelloRuntime {
                 if let Err(error) = self.render_scene_into(&build.batch_view, &scene, width, height) {
                     break Err(error);
                 }
-                let draw = QuadDraw { handle: build.batch_handle, view: &build.batch_view, rect: [0.0, 0.0, build.width, build.height], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0 };
+                let draw = QuadDraw { handle: build.batch_handle, view: &build.batch_view, rect: [0.0, 0.0, build.width, build.height], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0, clip: [0.0; 4] };
                 if let Err(error) = self.accumulate_into_view(&build.target_view, width, height, &[draw]) {
                     break Err(error);
                 }
@@ -748,6 +997,15 @@ impl VelloRuntime {
         width: u32,
         height: u32,
     ) -> Result<(), JsValue> {
+        if self.direct_image {
+            // 注意：render_direct 收到的是各 chunk 的 velloOps 直接拼接（无 key/len 记录头），
+            // 与 render_frame 的记录流格式不同；这里包成单条记录后再走 compose。
+            let mut stream = Vec::with_capacity(ops.len() + 12);
+            stream.extend_from_slice(&0u64.to_le_bytes());
+            stream.extend_from_slice(&(ops.len() as u32).to_le_bytes());
+            stream.extend_from_slice(&ops);
+            return self.render_frame_direct(&stream, pan_x, pan_y, zoom, width, height);
+        }
         let width = width.max(1);
         let height = height.max(1);
         let decoded = decode_ops(&ops).map_err(|e| JsValue::from_str(&format!("decode ops: {e}")))?;
@@ -779,7 +1037,7 @@ impl VelloRuntime {
 
         let handle = self.next_handle;
         self.next_handle += 1;
-        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0 };
+        let draw = QuadDraw { handle, view: &view, rect: [0.0, 0.0, width as f32, height as f32], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0, clip: [0.0; 4] };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])?;
         self.compositor.dispose(handle);
         Ok(())
@@ -927,7 +1185,7 @@ impl VelloRuntime {
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         // 直接以固定屏幕矩形合成这张 4×4 纹理（不进入瓦片世界坐标体系）
-        let draw = QuadDraw { handle: u32::MAX, view: &view, rect: [200.0, 200.0, 160.0, 160.0], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0 };
+        let draw = QuadDraw { handle: u32::MAX, view: &view, rect: [200.0, 200.0, 160.0, 160.0], uv: [0.0, 0.0, 1.0, 1.0], premultiplied: false, radius: 0.0, clip: [0.0; 4] };
         present_draws(&self.device, &self.queue, &self.surface, &self.config, &mut self.compositor, &[draw])
     }
 }

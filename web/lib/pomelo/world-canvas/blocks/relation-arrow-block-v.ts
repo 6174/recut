@@ -5,7 +5,8 @@
  * [OUTPUT]: 对外提供 RelationArrowBlockV（type: relation-arrow）：复用 arrow-geometry 的二次贝塞尔，
  *           曲线 + 箭头 + 标签；线宽/箭头/标签/边框均按屏幕像素恒定；zIndex=-1 永远画在内容节点下层。
  *           toRole 非空（hasReverse）时画双箭头、两端各一个标签；否则单箭头 + 中点 fromRole 标签。
- *           标签落在可视段中点（geo.mid/midT），不压在两端元素卡片上。
+ *           标签落在可视段中点（geo.mid/midT），不压在两端元素卡片上；
+ *           视口 <= LOW_DETAIL_SCALE（低细节）时曲线仍在（连线关系要看得见），只不画箭头三角（箭头屏幕尺寸恒定，缩放后成为干扰）。
  * [POS]: lib/pomelo/world-canvas/blocks 的关系连线 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -51,7 +52,8 @@ export class RelationArrowBlockV extends VelloBlock {
     // zoom 常量补偿：线条/箭头/标签尺寸乘 1/scale，屏幕上保持恒定像素（否则低缩放下细线发虚/锯齿明显）
     const scale = screenScaleOf(this.adapter);
     const inv = 1 / scale;
-    // 低细节缩放：只保留曲线 + 箭头（shape），标签直接消失
+    // 低细节缩放：曲线仍在（连线关系要看得见），但箭头三角与标签不画——它们按屏幕像素恒定，
+    // 缩放后相对内容过大、成为视觉干扰
     const lowDetail = isLowDetail(this.adapter);
     const segment = curveSegment(geo, geo.ta, geo.tb);
     const tangent = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.tb);
@@ -80,10 +82,11 @@ export class RelationArrowBlockV extends VelloBlock {
         stroke: color,
         strokeWidth,
       },
-      head(geo.b.x, geo.b.y, angle),
     ];
+    // 箭头三角：低细节下不画（线保留，箭头按屏幕像素恒定，缩放后过大干扰）
+    if (!lowDetail) ops.push(head(geo.b.x, geo.b.y, angle));
     // 反向箭头（toRole 已标记）：tip 在 a 端、方向为起点切线的反向
-    if (state?.hasReverse) {
+    if (!lowDetail && state?.hasReverse) {
       const tangentA = bezierTangent(geo.curve.p0, geo.curve.cp, geo.curve.p2, geo.ta);
       const angleA = Math.atan2(tangentA.y, tangentA.x);
       ops.push(head(geo.a.x, geo.a.y, angleA + Math.PI));

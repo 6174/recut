@@ -4,6 +4,7 @@
  * [OUTPUT]: 对外提供 world-canvas vello block 的公共绘制辅助：coverImageOpsV（center-cover 填充）、
  *           captionOpsV（卡片外元素徽标，屏幕像素恒定；支持前置彩色前缀，如实体类型名）、screenScaleOf（视口缩放）、
  *           isLowDetail（是否进入低细节缩放，供各 block 隐藏文字）、
+ *           textPlaneOpsV（低细节下文本框退化用的「面」）、
  *           moreHintOpsV（文本框内容溢出时右下角的「＋更多」小 chip，提示走全屏入口查看完整内容）。
  *           配色/排版常量一律从 graph-theme 取，本文件不再定义颜色。
  * [POS]: lib/pomelo/world-canvas/blocks 的 vello block 共享辅助层（无具体 Block，被各 *-block-v.ts 复用）。
@@ -29,6 +30,11 @@ export function screenScaleOf(adapter: PomeloRendererAdapter): number {
 /** 视口缩放是否已低到只该看到 shape（<= LOW_DETAIL_SCALE 时各 block 隐藏文字）。 */
 export function isLowDetail(adapter: PomeloRendererAdapter): boolean {
   return screenScaleOf(adapter) <= LOW_DETAIL_SCALE;
+}
+
+/** 文本框低细节退化用的「面」：填充的圆角矩形，替代已不可读的文字预览。 */
+export function textPlaneOpsV(x: number, y: number, w: number, h: number, radius: number): VelloOp[] {
+  return [{ kind: "roundRect", x, y, width: w, height: h, radius, fill: CARD_FILL, stroke: CARD_STROKE_STRONG, strokeWidth: 1 }];
 }
 
 // 溢出提示「＋更多」：文本框右下角一枚小 chip（微透明底 + 描边 + 次级文字）。

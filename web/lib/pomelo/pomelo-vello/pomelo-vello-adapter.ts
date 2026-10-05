@@ -156,6 +156,11 @@ export interface VelloRendererAdapterOptions {
    * false（缺省）= 瓦片管线：平移/缩放贴缓存旧瓦片（stale-zoom，<1ms）、落定后按预算补清晰层。
    */
   direct?: boolean;
+  /**
+   * 图像直采：照片由 compositor 采样独立纹理，脱离 vello image atlas（图形/文字仍走 vello）。
+   * 缺省读 URL `?cvperf=1`；仅在 direct 模式下生效。
+   */
+  directImage?: boolean;
 }
 
 export class VelloRendererAdapter extends PomeloRendererAdapter {
@@ -163,6 +168,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   controller: TileController<unknown, unknown> | null = null;
   rasterizerName = "none";
   viewport: Viewport | null = null;
+  /** 图像直采是否启用（`?cvperf=1` 或显式选项）。 */
+  directImage = false;
 
   private rasterizer: TileRasterizer<unknown, unknown> | null = null;
   private readonly synced = new Map<string, SyncedBlock>();
@@ -198,6 +205,15 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   constructor(options: VelloRendererAdapterOptions = {}) {
     super();
     this.options = options;
+  }
+
+  /** 读 URL `?cvperf=1`（仅显式选项缺省时）。 */
+  private readCvperf(): boolean {
+    try {
+      return new URLSearchParams(window.location.search).get("cvperf") === "1";
+    } catch {
+      return false;
+    }
   }
 
   async onInit(renderer: Parameters<PomeloRendererAdapter["onInit"]>[0]): Promise<void> {
@@ -238,6 +254,13 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       rasterizer = gpu as unknown as TileRasterizer<unknown, unknown>;
       // 先挂上光栅器：字体异步就绪的回调要能立刻触发重绘，不等 onInit 收尾。
       this.rasterizer = rasterizer;
+      // 图像直采（`?cvperf=1`）：照片由 compositor 直采独立纹理，脱离 vello image atlas。
+      this.directImage = this.options.directImage ?? this.readCvperf();
+      if (this.directImage) {
+        gpu.setDirectImage(true);
+        // 可验证标记：探针/控制台据此确认走的是直采路径（而非 vello atlas）。
+        console.info("[cvperf] direct-image ON：照片走 compositor 直采独立纹理");
+      }
       // 字体不阻塞首屏：先按「无字形」渲染卡片/连线/图片/网格（WASM 侧缺字体时跳过 TEXT op），
       // 字体就绪后整场重绘补上文字。完整中文字体约 16MB，首次加载慢；命中 Cache Storage 后零网络。
       void this.registerFonts(gpu);
@@ -344,7 +367,10 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
    * （多选拖动时表现为被拖卡片的封面/缩略图消失）。此时回退整场渲染，正确优先。
    */
   beginContentSession(excludedBlockIds: string[]): void {
-    if (excludedBlockIds.some((id) => this.blockHasImageOps(id))) return;
+    // 非直采：会话的静态快照与逐帧 live render 之间无法安全复用 vello 图像图集，含图块不启用会话。
+    // 直采：照片是独立纹理（静态快照与 live 层各自 compose，互不共享 atlas），含图块也能安全启用——
+    // 这是拖拽体验的关键（否则每帧整场重建底图）。
+    if (!this.directImage && excludedBlockIds.some((id) => this.blockHasImageOps(id))) return;
     this.controller?.beginContentSession(excludedBlockIds);
     this.dirty = true;
   }

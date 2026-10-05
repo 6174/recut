@@ -22,7 +22,8 @@
  * （store.undoLastChange/redoLastChange，画布真相在 store/服务端）；Cmd/Ctrl+C/X/V = 复制/剪切/粘贴
  * （store.copySelection/cutSelection/pasteClipboard，实体与画布元素，world 根节点由 store 过滤）；
  * 选区 overlay（关系线三控制点由 arrow-geometry.linkHandlePoints 给出：start/end 落在箭头与节点边缘
- * 的交点、mid 在可视段中点，避免默认锚点（节点中心）把控制点画到元素卡片上）+ 「+」手柄 +
+ * 的交点、mid 在可视段中点，避免默认锚点（节点中心）把控制点画到元素卡片上）+ 选中节点时其关联
+ * 连线换高亮色重画（一眼看清连到哪些节点）+ 「+」手柄 +
  * 引导草稿线（overlay 屏幕空间 / draft 世界空间，transform 变化自动重绘）
  * [POS]: worlds/[worldID]/canvas 的画布交互绑定层（resolveSelection / store↔document 同步）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -367,6 +368,24 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       const rect = rectOf(record);
       return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
     };
+    // 选中节点时，把与之相连的所有连线换成高亮色重画一遍——让「这个点连到哪些节点」一眼可见
+    const highlightConnectedLinks = (nodeBlockIds: Set<string>) => {
+      const overlay = this.#overlay;
+      if (!overlay || nodeBlockIds.size === 0) return;
+      const arrows = editor.state.getAllBlocks((record) => record.type === "relation-arrow");
+      for (const record of arrows) {
+        const fromId = String(record.attrs.fromId ?? "");
+        const toId = String(record.attrs.toId ?? "");
+        if (!nodeBlockIds.has(fromId) && !nodeBlockIds.has(toId)) continue;
+        const from = editor.state.getBlockById(fromId);
+        const to = editor.state.getBlockById(toId);
+        const geo = relationGeometry(from, to, record.attrs as never);
+        if (!geo) continue;
+        const part = curveSegment(geo, geo.ta, geo.tb);
+        overlay.quad(toScreen(part.p0), toScreen(part.cp), toScreen(part.p2), { stroke: cssColor(OVERLAY_SELECTION, 0.95), strokeWidth: 2.5 });
+      }
+    };
+
     // 覆盖层绘制：屏幕空间（guide 草稿线 + 「+」手柄 + 选区/关系高亮）
     this.#paint = () => {
       const overlay = this.#overlay;
@@ -457,9 +476,17 @@ export class CanvasBindsPlugin extends PomeloPlugin {
             { stroke: cssColor(OVERLAY_SELECTION, 0.7), strokeWidth: 2 },
           );
         }
+        highlightConnectedLinks(new Set(selectedIds));
         return;
       }
       if (!selection) return;
+
+      // 单选节点：先高亮它的全部关联连线（关系线本身选中时集合为空，不重复画）
+      const selectedNodeIds = new Set<string>();
+      if (selection.type === "entity") selectedNodeIds.add(`entity:${selection.entity.id}`);
+      else if (selection.type === "world") selectedNodeIds.add("shape:world");
+      else if (selection.type === "canvas" && selection.element.kind !== "arrow") selectedNodeIds.add(selection.element.id);
+      highlightConnectedLinks(selectedNodeIds);
 
       let relationArrowId: string | null = null;
       if (selection.type === "relation") relationArrowId = `${RELATION_PREFIX}${selection.relation.id}`;
@@ -692,6 +719,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         .getAllBlocks((record) => record.type === "relation-arrow" && (keySet.has(String(record.attrs.fromId ?? "")) || keySet.has(String(record.attrs.toId ?? ""))))
         .map((record) => record.id);
       this.#sessionActive = true;
+      // 拖拽/缩放开始（首次 move）：通知宿主隐藏文本卡全屏入口，避免按钮停在旧位置
+      useWorldCanvasStore.getState().setDraggingBlockId(ids[0] ?? null);
       try {
         (editor.renderAdapter as { beginContentSession?: (ids: string[]) => void }).beginContentSession?.([...ids, ...arrowIds]);
       } catch (error) {
@@ -701,6 +730,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const endSession = () => {
       if (!this.#sessionActive) return;
       this.#sessionActive = false;
+      useWorldCanvasStore.getState().setDraggingBlockId(null);
       try {
         (editor.renderAdapter as { endContentSession?: () => void }).endContentSession?.();
       } catch (error) {
@@ -1238,6 +1268,7 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const unsubTransform = adapter.onTransformEvent.on(() => this.drawOverlay(editor));
     this.#cleanup = () => {
       cancelPendingMove();
+      useWorldCanvasStore.getState().setDraggingBlockId(null);
       this.editor.ticker.cancel(CanvasBindsPlugin.#MARQUEE_KEY);
       view.removeEventListener("pointerdown", onPointerDown);
       view.removeEventListener("pointermove", onPointerMove);

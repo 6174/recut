@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MEDIA_VISUAL_HEIGHT, MEDIA_VISUAL_LONG_SIDE, MEDIA_VISUAL_SIZE, MEDIA_VISUAL_WIDTH, mediaVisualSizeForRatio } from "./media-visual-metrics";
+import { MEDIA_VISUAL_HEIGHT, MEDIA_VISUAL_LONG_SIDE, MEDIA_VISUAL_SIZE, MEDIA_VISUAL_WIDTH, mediaAspectKey, mediaVisualSizeForRatio } from "./media-visual-metrics";
 
 test("landscape 16:9 keeps the reference size", () => {
   assert.deepEqual(mediaVisualSizeForRatio(1920 / 1080), { width: MEDIA_VISUAL_WIDTH, height: MEDIA_VISUAL_HEIGHT });
@@ -36,4 +36,19 @@ test("the longest side is always the anchor, whatever the ratio", () => {
 
 test("the empty 16:9 placeholder matches an aspect-derived 16:9", () => {
   assert.deepEqual(mediaVisualSizeForRatio(16 / 9), MEDIA_VISUAL_SIZE);
+});
+
+test("the aspect identity key prefers the content hash so a replaced asset re-measures", () => {
+  // 同一 assetId、内容哈希变化 = 内容被替换（视频重新生成/重新上传）→ key 必须变化，
+  // 否则旧 visualAspect（如 9:16）会被 needsAspectMeasure 永久信任，节点尺寸不随新内容（16:9）更新。
+  assert.notEqual(mediaAspectKey("a1", "", "hash-9x16"), mediaAspectKey("a1", "", "hash-16x9"));
+  assert.equal(mediaAspectKey("a1", "", "hash-9x16"), "a1:hash-9x16");
+});
+
+test("the aspect identity key falls back to assetId then url", () => {
+  // proposed 资产无内容哈希（尚未生成）→ 用 assetId；url-only 元素 → 用 url；空引用 → 空串。
+  assert.equal(mediaAspectKey("a1", "", undefined), "a1");
+  assert.equal(mediaAspectKey("a1", "", ""), "a1");
+  assert.equal(mediaAspectKey("", "https://cdn/x.mp4", undefined), "https://cdn/x.mp4");
+  assert.equal(mediaAspectKey("", "", undefined), "");
 });

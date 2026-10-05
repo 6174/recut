@@ -1,6 +1,6 @@
 # 世界画布：图像直采渲染（脱离 vello image atlas）
 
-- 状态：Phase 0 已落地；Phase 1 进行中
+- 状态：Phase 0 已落地；**Phase 1 已实现（`?cvperf=1` 门控，待真机验证）**
 - 日期：2026-10-04
 - 范围：`web/lib/pomelo/pomelo-vello`、`web/lib/pomelo/pomelo-vello-wasm`、`web/lib/pomelo/pomelo-core/pomelo-tiles`
 
@@ -52,20 +52,27 @@ vello 只负责把**矢量/文字**光栅成层。atlas 回归小件，不再承
 - 落地：`TileController.buildOneShot` 改走 `beginBacking` + 循环 `stepBacking`（失败回退单次构建）。
 - 效果：200%→30% 随机空白消失；**不降分辨率**。
 
-### Phase 1 —— 图像直采（进行中，关键重构）
+### Phase 1 —— 图像直采（已实现，`?cvperf=1` 门控）
 
 把 `image` op 从 vello op 流中拆出，作为 `ImageQuad` 用 compositor 直采独立纹理。
+开关：适配器读 URL `?cvperf=1`（或显式 `directImage` 选项）→ `gpu.setDirectImage(true)` →
+wasm `set_direct_image(true)`。默认关闭，原路径行为不变。
 
-任务拆解（每步可独立验证）：
+实现落点（与拆解对应）：
 
-1. **op 通道分离**：`RenderChunk.payload` 增加 `imageQuads`；`VelloBlock` 的 `image` op 在适配器
-   `syncChunks` 中拆出（velloOps 不再含图像）。保持行为不变（先只建数据模型）。
-2. **compositor 圆角裁切**：`compositor.rs` fragment shader 增加 rounded-rect SDF；
-   `QuadDraw` 增加 `radius`。
-3. **Rust 侧按序渲染**：`build_stream_scene` 遇 `ImageQuad` 时：flush 当前 vector Scene 到目标 →
-   compositor 画 image quad → 继续。`chunk_scenes` 缓存按 (chunkId, runIndex) 切分。
-4. **底图/瓦片/会话全部走 DrawList**；移除 `runtime.rs` 里图像走 atlas 的 `build_scene` image 分支。
-5. **纹理管理**：独立纹理池 + 分辨率策略。
+1. **op 通道分离**：在 Rust `ops::split_runs` 内完成（不改 JS payload）：把 chunk 的 op 序列按
+   `Image` 切成有序 `DrawRun`（`Vector` / `Image`），图像段携带所在圆角裁切盒；clip 跨图像时
+   对矢量段做 close/reopen 使其自洽。z 序 = 段顺序。
+2. **compositor 圆角裁切**：fragment shader 用**设备空间** rounded-rect SDF；`QuadDraw` 增加
+   `radius` + `clip`（裁切盒可不同于目标矩形，复原 center-cover + 圆角裁切）。
+3. **Rust 侧按序渲染**：`runtime::compose_direct` 遍历 chunk/run：矢量段经 vello 渲到复用的 layer
+   纹理 → 与该段前的图像 quad 一起 compositor 提交；`run_scenes` 按 `(chunk key, runIndex)` 缓存。
+4. **底图/整帧/导航直绘/拖拽会话全部走直采**：`build_scene_backing` / `begin+step_scene_backing`
+   / `render_frame` / `render_direct` / `begin+render_content_session` 在直采模式下都改走
+   `compose_direct`；照片不再进 atlas。拖拽内容会话因此对**含图块也安全启用**（静态快照与逐帧 live
+   层各自 compose、互不共享 atlas），避免拖拽时每帧整场重建底图。
+5. **纹理管理（基础版）**：每图一张独立 wgpu 纹理 + `TextureView` 直接采样；矢量层复用单张 layer
+   纹理。**纹理池 / 分辨率降档 / mip 仍待补**（Phase 2）。
 
 ### Phase 2 —— 收敛
 

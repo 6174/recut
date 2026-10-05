@@ -54,7 +54,7 @@
 import { create } from "zustand";
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { ENTITY_CARD_PAD, entityCardContentHeight, entityCardImageHeight } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
-import { MEDIA_VISUAL_SIZE, isMediaVisualModality, measureMediaVisualRatio } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
+import { MEDIA_VISUAL_SIZE, isMediaVisualModality, measureMediaVisualRatio, mediaAspectKey } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
 import { textAttrHeight, textElementHeight } from "@/lib/pomelo/world-canvas/blocks/text-block-metrics";
 import { blockRect } from "@/lib/pomelo/world-canvas/arrow-geometry";
 import { ARRANGE_LABELS, computeArrange, computeTreeLayout, type ArrangeEdge, type ArrangeMode, type ArrangeRect } from "@/lib/pomelo/world-canvas/arrange";
@@ -87,7 +87,8 @@ import { useElementAssetHistoryStore } from "./panel/element-asset-history-store
 // 图片/视频块（视觉媒体）与实体卡封面按素材比例定尺：素材**加载成功时**测 naturalWidth / videoWidth，
 // 比例**回写数据库**（元素 props 的 visualAspect / coverAspect + 对应 `<field>Key`），渲染按它派生尺寸；
 // 几何 width/height 仍是放置盒/初始提示，不参与渲染。回写后 reload 首屏即按真实比例渲染，不再「占位 → 跳变」。
-// `<field>Key` 记录测量时的素材身份（assetId||url）：素材更换后 key 不匹配会重新测量，避免用旧比例。
+// `<field>Key` 记录测量时的素材身份（assetId + 内容哈希，见 mediaAspectKey）：素材更换、或同一
+// assetId 的内容被替换/重新生成后 key 不匹配会重新测量，避免旧比例（如 9:16）在内容变成 16:9 后仍生效。
 const visualMeasureInFlight = new Set<string>();
 
 /** 元素 props 里持久化的实测比例（DB 回写）：字段与 `<field>Key` 匹配当前素材时可用；未测得 / key 不匹配返回 null
@@ -116,7 +117,10 @@ export function needsAspectMeasure(props: Record<string, unknown> | undefined, f
 // 已回写（key 匹配）或同一次会话内在途则跳过，幂等，可安全放进加载循环。
 function fitVisualMediaElement(elementId: string, apiBase: string, source: { assetId?: string; url?: string }, modality: unknown) {
   if (!isMediaVisualModality(modality)) return;
-  const key = source.assetId || source.url || "";
+  // 身份 key 用**内容哈希**（而非 assetId）：同一 assetId 的素材内容被替换/重新生成后，
+  // 旧 visualAspect 才不会被 key 匹配而永久信任（否则视频从 9:16 变 16:9 后节点尺寸不更新）。
+  const asset = source.assetId ? canvasAssetOf(source.assetId) : null;
+  const key = mediaAspectKey(source.assetId ?? "", source.url ?? "", asset?.contentHash);
   if (!key) return;
   const element = useWorldCanvasStore.getState().elements.find((item) => item.id === elementId);
   if (!needsAspectMeasure(element?.props, "visualAspect", key)) return;
@@ -637,7 +641,14 @@ const canvasSaveState = {
   // id → 本次待落库的字段组（无 entry 表示整个元素，如新建）
   dirty: new Map<string, Set<CanvasDirtyGroup>>(),
   removed: new Set<string>(),
+  // 标脏序号：每标一次全局自增，按 id 记录最近序号。保存只清「落库时序号未再变」的脏项，
+  // 否则保存在途期间的新拖拽（同 id、同 groups）会被 clearDirty 一并抹掉 → 刷新回退到旧位置。
+  dirtyRev: new Map<string, number>(),
+  removedRev: new Map<string, number>(),
+  rev: 0,
   saving: false,
+  // 在途保存的 promise：并发 flush/load 需要等它落库，否则会读到旧版本文档而回退。
+  savingPromise: null as Promise<void> | null,
 };
 
 // 每个标签页一个稳定客户端 id：同标签页刷新不变（sessionStorage）、跨标签页不同。随画布写一起发给
@@ -765,13 +776,19 @@ async function withChangeGroup<T>(label: string, action: () => Promise<T> | T): 
 
 // 标脏：groups 省略 = 整个元素（新建）；removed=true = 删除（从脏集移出，进 removed）。
 function markCanvasDirty(id: string, groups?: CanvasDirtyGroup[], removed = false) {
+  canvasSaveState.rev += 1;
   if (removed) {
     canvasSaveState.dirty.delete(id);
+    canvasSaveState.dirtyRev.delete(id);
     canvasSaveState.removed.add(id);
+    canvasSaveState.removedRev.set(id, canvasSaveState.rev);
   } else {
     const set = canvasSaveState.dirty.get(id) ?? new Set<CanvasDirtyGroup>();
     for (const group of groups ?? CANVAS_ALL_GROUPS) set.add(group);
     canvasSaveState.dirty.set(id, set);
+    canvasSaveState.dirtyRev.set(id, canvasSaveState.rev);
+    canvasSaveState.removed.delete(id);
+    canvasSaveState.removedRev.delete(id);
   }
   scheduleCanvasSave();
 }
@@ -786,22 +803,45 @@ function scheduleCanvasSave() {
   }, CANVAS_SAVE_DEBOUNCE_MS);
 }
 
-// 立即落盘当前文档（上下文切换/卸载前调用，避免丢最后一次去抖窗口）
+// 立即落盘当前文档（上下文切换/卸载前调用，避免丢最后一次去抖窗口）。
+// 并发安全：已有保存在途时先等它落库，再排空其期间新增的脏集——这样 load() 在 flush 之后
+// 拉到的远端文档一定包含本地最新几何，不会出现「拖完落位后自动回退到旧位置」。
 async function flushCanvasSave(): Promise<void> {
-  if (canvasSaveState.saving) {
-    scheduleCanvasSave();
-    return;
+  while (canvasSaveState.saving) {
+    const inflight = canvasSaveState.savingPromise;
+    if (!inflight) break;
+    await inflight;
   }
   const state = useWorldCanvasStore.getState();
   if (state.aiLocked) return;
   if (!state.apiBase || !state.worldId || state.readOnly) return;
-  if (!canvasSaveState.dirty.size && !canvasSaveState.removed.size) return;
+  // 循环排空：保存期间用户可能又拖了一次（同一元素同字段组），必须再跑一轮。
+  // 上限兜底，避免持续失败时死循环。
+  for (let guard = 0; guard < 5 && (canvasSaveState.dirty.size || canvasSaveState.removed.size); guard += 1) {
+    const ok = await runCanvasSave();
+    if (!ok) break;
+  }
+}
+
+// runCanvasSave 执行一轮字段补丁保存（把当前脏集快照发服务端）。返回是否可继续排空：
+// true=成功（或无事可做），false=失败/被锁/未配置（调用方应停止重试）。
+async function runCanvasSave(): Promise<boolean> {
+  const state = useWorldCanvasStore.getState();
+  if (state.aiLocked) return false;
+  if (!state.apiBase || !state.worldId || state.readOnly) return false;
+  if (!canvasSaveState.dirty.size && !canvasSaveState.removed.size) return true;
   canvasSaveState.saving = true;
+  let release!: () => void;
+  canvasSaveState.savingPromise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   // 保存按「elements 归属层」而非当前导航 context：切层后 load 回填新层前，
   // elements 仍是旧层数据，按 context 落库会把旧层整包覆盖写进新层文档。
   const contextId = state.elementsContextId;
   const dirty = new Map([...canvasSaveState.dirty].map(([id, groups]) => [id, new Set(groups)] as const));
+  const dirtyRev = new Map(canvasSaveState.dirtyRev);
   const removed = new Set(canvasSaveState.removed);
+  const removedRev = new Map(canvasSaveState.removedRev);
   const elements = canvasPatchElements(state.elements, dirty);
   const save = async (version: number) => {
     const doc = await createRecutWorldsClient(state.apiBase).canvas.save({
@@ -818,13 +858,25 @@ async function flushCanvasSave(): Promise<void> {
       useWorldCanvasStore.setState({ docVersion: doc.version });
     }
   };
+  // 只清「本轮快照后序号未再变」的脏项：在途期间又被标脏的同 id 元素保留，交给下一轮。
   const clearDirty = () => {
-    for (const id of dirty.keys()) canvasSaveState.dirty.delete(id);
-    canvasSaveState.removed.clear();
+    for (const [id, rev] of dirtyRev) {
+      if (canvasSaveState.dirtyRev.get(id) === rev) {
+        canvasSaveState.dirty.delete(id);
+        canvasSaveState.dirtyRev.delete(id);
+      }
+    }
+    for (const [id, rev] of removedRev) {
+      if (canvasSaveState.removedRev.get(id) === rev) {
+        canvasSaveState.removed.delete(id);
+        canvasSaveState.removedRev.delete(id);
+      }
+    }
   };
   try {
     await save(state.docVersion);
     clearDirty();
+    return true;
   } catch (cause) {
     const code = (cause as { code?: string } | null)?.code;
     if (code === "CANVAS_VERSION_CONFLICT") {
@@ -832,21 +884,27 @@ async function flushCanvasSave(): Promise<void> {
       // elements 已切到别的层则丢弃本次落库（脏集属于旧层文档，不能写进新层）
       if (useWorldCanvasStore.getState().elementsContextId !== contextId) {
         canvasSaveState.dirty.clear();
+        canvasSaveState.dirtyRev.clear();
         canvasSaveState.removed.clear();
-      } else {
-        try {
-          const remote = await createRecutWorldsClient(state.apiBase).canvas.get({ worldId: state.worldId, contextId });
-          await save(remote.version);
-          clearDirty();
-        } catch (retryCause) {
-          useWorldCanvasStore.setState({ notice: messageOf(retryCause) });
-        }
+        canvasSaveState.removedRev.clear();
+        return false;
       }
-    } else {
-      useWorldCanvasStore.setState({ notice: messageOf(cause) });
+      try {
+        const remote = await createRecutWorldsClient(state.apiBase).canvas.get({ worldId: state.worldId, contextId });
+        await save(remote.version);
+        clearDirty();
+        return true;
+      } catch (retryCause) {
+        useWorldCanvasStore.setState({ notice: messageOf(retryCause) });
+        return false;
+      }
     }
+    useWorldCanvasStore.setState({ notice: messageOf(cause) });
+    return false;
   } finally {
     canvasSaveState.saving = false;
+    canvasSaveState.savingPromise = null;
+    release();
   }
 }
 
@@ -911,7 +969,9 @@ if (typeof window !== "undefined") {
     // 传字符串（Content-Type: text/plain，安全列表类型）不发预检；服务端按 JSON 解析，无需改。
     navigator.sendBeacon(url, body);
     canvasSaveState.dirty.clear();
+    canvasSaveState.dirtyRev.clear();
     canvasSaveState.removed.clear();
+    canvasSaveState.removedRev.clear();
   });
 }
 
@@ -1079,6 +1139,9 @@ type WorldCanvasState = {
   // 指针 hover 命中的节点 block id（CanvasBindsPlugin 写入）：文本卡右上角全屏入口按 hover/选中显示，
   // 不需要选中即可直接进全屏浏览/编辑。
   hoveredBlockId: string | null;
+  // 正在拖拽/缩放（移动）的节点 block id（CanvasBindsPlugin 写入）：文本卡右上角全屏入口在拖动时隐藏，
+  // 否则按钮停在原地（不随实时几何重排）会挡住/误导。
+  draggingBlockId: string | null;
   // 工具栏连线工具：激活后点击任意节点即可拖出引导线（与「+」手柄同一引导流程）
   linkMode: boolean;
   // 工具栏抓手模式：CanvasPomeloHost 渲染全画布平移 overlay，截获指针拖拽平移视口
@@ -1117,6 +1180,7 @@ type WorldCanvasState = {
   cancelRelating: () => void;
   setAttrCreator: (creator: AttrCreator) => void;
   setHoveredBlockId: (blockId: string | null) => void;
+  setDraggingBlockId: (blockId: string | null) => void;
   setLinkMode: (linkMode: boolean) => void;
   setPanMode: (panMode: boolean) => void;
   setEditor: (editor: PomeloEditor | null) => void;
@@ -1321,6 +1385,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   docVersion: 0,
   attrCreator: null,
   hoveredBlockId: null,
+  draggingBlockId: null,
   pendingRelation: null,
   inlineEdit: null,
   deleteTarget: null,
@@ -1587,6 +1652,9 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
 
   // 指针 hover 命中节点：文本卡右上角全屏入口据此显示（hover 或选中时出现，不常显遮挡浏览）
   setHoveredBlockId: (hoveredBlockId) => set((state) => (state.hoveredBlockId === hoveredBlockId ? {} : { hoveredBlockId })),
+
+  // 拖拽/缩放中的节点：全屏入口据此隐藏（拖动时不重排会导致按钮停在旧位置）
+  setDraggingBlockId: (draggingBlockId) => set((state) => (state.draggingBlockId === draggingBlockId ? {} : { draggingBlockId })),
 
   setLinkMode: (linkMode) => set({ linkMode, ...(linkMode ? { selection: null, selectedIds: [] } : {}) }),
 
@@ -3624,7 +3692,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     if (!entity || !element) return;
     const cover = entityCoverMedia(state.apiBase, entity);
     if (!cover || cover.kind !== "image") return;
-    const key = cover.assetId || cover.url;
+    // 封面同样按内容哈希做身份 key：同一 assetId 的封面图被替换后重新测量
+    const key = mediaAspectKey(cover.assetId ?? "", cover.url, cover.assetId ? canvasAssetOf(cover.assetId)?.contentHash : undefined);
     if (!key || !needsAspectMeasure(element.props, "coverAspect", key)) return;
     const guard = `${element.id}:cover:${key}`;
     if (visualMeasureInFlight.has(guard)) return;

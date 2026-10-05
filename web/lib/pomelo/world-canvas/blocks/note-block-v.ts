@@ -3,7 +3,7 @@
  *          world-canvas/blocks/vello-shared（isLowDetail/moreHintOpsV）、world-canvas/text-metrics（wrapTextLines）
  * [OUTPUT]: 对外提供 NoteBlockV（type: note）：中性卡面 + 细边 + 次级文字，圆角 12；
  *           文字裁剪到卡面圆角内，内容超出卡面（换行行数超过可用行数）时右下角画「＋更多」提示，
- *           完整内容走文本卡右上角全屏入口；视口 <= LOW_DETAIL_SCALE 时只画卡面、隐藏文字。
+ *           完整内容走文本卡右上角全屏入口；视口 <= LOW_DETAIL_SCALE 时只画卡面（一个面）、隐藏文字。
  * [POS]: lib/pomelo/world-canvas/blocks 的便签/文本 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
