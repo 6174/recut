@@ -133,9 +133,9 @@ resolver 是**纯函数**，放 `web/lib/media/generation-reference.ts`（可单
 
 ### 5.2 别名导出
 
-- 默认：`参考图{n}` / `参考视频{n}` / `音频{n}`。
+- 默认：`参考图{n}（{role 中文名}）「{label}」` / `参考视频{n}（{role 中文名}）「{label}」` / `音频{n}（{role 中文名}）「{label}」`；例如 `参考图1（分镜）「G1 分镜表」`、`参考图4（角色）「小荷」`。role 缺省、label 缺失时相应括号/引号段省略，退化为原有 `参考图{n}`。
+- **provider 只收到有序数组、没有逐图名称**，所以 `参考图{n}` 的编号就是「提交数组第 n 项」的唯一指代：编号顺序严格等于附件顺序，模型靠位次把每张匿名图对应到 role 与名称。role 短标签即由服务端 resolver（`service/media/prompt_reference.go` 的 `referenceRoleLabels`）按受控词表注入，不依赖作者正文的自由话术。
 - 可配置模板：把 `参考图{n}` 切换为 `{{Mixed n}}` 等 provider/团队习惯写法（`providerAliasTemplate`）。**展示层可换，绑定层不变。**
-- 导出时在别名后按 role 表拼接声明；是否保留 `（{role 中文名}）` 由模板决定。
 
 ### 5.3 `referenceIds` 顺序
 
@@ -159,7 +159,7 @@ resolver 是**纯函数**，放 `web/lib/media/generation-reference.ts`（可单
 | --- | --- | --- |
 | 创作 Agent（写 prompt 的） | 正文内 `<reference id …>` + sidecar | `<reference id="asset_a1" kind="image" role="pov" label="执明视角"/>` → 可 `recut.media.list_assets({ids})` 校验 |
 | @ 面板 / 编辑器 | chip（缩略图 + label + role badge） | `[🖼 执明视角 · 视角]` |
-| 生成模型 | 别名提交串 + 同序媒体输入 | `参考图1 作为执明视角锚定` + `referenceIds=[asset_a1,…]` |
+| 生成模型 | 别名提交串 + 同序媒体输入 | `参考图1（视角）「执明视角」` + `referenceIds=[asset_a1,…]` |
 
 - **别让模型看见 id**：模型侧提交串必须只含别名与声明。
 - **别让 Agent 只看别名**：同名会漂移，Agent 必须能拿到 id 去校验存在性、kind、role。

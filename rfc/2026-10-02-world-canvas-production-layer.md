@@ -19,7 +19,7 @@
 
 # World Canvas 生产层（Production Layer）
 
-- 状态：**M0 / M1 / M3 已实施（2026-10-02）**；M2 仅设计未实施；**M4 / M5 明确不做（overdesign，见 §11）**；**D8 修正（生产树改由 `has_*` link 单源，见 §15.5）已实施**；**默认集微调（`character`→「角色」、新增 `prop`「道具」，见 §15.6）已实施**
+- 状态：**M0 / M1 / M3 已实施（2026-10-02）**；M2 仅设计未实施；**M4 / M5 明确不做（overdesign，见 §11）**；**D8 修正（生产树改由 `has_*` link 单源，见 §15.5）已实施**；**默认集微调（`character`→「角色」、新增 `prop`「道具」，见 §15.6）已实施**；**D9（2026-10-04）生成改为「资产 + script + scene」驱动，storyboard 降级为排产/预览、不进生成；`shot` 只作预览/测试，不进生成依赖**
 - 日期：2026-10-02
 - 关联：[递归世界画布](./2026-09-07-recursive-world-canvas.md)、[统一 Entity 模型](./2026-09-09-unified-entity-model.md)、[媒体生成提案](./2026-09-16-media-generation-proposal.md)、[生成参考引用协议](./2026-09-15-generation-reference-protocol.md)、[视频脚本与一图分镜表](./2026-09-20-video-script-storyboard-sheet.md)、[World 唯一写入面](./2026-09-15-world-canvas-sole-write-surface.md)、`docs/world-canvas-prd-v2.md`
 - 证据来源：[`docs/analyze-libtv/`](../docs/analyze-libtv/README.md)（对 liblib.tv《阿猫阿雀》真实制作画布的反推）
@@ -223,7 +223,7 @@ world.identity.constraints: { always: [], never: [], prefer: [] }
 | **场次 scene** | **实体**（作品容器内的结构化对象，**不进 preset 目录**，`base_kind` 空；见 §5 / §5.4） | 新增实体（非 preset） | 一场戏；镜头的分组容器也来自它 |
 | **镜头 shot** | **实体**（同上；归属靠 `has_shot` link，`parentId` 只是文件夹） | 新增实体（非 preset） | **生成的最小单位**；有身份、可排序、可复用 |
 | **生产树（作品→脚本→场次→镜头）** | 关系 **`has_script` / `has_scene` / `has_shot`**（全局、父→子） | 新增受控词条（复用关系机制） | 树的**单源真源**；`parentId` 只是通用归属，不参与建树（D8） |
-| **分镜表 sheet** | 已有 `script.storyboard` 媒体属性 | 复用 | 一图 N 宫格分镜表（已有协议） |
+| **分镜表 sheet** | 已有 `script.storyboard` 媒体属性 | 复用（**D9：仅排产/预览**） | 一图 N 宫格分镜表（已有协议）；**不进生成参考** |
 | **关键帧 / 片段 / 配音** | 镜头实体的 **media 属性**（唯一素材通道） | 复用，新用法 | 一次生成 = 一个媒体资产；资产的 `metadata.proposal` 就是配方 |
 | **场成片 / 作品成片** | 场次 / 作品的 **media 属性**（同一条通道） | 复用 | **上层产物 = 下层产物的聚合**（拼接/合成）；这正是 liblib 图外的 `finalOutput` 所在的位置 |
 | **引用（用料）** | 产物资产自己的 `references[{id,kind,role}]`（`id` = `assetId`） | 复用 | 引用的底层都是 asset；画布上是否需要连线只是它的**可选可视化**，不是数据要求 |
@@ -388,7 +388,7 @@ Skill 是引导 Agent 的核心手段。真实案例（§1）反过来验证了�
 
 ### 9.5 不要动的部分
 
-- `generation-prompt` 的提示词形状——**已覆盖并超过真实案例，保持**。
+- `generation-prompt` 的提示词形状——**D9 修订（2026-10-04）**：真实好样本是**资产驱动的密切镜头清单**，不是「巨型 STYLE LOCK + 一镜到底」。已改为：CAMERA LOCK ≤1 行/禁品牌、STYLE LOCK ≤2 行/禁引擎词、参考锚定表每条带一句细节、每镜 1.5–4s 密切 + 前景/纵深/物理、新增《真实感与去 AI 味》；**分镜表不进生成**。
 - 参考 role 词表与"不带参考不提交"的硬规则——方向正确，正是手工流程最容易出错的地方，保持。
 - `recut` skill 的"生成必先导演"硬约束——保持；§9.2 只是把它细化成链上的两个明确环节。
 

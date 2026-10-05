@@ -373,8 +373,9 @@ function UploadButton({ modality, onAdopt }: { modality: MediaModality; onAdopt:
         type="file"
         accept={`${modality}/*`}
         onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
           event.target.value = "";
-          void upload(Array.from(event.target.files ?? []));
+          void upload(files);
         }}
       />
     </>

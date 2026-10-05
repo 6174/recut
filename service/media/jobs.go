@@ -255,26 +255,43 @@ func applyAspectRatio(modelID, aspectRatio string, output map[string]any) {
 	output["aspectRatio"] = aspectRatio
 }
 
+// durationParameterName resolves which declared Output key carries the clip
+// length. App-contributed models name it "durationSec" (matching the platform's
+// first-class field); cloud catalogs name it "durationSeconds". Both are the
+// same semantic slot, so the first-class durationSec must fold into whichever
+// the model declares.
+func durationParameterName(model MediaModel) (string, bool) {
+	if _, ok := modelParameter(model, "durationSec"); ok {
+		return "durationSec", true
+	}
+	if _, ok := modelParameter(model, "durationSeconds"); ok {
+		return "durationSeconds", true
+	}
+	return "", false
+}
+
 // applyDurationSec folds a top-level durationSec into the model Output, the
 // same contract as applyAspectRatio: the generation tools accept durationSec as
-// a first-class field, but only models that declare the parameter receive it,
-// so the value the caller chose drives the real clip length instead of the
-// model default (5s). Zero / absent leaves the model default in place.
+// a first-class field, and models that declare a duration parameter (as either
+// "durationSec" or "durationSeconds") receive it, so the value the caller chose
+// drives the real clip length instead of the model default (5s). Zero / absent
+// leaves the model default in place; an explicit Output value wins.
 func applyDurationSec(modelID string, durationSec float64, output map[string]any) {
 	if durationSec <= 0 || output == nil {
-		return
-	}
-	if _, present := output["durationSec"]; present {
 		return
 	}
 	model, ok := modelByID(modelID)
 	if !ok {
 		return
 	}
-	if _, supported := modelParameter(model, "durationSec"); !supported {
+	name, supported := durationParameterName(model)
+	if !supported {
 		return
 	}
-	output["durationSec"] = durationSec
+	if _, present := output[name]; present {
+		return
+	}
+	output[name] = durationSec
 }
 
 func (m *MediaService) createJob(input GenerateMediaInput) (MediaJob, MediaCredential, bool, error) {

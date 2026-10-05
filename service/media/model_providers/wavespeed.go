@@ -126,7 +126,7 @@ func (wavespeedProvider) GenerateImage(input ImageInput) (ImageResult, error) {
 func wavespeedResultMetadata(prediction wavespeed.Prediction) map[string]any {
 	metadata := map[string]any{"providerTaskId": prediction.ID}
 	if strings.TrimSpace(prediction.ID) != "" {
-		metadata["providerTaskUrl"] = "https://wavespeed.ai/share/" + prediction.ID
+		metadata["providerTaskUrl"] = "https://wavespeed.ai/predictions/" + prediction.ID
 	}
 	if output := prediction.FirstOutput(); output != "" {
 		metadata["providerOutputUrl"] = output

@@ -79,6 +79,7 @@ import { attrValueOf, entityFieldKeyOfLabel } from "./entity-attrs";
 import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import { confirmProposalAsset, createProposal as createProposalAsset, generationCapabilityOf, isProposalGate, proposalFromAsset, proposalIssues, proposalReferenceIds, readProposal, rejectProposalAsset, updateProposalAsset, type GenerationProposal } from "./canvas-proposal";
 import { canvasAssetOf, refreshCanvasAsset, useCanvasAssetStatusStore } from "./canvas-asset-status";
+import { modalityOfAssetKind } from "./canvas-media";
 import { buildGenerationRequest } from "@/lib/media/generation-request";
 import { normalizeAsset, type Asset, type MediaJob } from "@/app/media/media-types";
 import { useElementAssetHistoryStore } from "./panel/element-asset-history-store";
@@ -3604,10 +3605,13 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   fitMediaVisualElement: (elementId) => {
     const element = get().elements.find((item) => item.id === elementId);
     if (!element) return;
-    const modality = element.kind === "media" ? element.props?.modality : element.props?.media;
     const assetId = String(element.props?.assetId ?? "");
     const url = String(element.props?.url ?? "");
     if (!assetId && !url) return;
+    // 素材真源 kind 优先于 props.modality（与渲染路径同口径）：props 可能初始标错（视频被标成图片），
+    // 用错的 modality 去测比例会失败 → 永不回写 visualAspect → 节点尺寸不随素材自适应。
+    const asset = assetId ? canvasAssetOf(assetId) : null;
+    const modality = modalityOfAssetKind(asset?.kind ?? "") ?? (element.kind === "media" ? element.props?.modality : element.props?.media);
     fitVisualMediaElement(elementId, get().apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }, modality);
   },
 

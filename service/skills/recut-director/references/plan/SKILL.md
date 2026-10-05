@@ -15,14 +15,14 @@ description: 决定「这部片子怎么排产」——备齐锚点、把戏拆�
 | 归属 | 内容 |
 |---|---|
 | **本技能** | 排产：备锚点 → 拆场/镜 → 定用料 → 定参数与成本 → 落生产计划 |
-| `references/assets` | 把参考锚点真的做出来（角色卡/场景图/道具图/色卡/声线/分镜表）——**本技能的前置** |
+| `references/assets` | 把参考锚点真的做出来（角色卡/场景图/道具图/色卡/声线）——**本技能的前置** |
 | `references/shot` | 单个镜头/一场怎么拍（景别/角度/焦段/运动/调度/连续性） |
 | `references/generation-prompt` | 一条提示词怎么写（CAMERA LOCK / STYLE LOCK / 参考锚定 / 多镜连续段 / 声音两层 / 画内文字） |
 
 ## 一、先备锚点（缺一不排产）
 
-镜头要生成，先得有锚点：主角色参考图、场景图、道具图（关键道具）、风格锚点、声线参考、（可选）分镜表。
-- 世界已有 → 直接引用（`recut.worlds.get` 的 `references[]`，按 role：`character` / `environment` / `prop` / `style-ref` / `voice` / `storyboard`）。
+生成要有锚点：主角色参考图、场景图、道具图（关键道具）、风格锚点、声线参考（**不含分镜表——storyboard 不是生成参考**）。
+- 世界已有 → 直接引用（`recut.worlds.get` 的 `references[]`，按 role：`character` / `environment` / `prop` / `style-ref` / `voice`）。
 - 世界没有 → **先做**（见 `references/assets`），不要"纯文本直出"。
 
 > 判断依据：**这是"世界生图/生视频不带参考图"这条最严重误用的根因**——不是 Agent 不听话，是链里根本没有"先备锚点"这一步。
@@ -31,10 +31,10 @@ description: 决定「这部片子怎么排产」——备齐锚点、把戏拆�
 
 一部片子 = **作品(`work`) → 视频脚本(`script`) → 场次(`scene`) → 镜头(`shot`)**。四层职责是硬契约：
 
-- **作品 `work` = 交付单位**（挂成片与总进度；一个作品可有多个脚本：30s/60s、口播版 vs 分镜版、中英双语，共享同一批角色/风格）；
-- **视频脚本 `script` = 完整脚本 + 可生成规格**：**正文 `detail` 写完整脚本（故事脚本/旁白台词/场景的初步规划），一次写全**——不要只填一句话概括或直接跳去分镜；
+- **作品 `work` = 交付单位 + 内容本体**：**正文 `detail` 先把该作品的完整内容一次写全**（电影 = 小说式完整故事；广告 = 完整广告故事/创意；**不压缩、不跳步**）；一个作品可挂多个脚本＝多集；
+- **视频脚本 `script` = 一集的可生成规格**（**一集一个 script**）：**前置是 `work.detail` 已写全**——**故事/内容没写全不拆集、不压缩时间表达**；每集 `script.detail` 写本集结构 + 旁白/台词 + 场景初步规划，一次写全；
 - **场次 `scene` = 一次视频生成的单位**（排产与生成的粒度都在这里，不是镜头）；
-- **镜头 `shot` = 分镜/画面细节参考**（供模型展开该场分镜、作最终参考，**不是每镜一次视频生成**）。
+- **镜头 `shot` = 画面细节 / 预览**（供人工预览与测试，**不进生成依赖**——生成依赖只有 **资产 + `script` + `scene`**）。
 
 **树靠结构 link `has_script` / `has_scene` / `has_shot`（全局、父→子），不是 `parentId`**——`parentId` 只是通用归属（文件夹），改它不断链；建生产节点时服务端会自动补这条链。类型目录的 `childTypes` 是这件事的机器可读声明（`work.childTypes=[script]`、`script.childTypes=[scene,shot]`、`scene.childTypes=[shot]`，advisory）。
 
@@ -42,7 +42,7 @@ description: 决定「这部片子怎么排产」——备齐锚点、把戏拆�
 
 1. **内容（= 真正拍摄的逻辑，不是剧情梗概）**：本场拍摄设计 → 写 `scene.detail`，**至少含**：空间与美术 / 表演与调度（blocking）/ 摄影（CAMERA LOCK + 每镜机位景别）/ 灯光 / 镜头序列（`[起~止s]`）/ **声音设计两层**（底声 + 局部声）/ **旁白·台词（逐字，不能空）** / 画内文字 / 连续性锚点 / 参考 role（骨架见 `recut-worlds`《正文模板》）。**只写剧情梗概不合格**——场次正文是生成提示词的料场，漏了空间/表演/摄影/灯光/声音，提示词就长不出来。
 2. **总时长**：`scene.durationSec`（本场时间轴由它定）——**一个场次 = 一次生成，必须 ≤ 模型单次上限（默认 ≈15s）**；内容更长就**多拆几个场次**，不把单场拉长；
-3. **分镜**：`scene.storyboard` = 场次分镜表（一图 N 宫格，把本场拆成 shot 的依据）；
+3. **镜头序列（文本）**：把本场逐镜写进 `scene.detail`（`[起~止s]` + 景别/机位/动作/声音）；**分镜表不作生成输入**（仅排产/预览）；
 4. **用料**：带哪些 role 的锚点（角色 / 场景 / 道具 / 风格 / 声线）；
 5. **产物**：本场要出什么（默认一场一条**场成片** → `scene.video`；需要时追加关键帧/配音）。
 
@@ -55,9 +55,9 @@ description: 决定「这部片子怎么排产」——备齐锚点、把戏拆�
 ## 三、落地（工具）
 
 1. `recut.worlds.production.create({ worldId, parentId, scenes:[{ name, detail, attrs, shots:[{ name, detail, attrs? }] }] })`
-   —— **一次把树建成**：场次/镜头**直接以正式实体写入**（无草稿态、无转正步骤），**一条事务产一条 revision**；同时写入结构关系 **`has_scene` / `has_shot`**（这才是生产树的真源）。`scene.detail` 写**本场完整内容**、`scene.attrs.durationSec` 写总时长、`scene.attrs.storyboard` 挂场次分镜表；`shot.detail` 写**画面描述**。`parentId` 只是卡片落位（通常是**视频脚本**；无脚本短片可直接给作品），`placeCards`（默认 true）在该节点内层画布落卡。**只建结构，不生成任何素材**。
+   —— **一次把树建成**：场次/镜头**直接以正式实体写入**（无草稿态、无转正步骤），**一条事务产一条 revision**；同时写入结构关系 **`has_scene` / `has_shot`**（这才是生产树的真源）。`scene.detail` 写**本场完整内容**（含逐镜镜头序列）、`scene.attrs.durationSec` 写总时长；`shot.detail` 写**画面描述**（预览用）。`parentId` 只是卡片落位（通常是**视频脚本**；无脚本短片可直接给作品），`placeCards`（默认 true）在该节点内层画布落卡。**只建结构，不生成任何素材**。
 2. 用户可改（用 `recut.worlds.production` 读回树与派生状态）。
-3. **逐场生成**：走 `recut.video.generate`（**视频待用户确认**）——**一次视频生成 = 一个场次**，用该场分镜表（`storyboard`）+ 角色/场景/色卡/声线参考驱动，场成片落回 `scene.video`；镜头关键帧/配音按需走 `recut.image/speech.generate` 并落回 shot 的 **media 属性**（`label` 标角色，如「关键帧」/「配音」）。
+3. **逐场生成**：走 `recut.video.generate`（**视频待用户确认**）——**一次视频生成 = 一个场次**，用**资产（角色/场景/道具/声线，按 role）+ 本场 `scene.detail` 镜头序列**驱动（**分镜表不进生成**），场成片落回 `scene.video`；预览/测试关键帧与配音按需走 `recut.image/speech.generate` 并落回 shot 的 **media 属性**（`label` 标角色）。
 
 ## 四、纪律
 

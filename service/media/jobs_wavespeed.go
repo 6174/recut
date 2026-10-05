@@ -1,17 +1,22 @@
 /*
  * [INPUT]: 依赖任务编排、Asset 持久化、凭据与 WaveSpeed 统一预测协议
  * [OUTPUT]: WaveSpeed 视频提交、短超时 prediction 轮询、输出回收、参考素材发布（图片 data URL /
- *          视频·音频 multipart 上传）及音频结果的真实类型探测
+ *          视频·音频票据上传）、音频结果的真实类型探测，以及提交响应丢失（client timeout /
+ *          传输中断）后的「提交结果不确定」识别、历史找回与后台重试恢复（绝不重发付费提交）
  * [POS]: media/jobs 的 WaveSpeed 专属适配层；将已持久化远端 prediction 原位兑现为 Asset
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
 
 import (
+	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -55,6 +60,9 @@ func (m *MediaService) submitWavespeedSpeech(job MediaJob, credential MediaCrede
 		if requeued, requeueErr := m.requeueWavespeedRateLimit(job, err); requeued {
 			return job, requeueErr
 		}
+		if wavespeedUncertainSubmission(err) {
+			return m.recoverUncertainWavespeedSubmission(job, err)
+		}
 		return m.failSubmittedJob(job, err)
 	}
 	return m.bindAndTrackWavespeedPrediction(job, credential, secret, prediction, pollLocally)
@@ -89,9 +97,79 @@ func (m *MediaService) submitWavespeedVideo(job MediaJob, credential MediaCreden
 		if requeued, requeueErr := m.requeueWavespeedRateLimit(job, err); requeued {
 			return job, requeueErr
 		}
+		if wavespeedUncertainSubmission(err) {
+			return m.recoverUncertainWavespeedSubmission(job, err)
+		}
 		return m.failSubmittedJob(job, err)
 	}
 	return m.bindAndTrackWavespeedPrediction(job, credential, secret, prediction, pollLocally)
+}
+
+// wavespeedUncertainSubmission reports whether a submit failure leaves the
+// provider call's outcome unknown. A transport-level failure (client timeout,
+// truncated response) can happen after WaveSpeed has already accepted the
+// prediction; the submit POST is a paid, non-idempotent call, so converting
+// this into a hard failure would orphan a generation the account is charged
+// for. Such errors are routed to the recoverable path instead of failing
+// outright.
+func wavespeedUncertainSubmission(err error) bool {
+	if err == nil {
+		return false
+	}
+	// http.Client.Timeout surfaces as a *url.Error implementing net.Error with
+	// Timeout() == true; the request was fully sent, so the provider may have
+	// received it even though the response never arrived.
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		return true
+	}
+	return false
+}
+
+// recoverUncertainWavespeedSubmission handles a submit whose response was lost
+// after the non-replayable checkpoint. It marks the asset recoverable (so the
+// UI can still surface a manual retry) and tries to re-attach the paid
+// prediction by provider history lookup. It never resubmits.
+func (m *MediaService) recoverUncertainWavespeedSubmission(job MediaJob, cause error) (MediaJob, error) {
+	if len(job.AssetIDs) != 1 {
+		return m.failSubmittedJob(job, cause)
+	}
+	assetID := job.AssetIDs[0]
+	m.failQueuedAssetWith(job.ID, assetID, "WaveSpeed 提交结果不确定，正在尝试恢复远端任务；若恢复失败可重新生成。", map[string]any{submissionUncertainMetadataKey: true})
+	if m.recoverWavespeedUnboundTask(job.ID, assetID, job.ModelID) {
+		if recovered, err := m.getJob(job.ID); err == nil {
+			return recovered, nil
+		}
+	}
+	// The provider may still be creating the prediction the instant the client
+	// gave up; retry in the background so a slow accept is not lost.
+	m.scheduleWavespeedUncertainRecovery(job.ID, assetID, job.ModelID)
+	if failed, err := m.GetJob(job.ID); err == nil {
+		return failed, cause
+	}
+	return job, cause
+}
+
+// scheduleWavespeedUncertainRecovery retries the history lookup for a bounded
+// window. It stops as soon as the asset is recovered, released, or removed.
+func (m *MediaService) scheduleWavespeedUncertainRecovery(jobID, assetID, modelID string) {
+	go func() {
+		for attempt := 0; attempt < 6; attempt++ {
+			if attempt > 0 {
+				time.Sleep(time.Duration(attempt) * 5 * time.Second)
+			}
+			if m.recoverWavespeedUnboundTask(jobID, assetID, modelID) {
+				return
+			}
+			asset, err := m.getAsset(assetID)
+			if err != nil || asset.JobID != jobID || asset.RemoteID != "" || asset.Status != "failed" {
+				return
+			}
+		}
+	}()
 }
 
 // requeueWavespeedRateLimit handles a provider 429: the submission was never
@@ -326,12 +404,12 @@ func (m *MediaService) collectWavespeedOutput(task wavespeedTask, prediction wav
 // wavespeedShareMetadata anchors the asset back to its upstream task so the UI
 // can offer a "view on provider" jump. providerTaskId/providerTaskUrl are the
 // provider-neutral fields (see assets.RecordGenerationProvenance for the App
-// equivalent); for WaveSpeed the dashboard share page is
-// https://wavespeed.ai/share/{predictionId}.
+// equivalent); for WaveSpeed the dashboard task page is
+// https://wavespeed.ai/predictions/{predictionId}.
 func wavespeedShareMetadata(prediction wavespeed.Prediction) map[string]any {
 	metadata := map[string]any{"providerTaskId": prediction.ID}
 	if strings.TrimSpace(prediction.ID) != "" {
-		metadata["providerTaskUrl"] = "https://wavespeed.ai/share/" + prediction.ID
+		metadata["providerTaskUrl"] = "https://wavespeed.ai/predictions/" + prediction.ID
 	}
 	if output := prediction.FirstOutput(); output != "" {
 		metadata["providerOutputUrl"] = output
@@ -355,8 +433,8 @@ func (m *MediaService) recoverWavespeedUnboundTask(jobID, assetID, modelID strin
 	if err != nil {
 		return false
 	}
-	var credentialID, created string
-	if err := db.QueryRow("select credential_id, created_at from media_jobs where id = ?", jobID).Scan(&credentialID, &created); err != nil {
+	var credentialID, created, submissionStarted string
+	if err := db.QueryRow("select credential_id, created_at, submission_started_at from media_jobs where id = ?", jobID).Scan(&credentialID, &created, &submissionStarted); err != nil {
 		return false
 	}
 	credential, err := m.credential(credentialID)
@@ -367,7 +445,13 @@ func (m *MediaService) recoverWavespeedUnboundTask(jobID, assetID, modelID strin
 	if err != nil {
 		return false
 	}
-	predictions, err := wavespeed.ListPredictions(mediaHTTPClient, apiBaseFor(credential), secret, model.APIModelID, wavespeedLookupWindowStart(created), 20)
+	// Anchor the history window on the non-replayable submit checkpoint when it
+	// exists; created_at only bounds jobs that never reached it.
+	windowStart := created
+	if strings.TrimSpace(submissionStarted) != "" {
+		windowStart = submissionStarted
+	}
+	predictions, err := wavespeed.ListPredictions(mediaHTTPClient, apiBaseFor(credential), secret, model.APIModelID, wavespeedLookupWindowStart(windowStart), 20)
 	if err != nil || len(predictions) == 0 {
 		return false
 	}
@@ -375,8 +459,8 @@ func (m *MediaService) recoverWavespeedUnboundTask(jobID, assetID, modelID strin
 	if err != nil || asset.JobID != jobID || asset.RemoteID != "" {
 		return false
 	}
-	prediction := predictions[0]
-	if strings.TrimSpace(prediction.ID) == "" {
+	prediction, ok := selectUnboundWavespeedPrediction(db, predictions)
+	if !ok {
 		return false
 	}
 	bound, err := m.bindRecoveredWavespeedPrediction(jobID, assetID, prediction.ID, prediction.PollURL)
@@ -394,6 +478,27 @@ func (m *MediaService) recoverWavespeedUnboundTask(jobID, assetID, modelID strin
 	}
 	m.startWavespeedPolling(jobID)
 	return true
+}
+
+// selectUnboundWavespeedPrediction returns the newest history prediction that is
+// not already attached to a local asset or job. Recovery must never bind a
+// prediction that belongs to a concurrent submission of the same model, so a
+// claimed prediction is skipped in favor of the next candidate.
+func selectUnboundWavespeedPrediction(db *sql.DB, predictions []wavespeed.Prediction) (wavespeed.Prediction, bool) {
+	for _, prediction := range predictions {
+		id := strings.TrimSpace(prediction.ID)
+		if id == "" {
+			continue
+		}
+		var claimed int
+		if err := db.QueryRow("select (select count(*) from media_assets where remote_id = ?) + (select count(*) from media_jobs where remote_id = ?)", id, id).Scan(&claimed); err != nil {
+			continue
+		}
+		if claimed == 0 {
+			return prediction, true
+		}
+	}
+	return wavespeed.Prediction{}, false
 }
 
 // bindRecoveredWavespeedPrediction re-attaches a recovered prediction to an
@@ -426,7 +531,7 @@ func (m *MediaService) bindRecoveredWavespeedPrediction(jobID, assetID, remoteID
 	}
 	delete(metadata, submissionUncertainMetadataKey)
 	metadata["providerTaskId"] = remoteID
-	metadata["providerTaskUrl"] = "https://wavespeed.ai/share/" + remoteID
+	metadata["providerTaskUrl"] = "https://wavespeed.ai/predictions/" + remoteID
 	serialized, _ := json.Marshal(metadata)
 	now := time.Now().UTC()
 	tx, err := db.Begin()
@@ -524,7 +629,7 @@ func (m *MediaService) writeWavespeedTaskAnchor(jobID, assetID, predictionID str
 		metadata = map[string]any{}
 	}
 	metadata["providerTaskId"] = predictionID
-	metadata["providerTaskUrl"] = "https://wavespeed.ai/share/" + predictionID
+	metadata["providerTaskUrl"] = "https://wavespeed.ai/predictions/" + predictionID
 	serialized, _ := json.Marshal(metadata)
 	now := time.Now().UTC()
 	tx, err := db.Begin()

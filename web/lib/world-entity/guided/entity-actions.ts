@@ -657,7 +657,7 @@ ${cardRefsLine(s.mediaRefs)}
 ${stylePreamble(ctx.styleLock)}
 同时给出格清单（panel manifest，纯文本，不进图）：每格列出 坐标(R{r}C{c}) / 镜号 / 景别 / 机位角度 / 主体动作一句话 / 时长(秒) / 所属节拍 / 参考锚点(role)。格序即镜序，首尾环环相扣。
 
-产出：把这张宫格图写回该故事的 media 属性（label「分镜表」，生成参考以 role=storyboard 记录）；只新增这一条素材，不改其它设定。世界只读时先提议 Fork。`;
+产出：把这张宫格图写回该故事的 media 属性（label「分镜表」，**仅作排产/预览，非生成参考**）；只新增这一条素材，不改其它设定。世界只读时先提议 Fork。`;
     },
   },
   {
@@ -782,7 +782,7 @@ ${cardRefsLine(s.mediaRefs)}
 ${stylePreamble(ctx.styleLock)}
 同时给出格清单（panel manifest，纯文本，不进图）：每格列出 坐标(R{r}C{c}) / 镜号 / 景别 / 机位角度 / 主体动作一句话 / 时长(秒) / 所属节拍 / 参考锚点(role)。格序即镜序，首尾环环相扣。
 
-产出：把这张宫格图写回该脚本的「分镜表」media 属性（role=storyboard）；只新增这一条素材，不改其它设定。世界只读时先提议 Fork。`;
+产出：把这张宫格图写回该脚本的「分镜表」media 属性（**仅作排产/预览，非生成参考**）；只新增这一条素材，不改其它设定。世界只读时先提议 Fork。`;
     },
   },
   {
@@ -798,10 +798,10 @@ ${stylePreamble(ctx.styleLock)}
     priority: () => 55,
     build: (ctx) => {
       const s = entityOf(ctx);
-      return `以脚本「${s.entity.name}」的分镜表（${refsLine(s.mediaRefs)}，role=storyboard）为准，按宫格坐标逐格展开：
+      return `以脚本「${s.entity.name}」的分镜表（${refsLine(s.mediaRefs)}）**仅作人工预览对稿**，按宫格坐标逐格展开：
 1. 用 vision 读出网格行数/列数与每格左上角坐标标签（R{r}C{c}），确认网格规则等分；
 2. 按坐标把这张图切成 N 个单格素材（如平台有 recut.media.gridSlice 就用它，否则以 ffmpeg 按等分裁剪）；
-3. 逐格以该格为构图锚点（role=storyboard）+ 出场角色的 character 参考 + 场景环境参考 + 世界风格，生成去格线、去编号、提升分辨率的正式关键帧，画面与动作严格沿用该格与 manifest；
+3. 逐格生成关键帧时**用资产驱动**（出场角色 character + 场景 environment + 道具 prop + 世界风格 style-ref）+ 脚本/场次的镜头文本；**该分镜格只作人工对稿参考，不作为生成参考**（storyboard 不是生成 role）；
 4. 每格关键帧写回该脚本的 media 属性（label「分镜 #nn (R{r}C{c})」），并记录参考绑定。
 
 只新增这些关键帧素材，不改其它设定；逐格保持角色/服装/道具/光位一致。`;
@@ -846,7 +846,7 @@ ${s.entity.detail || "（空）"}
     desc: "每格一张正式关键帧",
     typeIds: ["script"],
     requires: (ctx) => (hasMedia(entityOf(ctx)) ? { ok: true } : { ok: false, reason: "先生成分镜表" }),
-    build: (ctx) => `以脚本「${entityOf(ctx).entity.name}」的分镜表（${refsLine(entityOf(ctx).mediaRefs)}）为准，逐格生成正式关键帧（每格用该格的 role=storyboard 锚点 + 角色 character + 环境 environment + 风格 style-ref，去掉格线与编号），每格写回 media 属性。`,
+    build: (ctx) => `以脚本「${entityOf(ctx).entity.name}」的分镜表（${refsLine(entityOf(ctx).mediaRefs)}）**仅作人工对稿参考**，逐格生成正式关键帧（每格用 角色 character + 环境 environment + 风格 style-ref 资产驱动；分镜格不是生成 role），每格写回 media 属性。`,
   },
   {
     id: "script.videos",
@@ -861,7 +861,7 @@ ${s.entity.detail || "（空）"}
     build: (ctx) => {
       const s = entityOf(ctx);
       return `以脚本「${s.entity.name}」的分镜格为准，逐格生成视频镜头提案（同一脚本用同一 batchId 归组）：
-每镜给出提示词、时长、画幅（${attrText(s.entity, "aspectRatio") || "按世界"}）与参考锚定（上一镜结束态 = 下一镜起始态，role=storyboard/character/environment）。
+每镜给出提示词、时长、画幅（${attrText(s.entity, "aspectRatio") || "按世界"}）与参考锚定（上一镜结束态 = 下一镜起始态，role=character/environment/prop；分镜格不作生成参考）。
 落成待确认的视频提案等我逐条确认，不要直接生成。`;
     },
   },

@@ -32,10 +32,10 @@ func TestResolvePromptReferencesNumbersPerKindInAttachmentOrder(t *testing.T) {
 		t.Fatalf("resolve failed: %v", err)
 	}
 	want := "参考锚定表\n" +
-		"参考图2「阿蛋人像」 作为人物锚定\n" +
+		"参考图2（角色）「阿蛋人像」 作为人物锚定\n" +
 		"参考图1「镜1关键帧」\n" +
-		"参考视频1「参考片」 作为运动参考\n" +
-		"音频1「阿蛋音色」 仅用于音色\n" +
+		"参考视频1（运动）「参考片」 作为运动参考\n" +
+		"音频1（音色）「阿蛋音色」 仅用于音色\n" +
 		"音轨"
 	if resolved != want {
 		t.Fatalf("resolved prompt mismatch:\n got %q\nwant %q", resolved, want)
@@ -53,19 +53,19 @@ func TestResolvePromptReferencesFallsBackToReferenceName(t *testing.T) {
 	names := map[string]string{"img_1": "镜1关键帧"}
 	nameOf := func(value string) string { return names[value] }
 
-	resolved, err := ResolvePromptReferences(`<reference id="img_1" kind="image" role="storyboard" />`, refs, nameOf)
+	resolved, err := ResolvePromptReferences(`<reference id="img_1" kind="image" role="style-ref" />`, refs, nameOf)
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
-	if resolved != "参考图1「镜1关键帧」" {
+	if resolved != "参考图1（风格）「镜1关键帧」" {
 		t.Fatalf("unexpected alias: %q", resolved)
 	}
-	// 无名称可回退时只输出编号。
-	resolved, err = ResolvePromptReferences(`<reference id="img_1" kind="image" role="storyboard" />`, refs, nil)
+	// 无名称可回退时只输出编号与 role 标签。
+	resolved, err = ResolvePromptReferences(`<reference id="img_1" kind="image" role="style-ref" />`, refs, nil)
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
-	if resolved != "参考图1" {
+	if resolved != "参考图1（风格）" {
 		t.Fatalf("unexpected alias: %q", resolved)
 	}
 }
