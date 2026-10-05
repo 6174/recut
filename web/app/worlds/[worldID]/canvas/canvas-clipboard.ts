@@ -112,7 +112,7 @@ export function buildCanvasFragment(input: BuildFragmentInput): CanvasClipboardF
 
   // 画布元素：选中的自由元素 + 选中实体的投影卡；箭头（属性边）无论是否显式选中，都要求两端都在
   // 集合内，否则克隆后端点会指向目标世界不存在的元素（服务端 link-start 校验直接拒绝整批保存）。
-  const elements = input.elements.filter((element) => {
+  const selectedElements = input.elements.filter((element) => {
     if (element.kind === "arrow") {
       return (
         endpointInSet(element.props?.fromElementId, entityIds, elementIds) &&
@@ -123,6 +123,20 @@ export function buildCanvasFragment(input: BuildFragmentInput): CanvasClipboardF
     if ((element.kind === "entity" || element.refKind === "entity") && element.refId) return entityIds.has(element.refId);
     return projectionIds.has(element.id);
   });
+
+  // 分组容器与成员保持自包含：选中组必须带上其成员，选中成员也带上其组，否则粘贴后组为空或归属悬空。
+  const groupIds = new Set<string>();
+  for (const element of selectedElements) {
+    if (element.kind === "group") groupIds.add(element.id);
+    const groupId = element.props?.groupId;
+    if (typeof groupId === "string" && groupId) groupIds.add(groupId);
+  }
+  const groupMember = (element: WorldCanvasElement): boolean => {
+    if (element.kind === "group") return groupIds.has(element.id);
+    const groupId = element.props?.groupId;
+    return typeof groupId === "string" && groupIds.has(groupId);
+  };
+  const elements = input.elements.filter((element) => selectedElements.includes(element) || groupMember(element));
 
   const entities: CanvasClipboardEntity[] = input.entities
     .filter((entity) => entityIds.has(entity.id))

@@ -114,6 +114,44 @@ function groupIntoRows(rects: ArrangeRect[]): number[][] {
 }
 
 /**
+ * 分组容器内的「网格布局」：把节点按**输入顺序**（调用方负责排序，如按名称）
+ * 行优先铺排，列数缺省 ceil(sqrt(n))，行内/行间等间隙，整组锚定并集包围盒左上角。
+ * 返回与输入 nodes 同序的左上角坐标；节点数 < 1 返回 null。
+ * 与 computeArrange 的 "grid" 不同：后者保留用户当前行结构，本函数从零重排——用于一键布局。
+ */
+export function computeGridLayout(
+  nodes: ArrangeNode[],
+  opts: { columns?: number; gap?: number } = {},
+): ArrangePoint[] | null {
+  if (nodes.length === 0) return null;
+  const gap = opts.gap ?? ARRANGE_GAP;
+  const columns = Math.max(1, Math.floor(opts.columns ?? Math.ceil(Math.sqrt(nodes.length))));
+  const bounds = boundsOf(nodes);
+  const targets: ArrangePoint[] = nodes.map((node) => ({ x: Math.round(node.x), y: Math.round(node.y) }));
+  // 每列宽度 = 该列最宽节点；每行高度 = 该行最高节点（列/行尺寸由内容决定，避免大卡错位）
+  const columnWidth = new Array<number>(columns).fill(0);
+  const rowHeight = new Array<number>(Math.ceil(nodes.length / columns)).fill(0);
+  nodes.forEach((node, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    columnWidth[column] = Math.max(columnWidth[column], node.width);
+    rowHeight[row] = Math.max(rowHeight[row], node.height);
+  });
+  let y = bounds.y;
+  for (let row = 0; row < rowHeight.length; row++) {
+    let x = bounds.x;
+    for (let column = 0; column < columns; column++) {
+      const index = row * columns + column;
+      if (index >= nodes.length) break;
+      targets[index] = { x: Math.round(x), y: Math.round(y) };
+      x += columnWidth[column] + gap;
+    }
+    y += rowHeight[row] + gap;
+  }
+  return targets;
+}
+
+/**
  * 计算多选对齐/分布/网格排布的目标左上角（世界坐标，取整）。
  * 返回数组与输入 rects 同序；选中数不足（见 arrangeMinCount）时返回 null，调用方据此跳过。
  */
@@ -209,6 +247,7 @@ export function computeTreeLayout(
   nodes: ArrangeNode[],
   edges: ArrangeEdge[],
   direction: TreeDirection = "vertical",
+  crossCompare?: (a: ArrangeNode, b: ArrangeNode) => number,
 ): ArrangePoint[] | null {
   if (nodes.length < 2) return null;
   const n = nodes.length;
@@ -227,7 +266,8 @@ export function computeTreeLayout(
 
   // 交叉轴顺序：纵向树同级从左到右（按 x），横向树同级从上到下（按 y）
   const crossKey = (index: number) => (direction === "vertical" ? nodes[index].x : nodes[index].y);
-  const order = nodes.map((_, index) => index).sort((a, b) => crossKey(a) - crossKey(b));
+  const crossSort = (a: number, b: number) => (crossCompare ? crossCompare(nodes[a], nodes[b]) : crossKey(a) - crossKey(b));
+  const order = nodes.map((_, index) => index).sort(crossSort);
 
   // 建森林：BFS 认子，已认领的不再被第二父认领（环与多父都安全）
   const children: number[][] = nodes.map(() => []);
@@ -250,7 +290,7 @@ export function computeTreeLayout(
   };
   for (const index of order) if (indegree[index] === 0) rootAt(index);
   for (const index of order) rootAt(index); // 环：按位置顺序补根
-  for (const list of children) list.sort((a, b) => crossKey(a) - crossKey(b));
+  for (const list of children) list.sort(crossSort);
 
   // 主轴尺寸/交叉轴尺寸（横向树把两轴对调）
   const crossSize = (index: number) => (direction === "vertical" ? nodes[index].width : nodes[index].height);

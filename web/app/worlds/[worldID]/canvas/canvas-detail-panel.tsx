@@ -20,6 +20,7 @@ import { CanvasOutlinePanel } from "./canvas-outline";
 import { typeLabelOf } from "./panel/field-row";
 import { EntityDraftBanner, EntityPanel } from "./panel/entity-panel";
 import { ElementPanel } from "./panel/element-panel";
+import { GroupPanel } from "./panel/group-panel";
 import { RelationPanel } from "./panel/relation-panel";
 import { WorldPanel } from "./panel/world-panel";
 
@@ -63,7 +64,7 @@ export function CanvasDetailPanel() {
         : selection?.type === "relation"
           ? "语义关系"
           : selection?.type === "canvas"
-            ? "画布草稿"
+            ? selection.element.kind === "group" ? "分组" : "画布草稿"
             : "世界";
   const headerTitle = multi
     ? `已选 ${selectedIds.length} 项`
@@ -151,7 +152,11 @@ export function CanvasDetailPanel() {
           ) : selection?.type === "relation" ? (
             <RelationPanel relation={selection.relation} />
           ) : selection?.type === "canvas" ? (
-            <ElementPanel fromEntityId={selection.fromEntityId} toEntityId={selection.toEntityId} />
+            selection.element.kind === "group" ? (
+              <GroupPanel groupId={selection.element.id} />
+            ) : (
+              <ElementPanel fromEntityId={selection.fromEntityId} toEntityId={selection.toEntityId} />
+            )
           ) : (
             <WorldPanel worldDetail={detail} />
           )}

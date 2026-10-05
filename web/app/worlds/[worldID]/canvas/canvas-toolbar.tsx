@@ -26,6 +26,7 @@ import {
   AlignStartVertical,
   AlignVerticalSpaceBetween,
   CircleHelp,
+  Group as GroupIcon,
   Hand,
   History as HistoryIcon,
   LayoutGrid,
@@ -305,6 +306,9 @@ export function CanvasToolbarItems() {
       {selectedIds.length > 1 && (
         <>
           <Divider />
+          <ToolButton disabled={readOnly} label="编组（⌘G）：把选中元素装进一个分组容器" onClick={() => void useWorldCanvasStore.getState().groupSelection()}>
+            <GroupIcon className="size-4" />
+          </ToolButton>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button

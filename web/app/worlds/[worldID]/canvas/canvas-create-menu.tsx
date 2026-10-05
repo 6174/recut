@@ -1,7 +1,7 @@
 // File: web/app/worlds/[worldID]/canvas/canvas-create-menu.tsx (tsx)
 /*
  * [INPUT]: 依赖 react、canvas-store（creating/creatingAt/entityTypes 与
- * createEntity/addNote/addFreeElement/addMediaElement/setCreating/setAiDialogOpen/load 动作）、
+ * createEntity/addNote/addFreeElement/addMediaElement/addGroup/setCreating/setAiDialogOpen/load 动作）、
  * recut-worlds-client、readLastKind/readRecentCustomTypes、canvas-create-panel（共用创建面板外壳）
  * [OUTPUT]: 对外提供 CreateMenu（B.7 创建菜单）：构建**三个粗分组**（设定（含容器子类型 / 最近使用 /
  * 预设 / 生产结构（场次·镜头）/ 自定义类型）→ 画布元素 → 操作）与 [＋ 新建设定类型…] 对话框，
@@ -170,8 +170,20 @@ export function CreateMenu() {
     };
   };
 
-  // 画布元素：便签 / 文本 / 媒体（图片·视频·音频直接落空卡，来源在右侧详情面板选）
+  // 画布元素：分组 / 便签 / 文本 / 媒体（图片·视频·音频直接落空卡，来源在右侧详情面板选）
   const elementItems: CreateItem[] = [
+    {
+      key: "element:group",
+      label: "分组",
+      icon: "▢",
+      hint: "容器",
+      badge: "元素",
+      preview: { icon: "▢", title: "分组", subtitle: "画布容器", body: "落一个空白分组容器（命名 / 背景色 / 布局在右侧面板设置），随后拖元素进框即自动归入该组。" },
+      run: () => {
+        close();
+        void useWorldCanvasStore.getState().addGroup(cursorWorld(creatingAt));
+      },
+    },
     {
       key: "element:note",
       label: "便签",
@@ -256,7 +268,7 @@ export function CreateMenu() {
 
   return (
     <>
-      <CreatePanel anchor={creatingAt} groups={groups} onClose={close} placeholder="搜索设定类型、便签、文本、媒体…" />
+      <CreatePanel anchor={creatingAt} groups={groups} onClose={close} placeholder="搜索设定类型、分组、便签、文本、媒体…" />
       {newTypeOpen && <NewTypeDialog onClose={close} />}
     </>
   );

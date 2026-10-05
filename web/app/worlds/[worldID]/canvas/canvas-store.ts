@@ -57,7 +57,19 @@ import { ENTITY_CARD_PAD, entityCardContentHeight, entityCardImageHeight } from 
 import { MEDIA_VISUAL_SIZE, isMediaVisualModality, measureMediaVisualRatio, mediaAspectKey } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
 import { textAttrHeight, textElementHeight } from "@/lib/pomelo/world-canvas/blocks/text-block-metrics";
 import { blockRect } from "@/lib/pomelo/world-canvas/arrow-geometry";
-import { ARRANGE_LABELS, computeArrange, computeTreeLayout, type ArrangeEdge, type ArrangeMode, type ArrangeRect } from "@/lib/pomelo/world-canvas/arrange";
+import { ARRANGE_LABELS, computeArrange, computeGridLayout, computeTreeLayout, type ArrangeEdge, type ArrangeMode, type ArrangeRect } from "@/lib/pomelo/world-canvas/arrange";
+import {
+  fitGroupRect,
+  groupFitModeOf,
+  groupMembersOf,
+  groupPaddingOf,
+  isGroupElement,
+  padRect,
+  rectOfElement,
+  unionRect,
+  type GroupRect,
+} from "@/lib/pomelo/world-canvas/group/group-model";
+import { GROUP_LAYOUT_LABELS, GROUP_PADDING, type GroupLayoutMode } from "@/lib/pomelo/world-canvas/group/group-metrics";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import {
   createRecutWorldsClient,
@@ -214,6 +226,59 @@ export function canvasSelectionBlockId(selection: CanvasSelection): string | nul
 // 与 CanvasBindsPlugin 的提交路径共用同一映射（插件内不再各写一份）。
 export function canvasElementIdOfBlock(blockId: string): string {
   return blockId.startsWith("entity:") ? `shape:${blockId.slice("entity:".length)}` : blockId;
+}
+
+// ---- 分组容器（RFC 2026-10-05）----
+// 一次写回可能同时改几何与 props（移动/resize + 成员归属 + 组框自适应）——历史条目用字段子集表达，
+// 撤销/重做统一走 applyElementPatch（已支持 geometry/props 双 patch）。
+export type CanvasPatchEntry = {
+  id: string;
+  before: { geometry?: Record<string, unknown>; props?: Record<string, unknown> };
+  after: { geometry?: Record<string, unknown>; props?: Record<string, unknown> };
+};
+
+// 元素的世界矩形：优先走编辑器 blockRect（实体卡/音频块按渲染固有尺寸），无编辑器时回退元素 geometry。
+// 分组几何（bbox / 归属命中 / 自适应）与命中/连线共用同一矩形口径。
+export function canvasRectOf(
+  editor: PomeloEditor | null,
+  elements: WorldCanvasElement[],
+  canvasId: string,
+): GroupRect | null {
+  const blockId = canvasId.startsWith("shape:") ? `entity:${canvasId.slice("shape:".length)}` : canvasId;
+  const record = editor?.state.getBlockById(blockId);
+  if (record) {
+    const rect = blockRect(record);
+    if (rect.width > 0 || rect.height > 0) return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  }
+  const element = elements.find((item) => item.id === canvasId);
+  if (!element) return null;
+  const rect = rectOfElement(element);
+  return rect.width > 0 || rect.height > 0 ? rect : null;
+}
+
+// 分组内布局/成员列表的排序键：实体名 / 元素名 / 文本首行 / kind；空名排最后。
+export function canvasDisplayNameOf(
+  state: Pick<WorldCanvasState, "entities" | "elements">,
+  canvasId: string,
+): string {
+  if (canvasId.startsWith("shape:")) {
+    const entity = state.entities.find((item) => item.id === canvasId.slice("shape:".length));
+    if (entity) return entity.name ?? "";
+  }
+  const element = state.elements.find((item) => item.id === canvasId);
+  if (!element) return "";
+  if (element.name) return element.name;
+  const text = element.props?.text;
+  if (typeof text === "string" && text.trim()) return text.trim().split("\n")[0].slice(0, 40);
+  return element.kind ?? "";
+}
+
+// 名称自然序（数字按数值、大小写不敏感、中文拼音序）；空名最后。
+export function compareCanvasDisplayName(a: string, b: string): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return a.localeCompare(b, "zh-Hans-CN", { numeric: true, sensitivity: "base" });
 }
 
 // 树形排布的边收集：只保留两端都在选中集里的边（语义关系与自由箭头两端）。
@@ -793,6 +858,35 @@ function markCanvasDirty(id: string, groups?: CanvasDirtyGroup[], removed = fals
   scheduleCanvasSave();
 }
 
+// 静默移除画布元素（不登记 changeLog、不归档证据）：供分组「解散/删除」的撤销/重做回放使用——
+// 回放期 historyReplayDepth 会抑制日志，但直接写更可控。selection/selectedIds 同步清理，dataVersion 重建投影。
+// WorldCanvasElement → upsertElement 入参（历史回放整元素写回用）。
+export function canvasElementInputOf(element: WorldCanvasElement): CanvasElementInput {
+  return {
+    id: element.id,
+    contextId: element.contextId ?? "",
+    kind: element.kind,
+    refKind: element.refKind ?? "",
+    refId: element.refId ?? "",
+    name: element.name ?? "",
+    props: element.props ?? {},
+    geometry: element.geometry ?? {},
+    style: element.style ?? {},
+    layer: element.layer ?? "0",
+  };
+}
+
+export function dropCanvasElementSilently(id: string): void {
+  markCanvasDirty(id, undefined, true);
+  useWorldCanvasStore.setState((state) => ({
+    elements: state.elements.filter((element) => element.id !== id),
+    dataVersion: state.dataVersion + 1,
+    selectedIds: state.selectedIds.filter((item) => item !== id),
+    selection:
+      state.selection?.type === "canvas" && state.selection.element.id === id ? null : state.selection,
+  }));
+}
+
 function scheduleCanvasSave() {
   // AI 会话锁期间暂停本地保存：脏集保留，解锁后由 setCanvasAiLocked(false) 续跑。
   if (useWorldCanvasStore.getState().aiLocked) return;
@@ -1154,6 +1248,8 @@ type WorldCanvasState = {
   deleteTarget: WorldEntity | null;
   // 多选删除确认（框选/Shift 点选）：非空时对话框层渲染批量删除确认（与单设定删除同款弹框，不用 window.confirm）
   deleteSelectionIds: string[] | null;
+  // 批量删除确认框的默认去向：true 时主按钮执行「仅从画布移除设定」（删除分组时置位）
+  deleteSelectionHideEntities: boolean;
   // 「添加字段」对话框目标 kind（类型级字段，T2）
   addFieldFor: string | null;
   // 创建菜单锚点（T3）：screen 坐标；null = 视口中心（顶栏 + 按钮）
@@ -1273,9 +1369,29 @@ type WorldCanvasState = {
   updateWorldMeta: (patch: { name?: string; description?: string; skillMd?: string; coverAssetId?: string }) => Promise<void>;
   setDeleteTarget: (entity: WorldEntity | null) => void;
   // 打开/关闭多选删除确认弹框
-  setDeleteSelectionIds: (ids: string[] | null) => void;
+  setDeleteSelectionIds: (ids: string[] | null, opts?: { hideEntities?: boolean }) => void;
   // 执行多选删除：关系/自由元素直接删；设定默认 deleteEntity（hideEntities=true 时仅从画布移除）；完成后清空多选集
   deleteSelection: (ids: string[], opts?: { hideEntities?: boolean }) => Promise<void>;
+  // ---- 分组容器（RFC 2026-10-05）----
+  // 编组：多选 ≥2 个可分组元素 → 建 group 元素（并集 bbox + padding）并把成员 props.groupId 指向它；一条撤销。
+  groupSelection: () => Promise<void>;
+  // 解散分组：保留内容，只清成员 groupId + 删容器；一条撤销。
+  ungroup: (groupId: string) => Promise<void>;
+  // 删除分组：删容器及其全部成员画布元素（实体成员仅从画布移除、设定保留）；弹批量删除确认框。
+  deleteGroup: (groupId: string) => Promise<void>;
+  // 落一个空白分组容器（创建菜单入口）：后续拖动元素进框即自动归属；可撤销。
+  addGroup: (pos: Point) => Promise<void>;
+  // 组属性面板：名称 / 背景色 / 内边距 / fit 模式 / 最近布局；一条撤销。
+  setGroupProps: (
+    groupId: string,
+    patch: { name?: string; background?: string; padding?: number; fit?: "grow" | "fit"; layout?: GroupLayoutMode },
+  ) => Promise<void>;
+  // 组内一键布局（grid / tree-down / tree-right，默认按名称排序）：只改成员 x/y + 重算组框，一条撤销。
+  arrangeGroup: (groupId: string, mode: GroupLayoutMode) => void;
+  // 组框自适应：final = union(userRect, membersBBox + padding)（fit=manual 时只增不减）。不记历史，供交互提交使用。
+  fitGroup: (groupId: string) => void;
+  // 一次交互写入多条字段补丁（geometry/props）并合并为一条撤销（移动组：几何 + 归属 + 组框自适应）。
+  logElementChanges: (label: string, entries: CanvasPatchEntry[]) => void;
   // 剪贴板（Cmd/Ctrl+C/X/V 与右键菜单）：复制为克隆副本；同 world 剪切粘贴为真移动（保留 id 与外部关系），
   // 跨 world 剪切粘贴克隆新 id 并删除源实体；当前 world 根节点（shape:world）恒被过滤。
   copySelection: () => void;
@@ -1390,6 +1506,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   inlineEdit: null,
   deleteTarget: null,
   deleteSelectionIds: null,
+  deleteSelectionHideEntities: false,
   addFieldFor: null,
   mediaSource: null,
   mediaPreview: null,
@@ -1990,6 +2107,247 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     // persistGeometry 不推进 dataVersion（画布投影不重建），落位后显式推进一次
     set((prev) => ({ dataVersion: prev.dataVersion + 1 }));
     get().logGeometryChange(ARRANGE_LABELS[mode], history);
+  },
+
+  // ---- 分组容器（RFC 2026-10-05）----
+
+  // 编组：多选 ≥2 个可分组元素 → 建 group（并集 bbox + padding），成员 props.groupId 指向它；一条撤销。
+  groupSelection: async () => {
+    const state = get();
+    if (state.readOnly) return;
+    const editor = state.editor;
+    const memberIds = [...new Set(state.selectedIds)]
+      .filter((blockId) => blockId !== WORLD_ELEMENT_ID && !blockId.startsWith("arrow:"))
+      .map((blockId) => canvasElementIdOfBlock(blockId))
+      .filter((canvasId) => {
+        const element = state.elements.find((item) => item.id === canvasId);
+        return Boolean(element) && !isGroupElement(element);
+      });
+    const members = [...new Set(memberIds)];
+    if (members.length < 2) {
+      get().toast("请先选中两个以上元素再编组", "info");
+      return;
+    }
+    const rects = members
+      .map((id) => canvasRectOf(editor, state.elements, id))
+      .filter((rect): rect is GroupRect => rect !== null);
+    const bbox = unionRect(rects);
+    if (!bbox) return;
+    const rect = padRect(bbox, GROUP_PADDING);
+    const groupId = `shape:group-${Date.now().toString(36)}`;
+    const geometry = { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height), zIndex: -2 };
+    const props = { background: "", padding: GROUP_PADDING, fit: "grow" as const, layout: "free" as const };
+    const input: CanvasElementInput = { id: groupId, contextId: state.elementsContextId, kind: "group", refKind: "", refId: "", name: "分组", props, geometry, style: {}, layer: "0" };
+    await get().upsertElement(input);
+    const setMembership = (value: string) => {
+      for (const id of members) get().applyElementPatch(id, { props: { groupId: value } });
+    };
+    setMembership(groupId);
+    get().logChange(
+      "编组",
+      async () => {
+        setMembership("");
+        dropCanvasElementSilently(groupId);
+      },
+      async () => {
+        await get().upsertElement(input);
+        setMembership(groupId);
+      },
+    );
+    const created = get().elements.find((item) => item.id === groupId);
+    if (created) get().select({ type: "canvas", element: created });
+    get().toast(`已编组 ${members.length} 个元素`, "success");
+  },
+
+  // 解散分组：保留内容，只清成员 groupId + 删容器；一条撤销。
+  ungroup: async (groupId) => {
+    const state = get();
+    if (state.readOnly) return;
+    const group = state.elements.find((item) => item.id === groupId && isGroupElement(item));
+    if (!group) return;
+    const members = groupMembersOf(state.elements, groupId);
+    const snapshot = { ...group };
+    const setMembership = (value: string) => {
+      for (const member of members) get().applyElementPatch(member.id, { props: { groupId: value } });
+    };
+    setMembership("");
+    dropCanvasElementSilently(groupId);
+    get().logChange(
+      "解散分组",
+      async () => {
+        await get().upsertElement(canvasElementInputOf(snapshot));
+        setMembership(groupId);
+      },
+      async () => {
+        setMembership("");
+        dropCanvasElementSilently(groupId);
+      },
+    );
+    get().toast("已解散分组（内容保留）", "success");
+  },
+
+  // 删除分组：删容器及其全部成员画布元素。实体成员仅从画布移除（设定保留）——复用批量删除确认框，
+  // 由用户确认；确认后 deleteSelection 整批一条撤销。
+  deleteGroup: async (groupId) => {
+    const state = get();
+    if (state.readOnly) return;
+    const group = state.elements.find((item) => item.id === groupId && isGroupElement(item));
+    if (!group) return;
+    const members = groupMembersOf(state.elements, groupId);
+    const ids = [groupId];
+    for (const member of members) {
+      const isProjection = member.kind === "entity" || member.refKind === "entity";
+      if (isProjection && member.refId) ids.push(`entity:${member.refId}`);
+      else     ids.push(member.id);
+    }
+    // 删除分组：实体成员默认「仅从画布移除」（设定保留），确认框主按钮据此执行
+    get().setDeleteSelectionIds(ids, { hideEntities: true });
+  },
+
+  // 落一个空白分组容器（创建菜单入口）。
+  addGroup: async (pos) => {
+    const state = get();
+    if (state.readOnly) return;
+    const groupId = `shape:group-${Date.now().toString(36)}`;
+    const input: CanvasElementInput = {
+      id: groupId,
+      contextId: state.elementsContextId,
+      kind: "group",
+      refKind: "",
+      refId: "",
+      name: "分组",
+      props: { background: "", padding: GROUP_PADDING, fit: "grow", layout: "free" },
+      geometry: { x: Math.round(pos.x), y: Math.round(pos.y), width: 360, height: 260, zIndex: -2 },
+      style: {},
+      layer: "0",
+    };
+    await get().upsertElement(input);
+    const created = get().elements.find((item) => item.id === groupId);
+    if (created) {
+      get().select({ type: "canvas", element: created });
+      get().logChange(
+        "添加「分组」",
+        () => dropCanvasElementSilently(groupId),
+        () => void get().upsertElement(input),
+      );
+    }
+  },
+
+  // 组属性面板：名称 / 背景色 / 内边距 / fit / 最近布局；整元素快照一条撤销（名称是一等字段）。
+  setGroupProps: async (groupId, patch) => {
+    const state = get();
+    if (state.readOnly) return;
+    const group = state.elements.find((item) => item.id === groupId && isGroupElement(item));
+    if (!group) return;
+    const nextProps: Record<string, unknown> = { ...(group.props ?? {}) };
+    if (patch.background !== undefined) nextProps.background = patch.background;
+    if (patch.padding !== undefined) nextProps.padding = patch.padding;
+    if (patch.fit !== undefined) nextProps.fit = patch.fit;
+    if (patch.layout !== undefined) nextProps.layout = patch.layout;
+    const nextName = patch.name !== undefined ? patch.name : (group.name ?? "");
+    const before = canvasElementInputOf(group);
+    const after: CanvasElementInput = { ...before, name: nextName, props: nextProps };
+    await get().upsertElement(after);
+    get().logChange(
+      "修改分组",
+      async () => {
+        await get().upsertElement(before);
+      },
+      async () => {
+        await get().upsertElement(after);
+      },
+    );
+  },
+
+  // 组内一键布局（grid / tree-down / tree-right，默认按名称排序）：只改成员 x/y + 重算组框，一条撤销。
+  arrangeGroup: (groupId, mode) => {
+    const state = get();
+    const editor = state.editor;
+    if (!editor || state.readOnly || mode === "free") return;
+    const group = state.elements.find((item) => item.id === groupId && isGroupElement(item));
+    if (!group) return;
+    const members = groupMembersOf(state.elements, groupId);
+    const nodes: Array<{ id: string; x: number; y: number; width: number; height: number }> = [];
+    for (const member of members) {
+      const rect = canvasRectOf(editor, state.elements, member.id);
+      if (rect) nodes.push({ id: member.id, ...rect });
+    }
+    if (nodes.length === 0) return;
+    const nameOf = (id: string) => canvasDisplayNameOf(state, id);
+    const ordered = [...nodes].sort((a, b) => compareCanvasDisplayName(nameOf(a.id), nameOf(b.id)));
+    const isTree = mode === "tree-down" || mode === "tree-right";
+    const targets = isTree
+      ? computeTreeLayout(
+          ordered,
+          treeEdgesAmong(state, new Set(ordered.map((node) => node.id))),
+          mode === "tree-right" ? "horizontal" : "vertical",
+          (a, b) => compareCanvasDisplayName(nameOf(a.id), nameOf(b.id)),
+        )
+      : computeGridLayout(ordered);
+    if (!targets) return;
+    const entries: CanvasPatchEntry[] = [];
+    ordered.forEach((node, index) => {
+      const before = { x: Math.round(node.x), y: Math.round(node.y) };
+      const after = targets[index];
+      get().applyElementPatch(node.id, { geometry: after });
+      if (before.x !== after.x || before.y !== after.y) entries.push({ id: node.id, before: { geometry: before }, after: { geometry: after } });
+    });
+    // 布局后重算组框（用排布后的成员矩形，不依赖编辑器文档重建）
+    const beforeRect = rectOfElement(group);
+    const groupAfter: { geometry?: Record<string, unknown>; props?: Record<string, unknown> } = {};
+    const groupBefore: { geometry?: Record<string, unknown>; props?: Record<string, unknown> } = {};
+    const memberRects: GroupRect[] = ordered.map((node, index) => ({ x: targets[index].x, y: targets[index].y, width: node.width, height: node.height }));
+    const fitted = fitGroupRect(memberRects, groupPaddingOf(group), beforeRect, groupFitModeOf(group));
+    if (fitted) {
+      const geometry = { x: Math.round(fitted.x), y: Math.round(fitted.y), width: Math.round(fitted.width), height: Math.round(fitted.height) };
+      if (beforeRect.x !== geometry.x || beforeRect.y !== geometry.y || beforeRect.width !== geometry.width || beforeRect.height !== geometry.height) {
+        groupBefore.geometry = { x: beforeRect.x, y: beforeRect.y, width: beforeRect.width, height: beforeRect.height };
+        groupAfter.geometry = geometry;
+      }
+    }
+    // 记录最近一次布局模式（面板据此高亮当前布局；仅记录，不参与自动重排）
+    if (String(group.props?.layout ?? "free") !== mode) {
+      groupBefore.props = { layout: group.props?.layout ?? "free" };
+      groupAfter.props = { layout: mode };
+    }
+    if (groupBefore.geometry || groupBefore.props) {
+      get().applyElementPatch(groupId, groupAfter);
+      entries.push({ id: groupId, before: groupBefore, after: groupAfter });
+    }
+    if (entries.length === 0) return;
+    get().logElementChanges(GROUP_LAYOUT_LABELS[mode], entries);
+  },
+
+  // 组框自适应：final = union(userRect, membersBBox + padding)（fit=manual 时只增不减）。不记历史。
+  fitGroup: (groupId) => {
+    const state = get();
+    const group = state.elements.find((item) => item.id === groupId && isGroupElement(item));
+    if (!group) return;
+    const members = groupMembersOf(state.elements, groupId);
+    const rects = members
+      .map((member) => canvasRectOf(state.editor, state.elements, member.id))
+      .filter((rect): rect is GroupRect => rect !== null);
+    const fitted = fitGroupRect(rects, groupPaddingOf(group), rectOfElement(group), groupFitModeOf(group));
+    if (!fitted) return;
+    const before = rectOfElement(group);
+    const geometry = { x: Math.round(fitted.x), y: Math.round(fitted.y), width: Math.round(fitted.width), height: Math.round(fitted.height) };
+    if (before.x === geometry.x && before.y === geometry.y && before.width === geometry.width && before.height === geometry.height) return;
+    get().applyElementPatch(groupId, { geometry });
+  },
+
+  // 一次交互写入多条字段补丁并合并为一条撤销（调用方需已应用 after；撤销/重做走 applyElementPatch）。
+  logElementChanges: (label, entries) => {
+    const valid = entries.filter((entry) => JSON.stringify(entry.before) !== JSON.stringify(entry.after));
+    if (valid.length === 0) return;
+    get().logChange(
+      label,
+      () => {
+        for (const entry of valid) get().applyElementPatch(entry.id, entry.before);
+      },
+      () => {
+        for (const entry of valid) get().applyElementPatch(entry.id, entry.after);
+      },
+    );
   },
 
   upsertElement: (input) => {
@@ -2649,7 +3007,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   setPromoting: (promotingId) => set({ promotingId }),
   setPendingRelation: (pendingRelation) => set({ pendingRelation }),
   setDeleteTarget: (deleteTarget) => set({ deleteTarget }),
-  setDeleteSelectionIds: (deleteSelectionIds) => set({ deleteSelectionIds }),
+  setDeleteSelectionIds: (deleteSelectionIds, opts) => set({ deleteSelectionIds, deleteSelectionHideEntities: Boolean(opts?.hideEntities) }),
   // 多选删除执行（确认弹框触发）：按序执行规避 revision 冲突；hideEntities 时设定仅从画布移除。
   // 整批经 withChangeGroup 合并为单条 changeLog：撤销/重做一次回退整组，而非逐项（正常预期）。
   deleteSelection: async (ids, opts = {}) => {
@@ -2846,6 +3204,10 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         if (element.kind === "arrow") {
           props.fromElementId = remapRef(props.fromElementId);
           props.toElementId = remapRef(props.toElementId);
+        }
+        // 分组归属：组随片段一起粘贴时重映射到新组 id；组不在片段内则清空（避免悬空归属）
+        if (typeof props.groupId === "string" && props.groupId) {
+          props.groupId = elementIdMap.get(props.groupId) ?? "";
         }
         await get().upsertElement({
           id: nextId,

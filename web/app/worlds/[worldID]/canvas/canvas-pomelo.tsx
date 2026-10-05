@@ -100,6 +100,29 @@ function buildPomeloRecords(
   // 就地编辑中的自由元素 id（InlineEdit union 里 entity-title 无 elementId，先窄化一次）
   const editingElementId = state.inlineEdit && "elementId" in state.inlineEdit ? state.inlineEdit.elementId : "";
 
+  // 分组容器：先于实体卡/成员加入 records，保证 block 注册顺序在成员之下——
+  // 命中检测对节点列表 reverse（后注册者优先），组因此最后被命中（点成员选成员，点组内空白/标题栏才选组）；
+  // 渲染 z 序另由 GroupBlockV.zIndex=-2 保证容器画在最底层。
+  for (const element of state.elements) {
+    if (element.kind !== "group") continue;
+    const pos = livePosOf(liveGeometry, element.id) ?? elementPosition(state.elements, element.id);
+    const liveSize = liveSizes.get(element.id);
+    records.push({
+      id: element.id,
+      type: "group",
+      attrs: {
+        x: pos.x,
+        y: pos.y,
+        width: liveSize?.width ?? (Number(element.geometry?.width) || 400),
+        height: liveSize?.height ?? (Number(element.geometry?.height) || 300),
+        name: element.name ?? String(element.props?.name ?? ""),
+        background: String(element.props?.background ?? ""),
+        // 正在拖动/缩放该组：填充降透明度，避免不透明容器把下方成员盖住（组被抬到最上层）
+        ...(state.draggingBlockId === element.id ? { dragging: true } : {}),
+      },
+    });
+  }
+
   const hiddenEntityIds = new Set(
     state.elements.filter((element) => element.refKind === "entity" && element.props?.hidden).map((element) => String(element.refId)),
   );

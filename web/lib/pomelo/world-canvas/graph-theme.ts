@@ -40,6 +40,9 @@ export const GRAPH_COLORS = {
   shadow: "#000000",
   /* 自由形状元素 */
   shapeStroke: "#52525b",
+  /* 分组容器：比画布背景略亮的半透明底 + 柔和描边 */
+  groupFill: "#2b2d31",
+  groupStroke: "#3f424a",
   /* 文字层级（title / 副标题 / 提示 / 徽标） */
   textPrimary: "#f4f4f5",
   textSecondary: "#a1a1aa",
@@ -78,6 +81,9 @@ export const TILE_FILL: Rgba = rgba(GRAPH_COLORS.tileFill);
 export const TILE_STROKE: Rgba = rgba(GRAPH_COLORS.tileStroke);
 export const SHAPE_FILL: Rgba = rgba(GRAPH_COLORS.cardStroke, 8);
 export const SHAPE_STROKE: Rgba = rgba(GRAPH_COLORS.shapeStroke);
+/* ---------- 分组容器 ---------- */
+export const GROUP_FILL: Rgba = rgba(GRAPH_COLORS.groupFill, 255);
+export const GROUP_STROKE: Rgba = rgba(GRAPH_COLORS.groupStroke, 220);
 export const SHADOW_FILL: Rgba = rgba(GRAPH_COLORS.shadow, 71);
 export const TEXT_PRIMARY: Rgba = rgba(GRAPH_COLORS.textPrimary);
 export const TEXT_SECONDARY: Rgba = rgba(GRAPH_COLORS.textSecondary);

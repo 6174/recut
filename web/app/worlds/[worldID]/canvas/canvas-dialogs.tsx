@@ -104,6 +104,7 @@ function DeleteSelectionConfirmDialog() {
   const ids = useWorldCanvasStore((state) => state.deleteSelectionIds) ?? [];
   const setDeleteSelectionIds = useWorldCanvasStore((state) => state.setDeleteSelectionIds);
   const deleteSelection = useWorldCanvasStore((state) => state.deleteSelection);
+  const deleteSelectionHideEntities = useWorldCanvasStore((state) => state.deleteSelectionHideEntities);
   const entities = useWorldCanvasStore((state) => state.entities);
   const relations = useWorldCanvasStore((state) => state.relations);
   if (!ids.length) return null;
@@ -134,7 +135,7 @@ function DeleteSelectionConfirmDialog() {
           <p className="mt-1 text-xs text-warning">删除设定会同时移除其画布投影与相关关系（约 {cascadeRelations} 条）。</p>
         )}
         <div className="mt-3 flex items-center justify-end gap-2">
-          {entityIds.length > 0 && (
+          {entityIds.length > 0 && !deleteSelectionHideEntities && (
             <button
               className="mr-auto text-xs text-muted-foreground hover:underline"
               onClick={() => void deleteSelection(ids, { hideEntities: true })}
@@ -144,13 +145,23 @@ function DeleteSelectionConfirmDialog() {
             </button>
           )}
           <button className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted" onClick={() => setDeleteSelectionIds(null)} type="button">取消</button>
-          <button
-            className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
-            onClick={() => void deleteSelection(ids)}
-            type="button"
-          >
-            {entityIds.length > 0 ? "删除设定" : "删除"}
-          </button>
+          {deleteSelectionHideEntities && entityIds.length > 0 ? (
+            <button
+              className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void deleteSelection(ids, { hideEntities: true })}
+              type="button"
+            >
+              移除（设定保留）
+            </button>
+          ) : (
+            <button
+              className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void deleteSelection(ids)}
+              type="button"
+            >
+              {entityIds.length > 0 ? "删除设定" : "删除"}
+            </button>
+          )}
         </div>
       </div>
     </div>

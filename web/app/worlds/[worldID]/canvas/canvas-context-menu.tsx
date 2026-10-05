@@ -43,6 +43,9 @@ export function CanvasContextMenu() {
       { label: "提升为设定…", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setPromoting(element.id)) },
     );
   }
+  if (!entity && !relation && selectedIds.length > 1) {
+    items.push({ label: "编组", disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().groupSelection()) });
+  }
   if (multi) {
     items.push({
       label: `删除 ${selectedIds.length} 项…`,
@@ -52,6 +55,11 @@ export function CanvasContextMenu() {
     });
   } else if (entity) {
     items.push({ label: "删除…", danger: true, disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setDeleteTarget(entity)) });
+  } else if (element && element.kind === "group") {
+    items.push(
+      { label: "解散分组", disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().ungroup(element.id)) },
+      { label: "删除分组…", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().deleteGroup(element.id)) },
+    );
   } else if (element) {
     items.push({ label: "删除", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().removeElement(element.id)) });
   } else if (relation) {

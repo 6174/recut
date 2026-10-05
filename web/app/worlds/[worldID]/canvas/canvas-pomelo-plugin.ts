@@ -31,7 +31,8 @@
 import type { PomeloEditor } from "@/lib/pomelo/pomelo-core/pomelo-editor";
 import { PomeloPlugin } from "@/lib/pomelo/pomelo-core/pomelo-plugin";
 import { DomOverlay, cssColor } from "@/lib/pomelo/pomelo-vello/overlay-dom";
-import { WORLD_ELEMENT_ID, canvasElementIdOfBlock, flushCanvasSaveNow, useWorldCanvasStore } from "./canvas-store";
+import { WORLD_ELEMENT_ID, canvasElementIdOfBlock, flushCanvasSaveNow, useWorldCanvasStore, type CanvasPatchEntry } from "./canvas-store";
+import { blockIdOfCanvasId, groupAbsorbEntries, groupMoveExpansion, groupReconcileEntries, groupResizeRect } from "./canvas-group";
 import { resolveMediaPropsSrc } from "@/lib/world-media";
 import { entityCardRect } from "@/lib/pomelo/world-canvas/blocks/entity-card-metrics";
 import { audioBlockRect, isAudioBlockRecord } from "@/lib/pomelo/world-canvas/blocks/audio-block-metrics";
@@ -57,7 +58,7 @@ type Rect = { x: number; y: number; width: number; height: number };
 // 矩形节点类型：凡有矩形几何的节点类型都参与点选/双击/hover/框选命中（含 media / media-node /
 // world-node，与渲染的 block type 对齐）；关系/自由箭头不参与框选（框选只圈节点，避免密集关系网里
 // 框到边而难选节点），点选按线体距离。
-const NODE_TYPES = new Set(["entity-card", "note", "free-element", "media", "media-node", "world-node"]);
+const NODE_TYPES = new Set(["entity-card", "note", "free-element", "media", "media-node", "world-node", "group"]);
 const MARQUEE_NODE_TYPES = NODE_TYPES;
 const RELATION_PREFIX = "arrow:";
 const MIN_SIZE = 60;
@@ -76,6 +77,14 @@ function rectOfRecord(record: { type: string; attrs: Record<string, unknown> }):
     width: Number(record.attrs.width) || 0,
     height: Number(record.attrs.height) || 0,
   };
+}
+
+// 命中优先级：分组容器永远最低——输入已按「上层在前」排序时，把 group 全部挪到最后，
+// 保证点成员选成员、点组内空白/标题栏才落到组容器（不依赖 block 注册顺序）。
+function prioritizeGroupLast<T extends { type?: string }>(records: T[]): T[] {
+  const nodes = records.filter((record) => record.type !== "group");
+  const groups = records.filter((record) => record.type === "group");
+  return groups.length === 0 ? nodes : [...nodes, ...groups];
 }
 
 // 两矩形是否有正面积交集（框选命中：只要与选框有交集即算选中）
@@ -221,7 +230,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const hitTest = (world: Point): { blockId: string; kind: "node" | "link" } | null => {
       const state = editor.state;
       const blocks = state.getAllBlocks((record) => !record.isRoot);
-      const nodes = blocks.filter((record) => NODE_TYPES.has(record.type)).reverse();
+      // 命中顺序：普通节点（上层在前）→ 分组容器（永远最后）
+      const nodes = prioritizeGroupLast(blocks.filter((record) => NODE_TYPES.has(record.type)).reverse());
       for (const record of nodes) {
         const rect = rectOf(record);
         if (rect.width <= 0 || rect.height <= 0) continue;
@@ -693,14 +703,21 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       // 关系线/自由箭头不拖拽位移（几何派生自两端节点）
       if (hit.kind === "link") return;
       if (store.readOnly) return;
+      // 整组移动：命中分组时展开为「组 + 全部成员」（绝对定位，各自写同一 delta）；
+      // 组内成员与独立元素并集去重（Map 按 blockId 去重）。
       const moved = new Map<string, Point>();
-      for (const blockId of inMulti ? store.selectedIds : [hit.blockId]) {
-        if (blockId.startsWith(RELATION_PREFIX)) continue;
-        const record = editor.state.getBlockById(blockId);
-        if (!record || record.isRoot) continue;
-        const rect = rectOf(record);
-        if (rect.width <= 0 && rect.height <= 0) continue; // 无几何块（自由箭头等）不参与位移
-        moved.set(blockId, { x: rect.x, y: rect.y });
+      for (const sourceId of inMulti ? store.selectedIds : [hit.blockId]) {
+        if (sourceId.startsWith(RELATION_PREFIX)) continue;
+        const canvasId = canvasElementIdOfBlock(sourceId);
+        for (const memberCanvasId of groupMoveExpansion(store.elements, canvasId)) {
+          const blockId = blockIdOfCanvasId(store.elements, memberCanvasId);
+          if (blockId.startsWith(RELATION_PREFIX) || moved.has(blockId)) continue;
+          const record = editor.state.getBlockById(blockId);
+          if (!record || record.isRoot) continue;
+          const rect = rectOf(record);
+          if (rect.width <= 0 && rect.height <= 0) continue; // 无几何块（自由箭头等）不参与位移
+          moved.set(blockId, { x: rect.x, y: rect.y });
+        }
       }
       if (moved.size === 0) return;
       dragging = { pointerId: event.pointerId, startWorld: world, moved };
@@ -721,6 +738,12 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       this.#sessionActive = true;
       // 拖拽/缩放开始（首次 move）：通知宿主隐藏文本卡全屏入口，避免按钮停在旧位置
       useWorldCanvasStore.getState().setDraggingBlockId(ids[0] ?? null);
+      // 分组容器被拖拽/缩放时会被抬到最上层：把其 attrs.dragging 置真，渲染降透明度，
+      // 否则不透明容器会把下方成员盖住（看不到内容）。结束（endSession）时复位。
+      const primary = ids[0] ? editor.state.getBlockById(ids[0]) : null;
+      if (primary?.type === "group") {
+        editor.state.transact((hook) => hook.updateBlock(primary.id, { dragging: true }));
+      }
       try {
         (editor.renderAdapter as { beginContentSession?: (ids: string[]) => void }).beginContentSession?.([...ids, ...arrowIds]);
       } catch (error) {
@@ -731,6 +754,10 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (!this.#sessionActive) return;
       this.#sessionActive = false;
       useWorldCanvasStore.getState().setDraggingBlockId(null);
+      // 复位分组容器的拖拽透明度（可能已不在文档/已改型，容错）
+      for (const record of editor.state.getAllBlocks((item) => item.type === "group" && item.attrs.dragging === true)) {
+        editor.state.transact((hook) => hook.updateBlock(record.id, { dragging: undefined }));
+      }
       try {
         (editor.renderAdapter as { endContentSession?: () => void }).endContentSession?.();
       } catch (error) {
@@ -808,10 +835,16 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const y = Math.round(Math.min(pointerY, fixedY));
         const width = Math.round(Math.max(MIN_SIZE, Math.abs(pointerX - fixedX)));
         const height = Math.round(Math.max(MIN_SIZE, Math.abs(pointerY - fixedY)));
+        // 分组容器：最终框永远不小于成员 bbox + padding（union 请求框，见 groupResizeRect）
+        let rect = { x, y, width, height };
+        if (record.type === "group") {
+          const merged = groupResizeRect(editor, useWorldCanvasStore.getState().elements, canvasElementIdOfBlock(drag.blockId), rect);
+          rect = { x: Math.round(merged.x), y: Math.round(merged.y), width: Math.round(merged.width), height: Math.round(merged.height) };
+        }
         editor.state.transact((hook) => {
-          hook.updateBlock(drag.blockId, { x, y, width, height });
+          hook.updateBlock(drag.blockId, rect);
         });
-        this.liveGeometry.set(canvasElementIdOfBlock(drag.blockId), { x, y, width, height });
+        this.liveGeometry.set(canvasElementIdOfBlock(drag.blockId), rect);
         this.drawOverlay(editor);
         return;
       }
@@ -859,15 +892,16 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       if (useWorldCanvasStore.getState().readOnly) return;
       const world = toWorld(event);
       let hoveredId: string | null = null;
-      const nodes = editor.state.getAllBlocks((record) => NODE_TYPES.has(record.type));
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        const rect = rectOfRecord(nodes[i]);
+      // hover 同命中优先级：普通节点（上层在前）→ 分组容器（最后），保证成员 hover 不被组容器抢走
+      const nodes = prioritizeGroupLast(editor.state.getAllBlocks((record) => NODE_TYPES.has(record.type)).reverse());
+      for (const record of nodes) {
+        const rect = rectOfRecord(record);
         if (rect.width <= 0 || rect.height <= 0) continue;
         if (
           world.x >= rect.x - HOT_PAD && world.x <= rect.x + rect.width + HOT_PAD &&
           world.y >= rect.y - HOT_PAD && world.y <= rect.y + rect.height + HOT_PAD
         ) {
-          hoveredId = nodes[i].id;
+          hoveredId = record.id;
           break;
         }
       }
@@ -1032,11 +1066,46 @@ export class CanvasBindsPlugin extends PomeloPlugin {
             liveIds.push(blockId);
           }
         }
-        // 位移/resize 记历史（无实际变化时 store 侧会忽略；多选整体位移合成一条）
-        if (geometryHistory.length > 0) {
-          store.logGeometryChange(
-            isResize(dragging) ? "调整元素大小" : geometryHistory.length > 1 ? `移动 ${geometryHistory.length} 个元素` : "移动元素",
-            geometryHistory,
+        // 分组自适应：本次移动/缩放的元素重新判定归属（进入/离开组）+ 受影响组框重算，
+        // 与几何变更合并进同一条撤销（组交互不侵入 move/resize 主体，全部经 groupReconcileEntries）。
+        const movedCanvasIds = [...new Set(liveIds.map((blockId) => canvasElementIdOfBlock(blockId)))];
+        const reconcileEntries = groupReconcileEntries(editor, useWorldCanvasStore.getState().elements, movedCanvasIds);
+        for (const entry of reconcileEntries) useWorldCanvasStore.getState().applyElementPatch(entry.id, entry.after);
+        // 组框「吸入」（resize / 移动组位置）：若新框把未分组元素圈了进来，自动归入该组。
+        // 只对本次被操作的分组容器做（resize 的块本身 / 移动集合里被拖的组），已属其他组的元素不抢。
+        const absorbEntries: CanvasPatchEntry[] = [];
+        const touchedGroups = new Set<string>();
+        if (isResize(dragging)) {
+          const record = editor.state.getBlockById(dragging.blockId);
+          if (record?.type === "group") touchedGroups.add(canvasElementIdOfBlock(dragging.blockId));
+        } else {
+          for (const blockId of dragging.moved.keys()) {
+            const record = editor.state.getBlockById(blockId);
+            if (record?.type === "group") touchedGroups.add(canvasElementIdOfBlock(blockId));
+          }
+        }
+        for (const groupId of touchedGroups) {
+          absorbEntries.push(...groupAbsorbEntries(editor, useWorldCanvasStore.getState().elements, groupId));
+        }
+        for (const entry of absorbEntries) useWorldCanvasStore.getState().applyElementPatch(entry.id, entry.after);
+        const patchEntries: CanvasPatchEntry[] = geometryHistory.map((entry) => ({
+          id: entry.id,
+          before: { geometry: entry.before },
+          after: { geometry: entry.after },
+        }));
+        patchEntries.push(...reconcileEntries);
+        patchEntries.push(...absorbEntries);
+        // 吸入改变了成员集合 → 组框随之扩大（内容装不下时），并入同一条撤销
+        if (absorbEntries.length > 0) {
+          const followedUp = groupReconcileEntries(editor, useWorldCanvasStore.getState().elements, absorbEntries.map((entry) => entry.id));
+          for (const entry of followedUp) useWorldCanvasStore.getState().applyElementPatch(entry.id, entry.after);
+          patchEntries.push(...followedUp);
+        }
+        // 位移/resize 记历史（无实际变化时 store 侧会忽略；多选整体位移 / 组移动 / 组框自适应合成一条）
+        if (patchEntries.length > 0) {
+          store.logElementChanges(
+            isResize(dragging) ? "调整元素大小" : movedCanvasIds.length > 1 ? `移动 ${movedCanvasIds.length} 个元素` : "移动元素",
+            patchEntries,
           );
         }
         // 拖拽/resize 提交即落盘：绕过去抖，避免用户停手后立刻刷新时丢失这次位移。
@@ -1078,10 +1147,9 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const onDoubleClick = (event: MouseEvent) => {
       const rect = view.getBoundingClientRect();
       const world = toWorld({ clientX: event.clientX, clientY: event.clientY } as unknown as PointerEvent);
-      const hitRecord = editor.state
-        .getAllBlocks((record) => NODE_TYPES.has(record.type))
-        .reverse()
-        .find((record) => {
+      const hitRecord = prioritizeGroupLast(
+        editor.state.getAllBlocks((record) => NODE_TYPES.has(record.type)).reverse(),
+      ).find((record) => {
           const rect = rectOf(record);
           return world.x >= rect.x && world.x <= rect.x + rect.width && world.y >= rect.y && world.y <= rect.y + rect.height;
         });
@@ -1232,6 +1300,17 @@ export class CanvasBindsPlugin extends PomeloPlugin {
           return;
         }
       }
+      // Cmd/Ctrl + G = 编组、+ Shift = 解散分组（分组容器）
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "g" && !event.altKey) {
+        event.preventDefault();
+        if (event.shiftKey) {
+          const selection = store.selection;
+          if (selection?.type === "canvas" && selection.element.kind === "group") void store.ungroup(selection.element.id);
+        } else if (!store.readOnly) {
+          void store.groupSelection();
+        }
+        return;
+      }
       if ((event.key === "Delete" || event.key === "Backspace") && !store.readOnly) {
         if (store.selectedIds.length > 1) {
           // 多选删除统一走应用内确认弹框（DeleteSelectionConfirmDialog），不用 window.confirm
@@ -1241,8 +1320,11 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         const selection = store.selection;
         if (!selection) return;
         if (selection.type === "relation") void store.removeRelation(selection.relation.id);
-        else if (selection.type === "canvas") void store.removeElement(selection.element.id);
-        else if (selection.type === "entity") store.setDeleteTarget(selection.entity); // 实体 = 删除确认（B.6）
+        else if (selection.type === "canvas") {
+          // 分组容器：Delete = 删除分组（容器 + 内容，走确认框）；其余元素直接删
+          if (selection.element.kind === "group") void store.deleteGroup(selection.element.id);
+          else void store.removeElement(selection.element.id);
+        } else if (selection.type === "entity") store.setDeleteTarget(selection.entity); // 实体 = 删除确认（B.6）
       }
     };
     const onKeyUp = (event: KeyboardEvent) => {

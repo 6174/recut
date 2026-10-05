@@ -15,6 +15,7 @@ export { MediaNodeBlockV } from "./media-node-block-v";
 export { RelationArrowBlockV } from "./relation-arrow-block-v";
 export { RealMediaBlockV } from "./real-media-block-v";
 export { FreeElementBlockV } from "./free-element-block-v";
+export { GroupBlockV } from "./group-block-v";
 export { AUDIO_BLOCK_WIDTH, AUDIO_BLOCK_HEIGHT, audioBlockRect, isAudioBlockRecord } from "./audio-block-metrics";
 
 import { EntityCardBlockV } from "./entity-card-block-v";
@@ -24,6 +25,7 @@ import { MediaNodeBlockV } from "./media-node-block-v";
 import { RelationArrowBlockV } from "./relation-arrow-block-v";
 import { RealMediaBlockV } from "./real-media-block-v";
 import { FreeElementBlockV } from "./free-element-block-v";
+import { GroupBlockV } from "./group-block-v";
 
 export const WORLD_VELLO_BLOCKS = [
   EntityCardBlockV,
@@ -33,4 +35,5 @@ export const WORLD_VELLO_BLOCKS = [
   RelationArrowBlockV,
   RealMediaBlockV,
   FreeElementBlockV,
+  GroupBlockV,
 ];

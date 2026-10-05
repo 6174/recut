@@ -19,6 +19,8 @@ export const RESIZABLE_BLOCK_KINDS = [
   "world-node",
   "media-node",
   "free-element:shape",
+  // 分组容器可四角调整（最终框会与成员 bbox merge，见 group-behavior）
+  "group",
 ] as const;
 
 export type ResizableBlockKind = (typeof RESIZABLE_BLOCK_KINDS)[number];
