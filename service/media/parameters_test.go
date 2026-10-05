@@ -124,6 +124,11 @@ func TestApplyDurationSecFoldsForDeclaringModel(t *testing.T) {
 			{ID: "modal-cloud/qwen-image", Provider: "modal-cloud", APIModelID: "qwen-image",
 				Capability: ImageGenerate, Available: true, PassthroughParams: true,
 				Parameters: []MediaParameter{{Name: "aspectRatio", Type: "string"}}},
+			// Cloud catalogs name the same slot "durationSeconds"; the first-class
+			// durationSec must fold there too, or the request keeps the 5s default.
+			{ID: "wavespeed/mock-video", Provider: "wavespeed", APIModelID: "mock-video",
+				Capability: VideoGenerate, Available: true,
+				Parameters: []MediaParameter{{Name: "durationSeconds", ProviderKey: "duration", Type: "integer", Default: float64(5), Minimum: floatPtr(4), Maximum: floatPtr(15)}}},
 		},
 	}})
 	output := map[string]any{}
@@ -131,11 +136,16 @@ func TestApplyDurationSecFoldsForDeclaringModel(t *testing.T) {
 	if output["durationSec"] != float64(15) {
 		t.Fatalf("first-class durationSec was not folded into Output: %#v", output)
 	}
-	// A model that does not declare durationSec is left untouched, not rejected.
+	cloud := map[string]any{}
+	applyDurationSec("wavespeed/mock-video", 10, cloud)
+	if cloud["durationSeconds"] != float64(10) {
+		t.Fatalf("first-class durationSec was not folded into cloud durationSeconds: %#v", cloud)
+	}
+	// A model that does not declare a duration parameter is left untouched, not rejected.
 	other := map[string]any{}
 	applyDurationSec("modal-cloud/qwen-image", 15, other)
 	if _, present := other["durationSec"]; present {
-		t.Fatalf("a model without durationSec must not receive it: %#v", other)
+		t.Fatalf("a model without a duration parameter must not receive it: %#v", other)
 	}
 	// An explicit Output value wins over the first-class field.
 	preset := map[string]any{"durationSec": float64(8)}

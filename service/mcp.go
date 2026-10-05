@@ -2380,7 +2380,7 @@ var proposalExtraProperties = map[string]any{
 		"items": map[string]any{"type": "object", "required": []string{"id"}, "properties": map[string]any{
 			"id":    map[string]any{"type": "string", "description": "参考素材 assetId。"},
 			"kind":  map[string]any{"type": "string", "enum": []string{"image", "video", "audio"}},
-			"role":  map[string]any{"type": "string", "description": "受控 role：pov/color-card/environment/character/prop/style-ref/storyboard/motion-ref/voice/sfx/music。"},
+"role": map[string]any{"type": "string", "description": "受控 role：pov/color-card/environment/character/prop/style-ref/motion-ref/voice/sfx/music。"},
 			"label": map[string]any{"type": "string"},
 		}}},
 	"aspectRatio": map[string]any{"type": "string", "description": "提案画幅（如 9:16）。"},

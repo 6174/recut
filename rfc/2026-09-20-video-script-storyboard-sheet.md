@@ -14,8 +14,8 @@
 
 # 视频脚本与一图分镜表（Video Script & Storyboard Sheet）
 
-- 状态：设计中，M1 待落地（2026-09-20）
-- 日期：2026-09-20
+- 状态：**生成用途已作废（2026-10-04）**——分镜表降级为**排产/人工预览**，**不再作为生成参考**（ref2video 吃不动宫格图；实测好样本均不靠它）。§4.4 的 `role="storyboard"` 与 §6 的「整张 sheet 直驱视频生成」不再使用；一图分镜表仍可用于人工对稿与排产。其余设计（script 类型、宫格压缩、按需切格）保留。
+- 日期：2026-09-20（2026-10-04 修订）
 - 关联：[统一 Entity 模型](./2026-09-09-unified-entity-model.md)、[World 详情面板引导提示操作](./2026-09-15-world-entity-guided-ai-actions.md)、[生成提示词参考引用协议](./2026-09-15-generation-reference-protocol.md)、[媒体生成提案](./2026-09-16-media-generation-proposal.md)、`service/skills/recut-director/references/shot/SKILL.md`、`service/skills/recut-director/references/generation-prompt/SKILL.md`、`service/skills/recut-worlds/SKILL.md`
 
 ## 0. 摘要
@@ -139,9 +139,11 @@ story 不强制、script 可选；小项目可只用 script。二者分离避免
 
 25 格 ≈ 40–100s 视频（约 2–4s/格）。每 beat 分 3–5 格；一格一动作；一格一起止状态且首尾闭环——直接复用 `references/shot/SKILL.md` 的「一镜一动作 / 首尾帧即合同 / 轴线守恒」。
 
-### 4.4 `storyboard` 参考 role
+### 4.4 `storyboard` 参考 role —— 已废弃（2026-10-04）
 
-新增受控 role `storyboard`（image）：宫格 sheet 与其切出的单格都作 `storyboard` 锚点，用于逐格细化时的**构图/调度锚定**（区别于 `style-ref` 的纯风格职责）。三处镜像同步：`web/lib/media/proposal.ts` `PROPOSAL_ROLES`、`web/lib/world-entity/guided/types.ts` `GenerationRefRole`、`rfc/2026-09-15-generation-reference-protocol.md`。
+~~新增受控 role `storyboard`（image）：宫格 sheet 与其切出的单格都作 `storyboard` 锚点……~~
+
+**不再作为生成 role。** 分镜表与切出的单格都**不提交给视频模型**，只用于排产 / 人工预览 / 对稿。生成由**世界锚点资产**（`character` / `environment` / `prop` / `voice`）+ `script` + `scene.detail` 的**镜头序列（文本）**驱动。`web/lib/media/proposal.ts` 的 `PROPOSAL_ROLES`、`web/lib/world-entity/guided/types.ts` 的 `GenerationRefRole` 中的 `storyboard` 一并移除；服务端生成 role 校验同步（见 `rfc/2026-10-02-world-canvas-production-layer.md` 的 2026-10-04 决策）。
 
 ## 5. 引导动作改造
 
@@ -161,7 +163,9 @@ story 不强制、script 可选；小项目可只用 script。二者分离避免
 
 `cards.ts` 增 `STORYBOARD_SHEET_LAYOUT` 常量（与人物卡/环境卡/物体卡同层），供 story/script 共用，保证 sheet 版式提示词单一来源。
 
-## 6. 切格 → 细化 → 视频流水线
+## 6. 切格 → 细化 → 视频流水线（**已降级为可选预览链路**）
+
+> 2026-10-04：以下流水线**不再是生成主链**。正式生成 = 世界锚点资产 + `script` + `scene.detail` 的镜头序列（文本）→ `recut.video.generate`。`gridSlice` / 逐格细化仍可按需用于**人工预览与关键帧对稿**，但产出的格/关键帧**只作预览**，不作为视频生成的分镜参考。
 
 ### 6.1 平台原语 `recut.media.gridSlice`
 

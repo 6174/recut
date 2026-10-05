@@ -1,8 +1,8 @@
 /*
  * [INPUT]: 依赖标准 HTTP 客户端、WaveSpeed Bearer 凭据（API key）及已编码/已发布的媒体引用
  * [OUTPUT]: 对外提供 WaveSpeed 统一预测协议的提交（POST /api/v3/{model}）、结果轮询
- *          （GET /api/v3/predictions/{id}/result）、媒体上传（POST /api/v3/media/upload）
- *          与供应商响应归一（{code,message,data} 信封 → Prediction）
+ *          （GET /api/v3/predictions/{id}/result）、媒体上传（POST /api/v3/media/uploads
+ *          领取上传票据后 PUT 到票据地址）与供应商响应归一（{code,message,data} 信封 → Prediction）
  * [POS]: media/providers/wavespeed 的协议适配器；只负责线协议与响应归一化，不访问 Recut 的
  *        Store、任务或 Asset；参考素材鉴权下载由 media 层完成，这里只做 multipart 上传
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -15,9 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
-	"net/textproto"
 	"strings"
 )
 
@@ -275,48 +273,101 @@ func assignReference(payload map[string]any, field string, values []string) {
 	}
 }
 
-// UploadMedia publishes one reference binary to POST /api/v3/media/upload and
-// returns its public download URL, which is what the model endpoints accept.
+// uploadTicket is the direct-upload ticket returned by
+// POST /api/v3/media/uploads. The client sends the file bytes to Upload.URL
+// using Upload's headers, then passes DownloadURL to the model input.
+type uploadTicket struct {
+	Data struct {
+		DownloadURL string `json:"download_url"`
+		Upload      struct {
+			Method  string            `json:"method"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"upload"`
+	} `json:"data"`
+}
+
+// UploadMedia publishes one reference binary and returns its public download
+// URL, which is what the model endpoints accept. It follows the recommended
+// two-step flow: request a short-lived upload ticket from
+// POST /api/v3/media/uploads (JSON), then PUT the raw bytes to the signed URL.
+// The single-request multipart endpoint (POST /api/v3/media/upload/binary) no
+// longer accepts multipart at /api/v3/media/upload, which returns a JSON parse
+// error.
 func UploadMedia(client *http.Client, baseURL, secret string, input MediaUpload) (string, error) {
 	if len(input.Content) == 0 || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.ContentType) == "" {
 		return "", errors.New("WaveSpeed media upload requires name, content type, and content")
 	}
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, input.Name))
-	header.Set("Content-Type", input.ContentType)
-	part, err := writer.CreatePart(header)
+	if client == nil {
+		client = http.DefaultClient
+	}
+	ticket, err := requestUploadTicket(client, normalizedBaseURL(baseURL), secret, input)
 	if err != nil {
 		return "", err
 	}
-	if _, err := part.Write(input.Content); err != nil {
-		return "", err
-	}
-	if err := writer.Close(); err != nil {
-		return "", err
-	}
-	request, err := http.NewRequest(http.MethodPost, normalizedBaseURL(baseURL)+"/api/v3/media/upload", &body)
+	return putUploadTicket(client, ticket, input)
+}
+
+// requestUploadTicket asks WaveSpeed for a signed upload slot. filename and the
+// exact byte size are required; content_type is optional upstream but always
+// sent here so the stored object keeps the reference's MIME type.
+func requestUploadTicket(client *http.Client, baseURL, secret string, input MediaUpload) (uploadTicket, error) {
+	body, _ := json.Marshal(map[string]any{
+		"filename":     input.Name,
+		"size":         len(input.Content),
+		"content_type": input.ContentType,
+	})
+	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/v3/media/uploads", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return uploadTicket{}, err
 	}
 	request.Header.Set("Authorization", "Bearer "+secret)
-	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return uploadTicket{}, err
+	}
+	defer response.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return uploadTicket{}, fmt.Errorf("provider returned %s: %s", response.Status, string(data))
+	}
+	ticket := uploadTicket{}
+	if err := json.Unmarshal(data, &ticket); err != nil {
+		return uploadTicket{}, err
+	}
+	if strings.TrimSpace(ticket.Data.Upload.URL) == "" || strings.TrimSpace(ticket.Data.DownloadURL) == "" {
+		return uploadTicket{}, errors.New("WaveSpeed upload ticket returned no upload URL")
+	}
+	return ticket, nil
+}
+
+// putUploadTicket sends the raw file bytes to the signed storage URL using the
+// headers from the ticket. The WaveSpeed credential must never be forwarded to
+// the storage host.
+func putUploadTicket(client *http.Client, ticket uploadTicket, input MediaUpload) (string, error) {
+	method := strings.ToUpper(strings.TrimSpace(ticket.Data.Upload.Method))
+	if method == "" {
+		method = http.MethodPut
+	}
+	request, err := http.NewRequest(method, ticket.Data.Upload.URL, bytes.NewReader(input.Content))
+	if err != nil {
+		return "", err
+	}
+	for key, value := range ticket.Data.Upload.Headers {
+		request.Header.Set(key, value)
+	}
+	request.Header.Del("Authorization")
 	response, err := client.Do(request)
 	if err != nil {
 		return "", err
 	}
 	defer response.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	data, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", fmt.Errorf("provider returned %s: %s", response.Status, string(data))
+		return "", fmt.Errorf("provider storage returned %s: %s", response.Status, string(data))
 	}
-	value := predictionResponse{}
-	_ = json.Unmarshal(data, &value)
-	if url := uploadURL(value); url != "" {
-		return url, nil
-	}
-	return "", errors.New("WaveSpeed media upload returned no download URL")
+	return ticket.Data.DownloadURL, nil
 }
 
 // predictionResponse is the WaveSpeed envelope. Most responses nest the task
@@ -337,20 +388,6 @@ type predictionResponse struct {
 	} `json:"urls"`
 	URL  string              `json:"url"`
 	Data *predictionResponse `json:"data"`
-}
-
-func uploadURL(value predictionResponse) string {
-	if value.Data != nil {
-		if url := uploadURL(*value.Data); url != "" {
-			return url
-		}
-	}
-	for _, candidate := range []string{value.URLs.MediaURL, value.URLs.Download, value.URLs.Get, value.URL} {
-		if strings.TrimSpace(candidate) != "" && strings.HasPrefix(candidate, "http") {
-			return candidate
-		}
-	}
-	return ""
 }
 
 func request(client *http.Client, baseURL, secret, method, endpoint string, body io.Reader) (Prediction, error) {

@@ -242,7 +242,7 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 		{Key: "durationSec", Label: "目标时长（秒）", Type: "number", Locked: true},
 		{Key: "aspectRatio", Label: "画幅", Type: "select", Options: []string{"9:16", "16:9", "1:1", "4:5"}, Locked: true},
 		{Key: "platform", Label: "目标平台", Type: "text", Locked: true},
-		{Key: "storyboard", Label: "整片分镜表（可选）", Type: "media", Locked: true},
+		{Key: "storyboard", Label: "整片分镜（可选，仅预览）", Type: "media", Locked: true},
 	},
 }
 
@@ -286,8 +286,8 @@ var retiredPresetEntityTypes = []string{"reference", "object", "story", "style",
 var productionEntityTypeFields = map[string][]EntityTypeField{
 	"scene": {
 		{Key: "summary", Label: "一句话概括", Type: "text", Locked: true},
-		// 场次分镜表：把本场拆成 shot 的依据（一图 N 宫格），作 role=storyboard 参考。
-		{Key: "storyboard", Label: "场次分镜表", Type: "media", Options: []string{"image"}, Locked: true},
+		// 场次分镜（预览/排产；不是生成参考——生成由资产 + scene.detail 镜头序列驱动）。
+		{Key: "storyboard", Label: "场次分镜（预览，不作生成参考）", Type: "media", Options: []string{"image"}, Locked: true},
 		{Key: "durationSec", Label: "场次总时长（秒）", Type: "number", Locked: true},
 		// 场成片：本场视频生成的结果（一次生成 = 一场）。产物不预设生成方式
 		// （参考驱动 / 首尾帧 / 文生都行），生成方式记在产物资产 metadata.proposal；
@@ -301,8 +301,8 @@ var productionEntityTypeFields = map[string][]EntityTypeField{
 		{Key: "shotSize", Label: "景别 / 角度 / 焦段", Type: "text", Locked: true},
 		{Key: "durationSec", Label: "时长（秒）", Type: "number", Locked: true},
 		{Key: "camera", Label: "镜头运动", Type: "text", Locked: true},
-		// 关键帧 / 分镜图：该镜的参考画面（作 role=storyboard 或关键帧参考）。
-		{Key: "keyframe", Label: "关键帧 / 分镜图", Type: "media", Options: []string{"image"}, Locked: true},
+		// 关键帧 / 预览图：该镜的预览画面（仅预览/测试，不进生成依赖）。
+		{Key: "keyframe", Label: "关键帧 / 预览图", Type: "media", Options: []string{"image"}, Locked: true},
 		// NOTE: 该镜的画面描述/台词/构图/光线等细节全部写在实体 `detail`（正文）——
 		// 生图提示词主要取自这里；不要再造 content/dialogue 之类的正文属性。
 		// 镜头不是视频生成单位——视频按场次生成，镜头是它的分镜拆解与画面参考。

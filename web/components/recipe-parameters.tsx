@@ -6,6 +6,7 @@
  */
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { ModelParameter } from "@/app/media/media-types";
 
 export function RecipeParameters({ parameters, values, onChange }: { parameters: ModelParameter[]; values: Record<string, unknown>; onChange: (name: string, value: unknown) => void }) {
@@ -23,6 +24,16 @@ export function RecipeParameters({ parameters, values, onChange }: { parameters:
 function ParameterRow({ parameter, value, onChange }: { parameter: ModelParameter; value: unknown; onChange: (value: unknown) => void }) {
   const label = parameter.label || parameter.name.replace(/_/g, " ");
   const current = value ?? parameter.default;
+  const numeric = parameter.type === "integer" || parameter.type === "number";
+  const currentText = current === undefined || current === null ? "" : String(current);
+  // 数值/文本参数走本地草稿、失焦或回车才落盘：逐键写回会在输入中间态（空串、越界的半截数字）
+  // 触发服务端范围校验，失败后控件被回弹到旧值，导致字段根本改不动（durationSeconds 4–15 即此例）。
+  const [draft, setDraft] = useState(currentText);
+  const editingRef = useRef(false);
+  useEffect(() => {
+    if (!editingRef.current) setDraft(currentText);
+  }, [currentText]);
+
   if (parameter.type === "boolean") {
     return (
       <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground" title={parameter.description}>
@@ -45,7 +56,23 @@ function ParameterRow({ parameter, value, onChange }: { parameter: ModelParamete
       </label>
     );
   }
-  const numeric = parameter.type === "integer" || parameter.type === "number";
+  // 提交时把数值夹到 [minimum, maximum]，避免越界值被服务端拒绝后回弹。
+  const commit = () => {
+    if (!numeric) {
+      if (draft !== currentText) onChange(draft);
+      return;
+    }
+    const parsed = Number(draft);
+    if (draft.trim() === "" || Number.isNaN(parsed)) {
+      setDraft(currentText);
+      return;
+    }
+    let next = parameter.type === "integer" ? Math.round(parsed) : parsed;
+    if (parameter.minimum !== undefined) next = Math.max(parameter.minimum, next);
+    if (parameter.maximum !== undefined) next = Math.min(parameter.maximum, next);
+    setDraft(String(next));
+    if (next !== current) onChange(next);
+  };
   return (
     <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground" title={parameter.description}>
       <span className="shrink-0 truncate">{label}</span>
@@ -53,10 +80,13 @@ function ParameterRow({ parameter, value, onChange }: { parameter: ModelParamete
         className="min-w-0 flex-1 rounded-md border bg-background p-1 text-[11px] outline-none focus:border-primary"
         max={parameter.maximum}
         min={parameter.minimum}
-        onChange={(event) => onChange(numeric ? Number(event.target.value) : event.target.value)}
+        onBlur={() => { editingRef.current = false; commit(); }}
+        onChange={(event) => setDraft(event.target.value)}
+        onFocus={() => { editingRef.current = true; }}
+        onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
         step={parameter.type === "integer" ? 1 : "any"}
         type={numeric ? "number" : "text"}
-        value={current === undefined || current === null ? "" : String(current)}
+        value={draft}
       />
     </label>
   );

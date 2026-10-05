@@ -53,7 +53,6 @@ export const PROPOSAL_ROLES: Array<{ id: string; label: string; kinds: string[] 
   { id: "character", label: "角色", kinds: ["image"] },
   { id: "prop", label: "道具", kinds: ["image"] },
   { id: "style-ref", label: "风格", kinds: ["image"] },
-  { id: "storyboard", label: "分镜", kinds: ["image"] },
   { id: "motion-ref", label: "运动", kinds: ["video"] },
   { id: "voice", label: "音色", kinds: ["audio"] },
   { id: "sfx", label: "音效", kinds: ["audio"] },

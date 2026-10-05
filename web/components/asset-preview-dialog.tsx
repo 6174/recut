@@ -261,8 +261,11 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
   const submitted = status === "running" && Boolean(providerTaskUrl || providerTaskID);
   const statusText = status === "failed" ? "生成失败" : plan ? "计划中" : status === "proposed" ? "待确认生成" : ready ? "已完成" : submitted ? "等待结果" : status === "running" ? "提交中" : "排队中";
   const statusLabel = <><span>{statusText}</span><GenerationDuration className="font-mono text-[10px] text-muted-foreground" item={asset} /></>;
-  // Remix：把已完成素材的可复用配方复制成一个新的提案资产，并让弹框切到它的编辑态。
-  const canRemix = !isComponent && ready && typeof metadata.prompt === "string" && metadata.prompt.trim().length > 0;
+  // Remix/重新生成：把可复用配方复制成一个新的提案资产（新 assetId、用户确认后才生成，绝不重发旧调用），
+  // 并让弹框切到它的编辑态。失败/超时素材同样要给出口——它的配方仍在，可复制成新提案重新生成；
+  // 只有真正完成态才叫 Remix，失败态叫「重新生成」更贴切（服务端超时兜底缺位时这是唯一出口）。
+  const canRemix = !isComponent && (ready || status === "failed") && typeof metadata.prompt === "string" && metadata.prompt.trim().length > 0;
+  const remixLabel = ready ? "Remix" : "重新生成";
   async function remix() {
     if (!canRemix || remixing) return;
     setRemixing(true);
@@ -345,7 +348,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
           <aside className="min-h-0 shrink-0 overflow-y-auto overscroll-contain p-4" style={{ width: asideWidth }}>
             <PanelSection
               action={
-                canRemix ? <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted disabled:opacity-60" disabled={remixing} onClick={() => void remix()} type="button">{remixing ? <LoaderCircle className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}Remix</button>
+                canRemix ? <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted disabled:opacity-60" disabled={remixing} onClick={() => void remix()} type="button">{remixing ? <LoaderCircle className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}{remixLabel}</button>
                 : ready && metadata.prompt && onRegenerate ? <button className="flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] hover:bg-muted" onClick={() => onRegenerate(asset)} type="button"><RotateCcw className="size-3" />再次生成</button>
                 : undefined
               }

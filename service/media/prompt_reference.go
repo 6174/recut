@@ -4,7 +4,8 @@
  *   UnboundPromptReferenceIDs（未绑定 id 清单）与 ValidatePromptReferences（提案创建/更新期的早期门禁，
  *   以 ValidationError 报告全部未绑定 id）
  * [POS]: media 包的提交串边界；资产侧 metadata.prompt 保留作者原文（含标签，供编辑器渲染 chip），
- *   只有真正发给模型的 job prompt 经这里改写——模型只看到编号与名称，不看到裸 assetId
+ *   只有真正发给模型的 job prompt 经这里改写——模型只看到「编号 + role 短标签 + 名称」
+ *   （如 参考图1（分镜）「G1 分镜表」），不看到裸 assetId；编号位次即 provider 数组下标
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 package media
@@ -30,10 +31,29 @@ var referenceAttrPattern = regexp.MustCompile(`([A-Za-z_][\w-]*)\s*=\s*"([^"]*)"
 // generation set (validateReferences rejects them earlier) fall back to a neutral prefix.
 var referenceAliasPrefix = map[string]string{"image": "参考图", "video": "参考视频", "audio": "音频"}
 
+// referenceRoleLabels maps the controlled role token to the model-facing short label
+// (mirrors web/lib/media/proposal.ts PROPOSAL_ROLES). The label is injected next to the
+// numbered alias so the model can semantically bind each submitted media item to its role
+// by position — the provider API only receives an ordered array with no per-item names.
+var referenceRoleLabels = map[string]string{
+	"pov":         "视角",
+	"color-card":  "色卡",
+	"environment": "环境",
+	"character":   "角色",
+	"prop":        "道具",
+	"style-ref":   "风格",
+	"motion-ref":  "运动",
+	"voice":       "音色",
+	"sfx":         "音效",
+	"music":       "音乐",
+}
+
 // ResolvePromptReferences rewrites prompt reference tags into model-facing aliases so the
 // submitted string never carries a bare assetId. Numbering follows the reference order per
 // kind — exactly the order the provider receives the media in — so 「参考图1」 always points
-// at the first attached image. nameOf resolves a reference's display name lazily and may be
+// at the first attached image. A tag's controlled role is injected as a short label next to
+// the number (「参考图1（分镜）」) so the model can bind each anonymously-submitted item to its
+// semantic role by position. nameOf resolves a reference's display name lazily and may be
 // nil. A tag whose id is not bound to any reference fails closed; a prompt with no reference
 // tags (plain text, legacy `{{Mixed N}}`) passes through untouched.
 func ResolvePromptReferences(prompt string, refs []MediaReference, nameOf func(value string) string) (string, error) {
@@ -65,14 +85,21 @@ func ResolvePromptReferences(prompt string, refs []MediaReference, nameOf func(v
 			}
 			return tag
 		}
+		replacement := alias
+		// The provider only receives an ordered array, so the alias number is the sole
+		// positional anchor. Emitting the controlled role next to it lets the model map
+		// each submitted media item to its semantic role (分镜/角色/环境/…) by position.
+		if roleLabel := referenceRoleLabels[strings.TrimSpace(attrs["role"])]; roleLabel != "" {
+			replacement += "（" + roleLabel + "）"
+		}
 		name := strings.TrimSpace(declared)
 		if name == "" && nameOf != nil {
 			name = strings.TrimSpace(nameOf(id))
 		}
-		if name == "" {
-			return alias
+		if name != "" {
+			replacement += "「" + name + "」"
 		}
-		return alias + "「" + name + "」"
+		return replacement
 	})
 	if failure != nil {
 		return "", failure

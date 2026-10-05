@@ -134,6 +134,31 @@ export function ProposalEditor({
   const selectedModel = models.find((model) => model.id === proposal.modelId) ?? models[0];
   const credential = configuration.credentials.find((item) => item.provider === selectedModel?.provider);
   const keyless = isLocalProvider(selectedModel?.provider, configuration.providers);
+  // 选模型必须与凭据成对落到提案里：按目标模型的 provider 解析对应凭据（本机 provider 免凭据，
+  // 显式清空）。只发 modelId 会把上一个模型的 credentialId 留在提案里，换 provider 时服务端按
+  // provider 校验即报「media model and credential provider do not match」。
+  const recipeForModel = (modelId: string): Partial<GenerationProposal> => {
+    const model = models.find((item) => item.id === modelId);
+    if (!model) return { modelId };
+    const expected = isLocalProvider(model.provider, configuration.providers)
+      ? ""
+      : (configuration.credentials.find((item) => item.provider === model.provider)?.id ?? "");
+    return { modelId, credentialId: expected };
+  };
+  // 模型参数面里的时长：AI 的一等字段 durationSec 可能还没折进 metadata.output（历史提案），
+  // 以 durationSec 兜底显示，避免把请求的 10s 显示成模型默认 5s；一旦用户改动即显式落盘。
+  const parameterValues = useMemo(() => {
+    const values: Record<string, unknown> = { ...(proposal.params ?? {}) };
+    const duration = proposal.durationSec;
+    if (typeof duration === "number" && duration > 0) {
+      for (const parameter of selectedModel?.parameters ?? []) {
+        if ((parameter.name === "durationSec" || parameter.name === "durationSeconds") && values[parameter.name] === undefined) {
+          values[parameter.name] = duration;
+        }
+      }
+    }
+    return values;
+  }, [proposal.params, proposal.durationSec, selectedModel]);
   const draft: GenerationProposal = { ...proposal, prompt: promptValue.text };
   const issues = proposalIssues(draft, registry);
   const canConfirm = !readOnly && Boolean(selectedModel) && (keyless || Boolean(credential)) && !issues.some((issue) => issue.level === "error") && proposal.status !== "generating";
@@ -141,8 +166,8 @@ export function ProposalEditor({
   // 模型缺省对齐：提案未带 modelId/credentialId 时按可用模型补全（不改用户已选项）。
   useEffect(() => {
     if (!selectedModel) return;
-    const expectedCredential = keyless ? undefined : credential?.id;
-    if ((proposal.modelId ?? "") !== selectedModel.id || (proposal.credentialId ?? "") !== (expectedCredential ?? "")) {
+    const expectedCredential = keyless ? "" : (credential?.id ?? "");
+    if ((proposal.modelId ?? "") !== selectedModel.id || (proposal.credentialId ?? "") !== expectedCredential) {
       void onChangeRef.current({ modelId: selectedModel.id, credentialId: expectedCredential });
     }
   }, [selectedModel?.id, credential?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -291,14 +316,14 @@ export function ProposalEditor({
             credentialConnected={(providerID) => isLocalProvider(providerID, configuration.providers) || configuration.credentials.some((item) => item.provider === providerID)}
             id={`proposal-${reactID}`}
             models={models}
-            onChange={(modelId) => void onChange({ modelId })}
+            onChange={(modelId) => void onChange(recipeForModel(modelId))}
             providerName={(providerID) => configuration.providers.find((item) => item.id === providerID)?.name ?? providerID}
             value={selectedModel.id}
           />
         ) : (
           <p className="rounded-md bg-muted/50 px-2 py-2 text-[11px] text-muted-foreground">还没有可用的生成模型，请先在设置中连接 Provider。</p>
         )}
-        {selectedModel && <RecipeParameters parameters={selectedModel.parameters ?? []} values={proposal.params ?? {}} onChange={(name, value) => void onChange({ params: { ...(proposal.params ?? {}), [name]: value } })} />}
+        {selectedModel && <RecipeParameters parameters={selectedModel.parameters ?? []} values={parameterValues} onChange={(name, value) => void onChange({ params: { ...(proposal.params ?? {}), [name]: value } })} />}
       </div>
       {/* E. 提交前自检 */}
       {issues.length > 0 && (
