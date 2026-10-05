@@ -44,7 +44,7 @@ import { AlignmentGuidePlugin } from "@/lib/pomelo/world-canvas/plugins/alignmen
 import { VideoPreviewPlugin } from "@/lib/pomelo/world-canvas/plugins/video-preview-plugin";
 import { attrMediaLabel } from "@/lib/pomelo/world-canvas/entity-color";
 import { mediaSource, modalityOfAssetKind, modalityOfKind } from "./canvas-media";
-import { MEDIA_VISUAL_HEIGHT, MEDIA_VISUAL_WIDTH, isMediaVisualModality, mediaVisualSizeForRatio } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
+import { MEDIA_VISUAL_HEIGHT, MEDIA_VISUAL_WIDTH, isMediaVisualModality, mediaAspectKey, mediaVisualSizeForRatio } from "@/lib/pomelo/world-canvas/blocks/media-visual-metrics";
 import { textAttrHeight, textElementHeight } from "@/lib/pomelo/world-canvas/blocks/text-block-metrics";
 import { CanvasBindsPlugin } from "./canvas-pomelo-plugin";
 import { CreatePanel, type CreateGroup, type CreateItem } from "./canvas-create-panel";
@@ -123,8 +123,8 @@ function buildPomeloRecords(
     }
     // 实体卡标题的类型前缀文案：type 目录 name 优先（B.2 用户语言），目录缺失回退静态 label
     const kindLabel = state.entityTypes.find((item) => item.id === entity.typeId)?.name || entityKindLabel(entity.typeId);
-    // 封面比例：加载成功时测量并回写元素 props.coverAspect（DB；key 匹配当前封面才生效）；旧数据兼容
-    const coverAspect = persistedAspect(element?.props, "coverAspect", cover ? cover.assetId || cover.url : "") ?? 0;
+    // 封面比例：加载成功时测量并回写元素 props.coverAspect（DB；key 含内容哈希，同一 assetId 换图后失效重测）
+    const coverAspect = persistedAspect(element?.props, "coverAspect", cover ? mediaAspectKey(cover.assetId ?? "", cover.url, cover.assetId ? canvasAssetOf(cover.assetId)?.contentHash : "") : "") ?? 0;
     records.push({
       id: `entity:${entity.id}`,
       type: "entity-card",
@@ -179,7 +179,7 @@ function buildPomeloRecords(
       const mediaSrc = assetState === "ready" ? mediaSource(state.apiBase, { ...(assetId ? { assetId } : {}), ...(url ? { url } : {}) }) : "";
       // 图片/视频块渲染尺寸按 props 里回写的实测比例派生（不读几何放置盒）；未测得/空素材 = 16:9 占位。
       const visual = isMediaVisualModality(modality);
-      const visualAspect = visual ? persistedAspect(element.props, "visualAspect", assetId || url) : null;
+      const visualAspect = visual ? persistedAspect(element.props, "visualAspect", mediaAspectKey(assetId, url, asset?.contentHash)) : null;
       const measuredSize = visualAspect ? mediaVisualSizeForRatio(visualAspect) : null;
       records.push({
         id: element.id,
@@ -221,7 +221,7 @@ function buildPomeloRecords(
       }) : "";
       const attrVisual = isMediaVisualModality(resolvedAttrMedia);
       // 图片/视频属性卡渲染尺寸同媒体卡：按 props 回写的实测比例派生（不读几何放置盒）；未测得/空素材 = 16:9 占位。
-      const attrAspect = attrVisual ? persistedAspect(element.props, "visualAspect", attrAssetId || String(element.props?.url ?? "")) : null;
+      const attrAspect = attrVisual ? persistedAspect(element.props, "visualAspect", mediaAspectKey(attrAssetId, String(element.props?.url ?? ""), attrAsset?.contentHash)) : null;
       const attrSize = attrAspect ? mediaVisualSizeForRatio(attrAspect) : null;
       const attrWidth = attrVisual ? attrSize?.width ?? MEDIA_VISUAL_WIDTH : Number(element.geometry?.width) || (resolvedAttrMedia === "text" ? 160 : 200);
       // 文本属性卡高度随内容（换行行数）；图片/视频卡用测量尺寸或 16:9；音频等用几何/默认高度

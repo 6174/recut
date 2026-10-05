@@ -111,6 +111,79 @@ pub enum DrawOp {
     PopClip,
 }
 
+/// 图像直采的有序绘制段：矢量段（clip 状态自洽，可直接录成一个 Scene）或图像段。
+#[derive(Debug)]
+pub(crate) enum DrawRun {
+    /// 一段矢量 op（已剔除图像；clip push/pop 自洽）。
+    Vector(Vec<DrawOp>),
+    /// 一张图：世界坐标目标矩形 + 最近一层圆角裁切盒（世界坐标，None = 无裁切）。
+    Image {
+        image_id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        clip: Option<[f32; 5]>,
+    },
+}
+
+/// 把 op 序列按图像切成有序 `DrawRun`：图像从 vello 流中拆出，交给 compositor 直采；
+/// 其余矢量 op 聚成自洽的矢量段。z 序 = 段顺序。
+///
+/// clip 跨图像时做「就地对齐」：遇到图像先把当前所有激活的 clip 补 `PopClip` 关掉，使前面的
+/// 矢量段自洽；再在图像之后的矢量段开头重新压入这些 clip——原流里随后出现的 `PopClip` 正好与之
+/// 配平。这样每个矢量段都能独立录成 Scene，而图像段携带它所在的那一层裁切盒（供 compositor
+/// 的 rounded-rect SDF 复原 vello 的 `pushClipRoundRect` 裁切）。
+pub(crate) fn split_runs(ops: &[DrawOp]) -> Vec<DrawRun> {
+    fn is_draw(op: &DrawOp) -> bool {
+        !matches!(op, DrawOp::PushClipRoundRect { .. } | DrawOp::PopClip)
+    }
+    let mut runs: Vec<DrawRun> = Vec::new();
+    let mut cur: Vec<DrawOp> = Vec::new();
+    let mut has_draw = false;
+    let mut clips: Vec<[f32; 5]> = Vec::new();
+
+    for op in ops {
+        match op {
+            DrawOp::PushClipRoundRect { x, y, w, h, radius } => {
+                clips.push([*x, *y, *w, *h, *radius]);
+                cur.push(op.clone());
+            }
+            DrawOp::PopClip => {
+                clips.pop();
+                cur.push(op.clone());
+            }
+            DrawOp::Image { image_id, x, y, w, h } => {
+                // 关闭当前所有 clip，收束成自洽矢量段
+                for _ in 0..clips.len() {
+                    cur.push(DrawOp::PopClip);
+                }
+                if has_draw {
+                    runs.push(DrawRun::Vector(std::mem::take(&mut cur)));
+                } else {
+                    cur.clear();
+                }
+                runs.push(DrawRun::Image { image_id: *image_id, x: *x, y: *y, w: *w, h: *h, clip: clips.last().copied() });
+                // 后续矢量段重新压入激活的 clip（原流的 PopClip 会与之配平）
+                for clip in &clips {
+                    cur.push(DrawOp::PushClipRoundRect { x: clip[0], y: clip[1], w: clip[2], h: clip[3], radius: clip[4] });
+                }
+                has_draw = false;
+            }
+            other => {
+                if is_draw(other) {
+                    has_draw = true;
+                }
+                cur.push(other.clone());
+            }
+        }
+    }
+    if has_draw {
+        runs.push(DrawRun::Vector(cur));
+    }
+    runs
+}
+
 struct Cursor<'a> {
     bytes: &'a [u8],
     offset: usize,
@@ -727,6 +800,55 @@ mod tests {
             b.push(99);
         });
         assert!(decode_ops(&unknown).is_err());
+    }
+
+    fn rect(x: f32) -> DrawOp {
+        DrawOp::RectFill { x, y: 0.0, w: 1.0, h: 1.0, fill: [0, 0, 0, 255] }
+    }
+
+    fn image(id: u32) -> DrawOp {
+        DrawOp::Image { image_id: id, x: 0.0, y: 0.0, w: 10.0, h: 10.0 }
+    }
+
+    fn clip() -> DrawOp {
+        DrawOp::PushClipRoundRect { x: 0.0, y: 0.0, w: 10.0, h: 10.0, radius: 8.0 }
+    }
+
+    /// 图像从矢量流中拆出，z 序由段顺序表达。
+    #[test]
+    fn split_runs_splits_at_images() {
+        let runs = split_runs(&[rect(0.0), image(2), rect(1.0)]);
+        assert_eq!(runs.len(), 3);
+        assert!(matches!(&runs[0], DrawRun::Vector(v) if v.len() == 1));
+        assert!(matches!(&runs[1], DrawRun::Image { image_id: 2, .. }));
+        assert!(matches!(&runs[2], DrawRun::Vector(v) if v.len() == 1));
+    }
+
+    /// 图像携带所在 clip；前后矢量段各自补平 clip（close/reopen），使每段自洽。
+    #[test]
+    fn split_runs_carries_clip_and_balances_runs() {
+        let runs = split_runs(&[clip(), rect(0.0), image(2), rect(1.0), DrawOp::PopClip]);
+        assert_eq!(runs.len(), 3);
+        // 第一段：clip push + rect + 补的 clip pop（自洽）
+        assert!(matches!(&runs[0], DrawRun::Vector(v) if v.len() == 3));
+        // 中段：图像，带 clip（含 radius 8）
+        match &runs[1] {
+            DrawRun::Image { image_id, clip: Some(c), .. } => {
+                assert_eq!(*image_id, 2);
+                assert_eq!(c[4], 8.0);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        // 尾段：重开的 clip push + rect + 原流的 clip pop（自洽）
+        assert!(matches!(&runs[2], DrawRun::Vector(v) if v.len() == 3));
+    }
+
+    /// 纯图像（外侧无矢量）不产生空的矢量段；仅一个 image run。
+    #[test]
+    fn split_runs_empty_vectors_dropped() {
+        let runs = split_runs(&[clip(), image(2), DrawOp::PopClip]);
+        assert_eq!(runs.len(), 1);
+        assert!(matches!(&runs[0], DrawRun::Image { image_id: 2, clip: Some(_), .. }));
     }
 
     /// 有界淘汰：超出容量时保留最近使用的条目，而不是整体清空（旧实现满 1024 即 `clear()`，

@@ -18,13 +18,14 @@ use vello::wgpu::{
     ShaderSource, ShaderStages, StoreOp, TextureSampleType, TextureView, TextureViewDimension, VertexState,
 };
 
-const UNIFORM_BYTES: u64 = 48;
+const UNIFORM_BYTES: u64 = 64;
 
 const SHADER: &str = r#"
 struct Uniforms {
-    dst: vec4<f32>,
-    uv: vec4<f32>,
-    shape: vec4<f32>,   // x = 圆角半径(设备像素, 0=直角)，yz = 半个目标尺寸(设备像素)
+    dst: vec4<f32>,     // NDC 目标矩形 (x, y, w, h)
+    uv: vec4<f32>,      // 源纹理采样 UV 矩形
+    clip: vec4<f32>,    // 圆角裁切矩形（设备像素 x,y,w,h）；w<=0 表示无裁切
+    shape: vec4<f32>,   // x = 圆角半径(设备像素, 0=直角)
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var tex: texture_2d<f32>;
@@ -33,7 +34,6 @@ struct Uniforms {
 struct VOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) quad: vec2<f32>,
 };
 
 @vertex
@@ -46,7 +46,6 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
     var out: VOut;
     out.pos = vec4<f32>(u.dst.xy + c * u.dst.zw, 0.0, 1.0);
     out.uv = u.uv.xy + c * (u.uv.zw - u.uv.xy);
-    out.quad = c;
     return out;
 }
 
@@ -54,12 +53,14 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     var color = textureSample(tex, samp, in.uv);
     let radius = u.shape.x;
-    if (radius > 0.0) {
-        // rounded-rect SDF：把 quad 归一坐标映射到目标像素空间，算到圆角矩形的有符号距离，
-        // 边缘 1px 做 AA。用于图像直采时替代 vello 的 pushClipRoundRect（圆角裁切）。
-        let half = u.shape.yz;
+    let clip = u.clip;
+    if (clip.z > 0.0) {
+        // rounded-rect SDF，在**设备像素空间**计算：裁切矩形可与 quad 目标矩形不同
+        // （例如 center-cover 图超出媒体盒、再被盒的圆角裁掉）。替代 vello 的
+        // pushClipRoundRect；边缘 1px 做 AA。fragment 的 @builtin(position) 即设备像素坐标。
+        let half = clip.zw * 0.5;
         let r = min(radius, min(half.x, half.y));
-        let p = in.quad * (half * 2.0) - half;
+        let p = in.pos.xy - (clip.xy + half);
         let q = abs(p) - (half - vec2<f32>(r, r));
         let d = length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
         let cover = clamp(0.5 - d, 0.0, 1.0);
@@ -81,6 +82,9 @@ pub struct QuadDraw<'a> {
     pub premultiplied: bool,
     /// 圆角半径（设备像素，0 = 直角）。图像直采用它做圆角裁切；瓦片/底图为 0。
     pub radius: f32,
+    /// 圆角裁切矩形（设备像素 x,y,w,h）。w<=0 表示裁切到 rect 本身、不做圆角。
+    /// 图像直采用：center-cover 图的目标矩形可大于裁切盒（如媒体盒），由裁切盒决定可见范围。
+    pub clip: [f32; 4],
 }
 
 struct TileBinding {
@@ -232,7 +236,16 @@ impl Compositor {
         for draw in draws {
             let [sx, sy, sw, sh] = draw.rect;
             let [u0, v0, u1, v1] = draw.uv;
-            let uniforms: [f32; 12] = [
+            // 圆角裁切矩形：未显式给裁切盒（clip.w<=0）时不做 SDF，保持既有瓦片/底图行为；
+            // 仅「有裁切盒」或「显式圆角」时启用，避免给所有 quad 边缘引入 1px AA。
+            let clip = if draw.clip[2] > 0.0 {
+                draw.clip
+            } else if draw.radius > 0.0 {
+                draw.rect
+            } else {
+                [0.0; 4]
+            };
+            let uniforms: [f32; 16] = [
                 sx / w * 2.0 - 1.0,
                 1.0 - sy / h * 2.0,
                 sw / w * 2.0,
@@ -241,9 +254,13 @@ impl Compositor {
                 v0,
                 u1,
                 v1,
+                clip[0],
+                clip[1],
+                clip[2],
+                clip[3],
                 draw.radius,
-                sw * 0.5,
-                sh * 0.5,
+                0.0,
+                0.0,
                 0.0,
             ];
             let entry = self.entries.entry(draw.handle).or_insert_with(|| {

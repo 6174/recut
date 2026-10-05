@@ -57,6 +57,7 @@ interface WasmRuntime {
   register_font(id: number, bytes: Uint8Array): void;
   register_image(id: number, width: number, height: number, rgba: Uint8Array): void;
   set_font_fallback(id: number, fallbackId: number): void;
+  set_direct_image(on: boolean): void;
   render_atomic_chunk(imageId: number, ops: Uint8Array, level: number, minX: number, minY: number, width: number, height: number): void;
   render_direct(ops: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
   render_frame(chunks: Uint8Array, panX: number, panY: number, zoom: number, width: number, height: number): void;
@@ -172,6 +173,11 @@ export class VelloGpuRasterizer implements TileRasterizer<VelloTarget, number> {
 
   registerImage(id: number, width: number, height: number, rgba: Uint8Array): void {
     this.runtime.register_image(id, width, height, rgba);
+  }
+
+  /** 开启图像直采（`?cvperf=1`）：照片走 compositor 直采独立纹理，脱离 vello image atlas。 */
+  setDirectImage(on: boolean): void {
+    this.runtime.set_direct_image(on);
   }
 
   setFontFallback(id: number, fallbackId: number): void {

@@ -55,6 +55,7 @@ function remember(assetId: string, asset: Asset) {
     current &&
     current.status === asset.status &&
     current.error === asset.error &&
+    current.contentHash === asset.contentHash &&
     JSON.stringify(current.metadata) === JSON.stringify(asset.metadata)
   ) return;
   useCanvasAssetStatusStore.setState((prev) => ({ assets: { ...prev.assets, [assetId]: asset } }));

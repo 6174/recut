@@ -307,13 +307,27 @@ until 流结束
 - 仍需 keepalive 1×1 兜住图集缩回、分辨率仍「只升不降」。
 - 结构性根治是 Phase 1：照片走独立纹理 + compositor，图集退出照片路径。
 
-### 6.2 Phase 1（进行中）：图像直采任务拆解
+### 6.2 Phase 1（已实现，`?cvperf=1` 门控）
 
-1. **op 通道分离**：`RenderChunk.payload` 增加 `imageQuads`；适配器 `syncChunks` 把 `image` op 从 vello op 流里拆出（velloOps 不再含图像）。**先只改数据模型，行为不变。**
-2. **compositor 圆角**：shader 加 rounded-rect SDF，`QuadDraw` 加 `radius`。（**脚手架已落地，但调用点仍全传 `radius: 0`**）
-3. **Rust 侧按序渲染**：`build_stream_scene` 遇 `ImageQuad` 时 flush 矢量 Scene → compositor 贴图 → 继续；`chunk_scenes` 缓存按 `(chunkId, runIndex)` 切分。
-4. **底图/瓦片/会话全走 DrawList**；移除 `runtime.rs` 的 atlas image 分支。
-5. **纹理池 + 分辨率策略**。
+开关：适配器读 URL `?cvperf=1`（或显式 `directImage` 选项）→ `gpu.setDirectImage(true)` → wasm
+`set_direct_image(true)`。**默认关闭，原路径行为不变**（可回退）。控制台会打印
+`[cvperf] direct-image ON`，可据此确认走的是直采路径。
+
+实现落点：
+
+1. **op 通道分离**（在 Rust 内完成，不改 JS payload）：`ops::split_runs` 把 chunk 的 op 序列按
+   `Image` 切成有序 `DrawRun`（`Vector` / `Image`）；图像段携带所在圆角裁切盒，clip 跨图像时对
+   矢量段做 close/reopen 保持自洽。z 序 = 段顺序。
+2. **compositor 圆角**：fragment shader 用**设备空间** rounded-rect SDF；`QuadDraw` 加 `radius` +
+   `clip`（裁切盒可不同于目标矩形，复原 center-cover + 圆角裁切）。
+3. **Rust 侧按序渲染**：`runtime::compose_direct` 遍历 chunk/run：矢量段经 vello 渲到复用的 layer
+   纹理 → 与该段前的图像 quad 一起提交；`run_scenes` 按 `(chunk key, runIndex)` 缓存文本 shaping。
+4. **底图/整帧/导航直绘/拖拽会话全部走直采**：`build_scene_backing` / `begin+step_scene_backing`
+   / `render_frame` / `render_direct` / `begin+render_content_session` 在直采模式下都改走
+   `compose_direct`，照片不再进 atlas。拖拽内容会话因此对**含图块也安全启用**（静态快照与逐帧
+   live 层各自 compose、互不共享 atlas），避免拖拽时每帧整场重建底图（拖拽顺滑的关键）。
+5. **纹理管理（基础版）**：每图独立 wgpu 纹理 + `TextureView` 直采；矢量层复用单张 layer 纹理。
+   **纹理池 / 降档 / mip 待 Phase 2 补。**
 
 原则：**双路径并存、开关隔离，保证任意一步可回退。**
 

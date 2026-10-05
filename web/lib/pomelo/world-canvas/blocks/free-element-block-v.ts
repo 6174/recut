@@ -14,7 +14,7 @@
  * 媒体属性卡的生成提案「待确认」态（proposalStatus=pending）渲染为弱灰描边 + 「提案」徽标 + 提示词摘要；
  * 计划态（planStatus，proposed 但无配方）渲染为弱灰描边 + 「计划中」+ 说明摘要；
  * 生成中/失败态（proposalStatus=generating/failed，或 AI 先落 assetId 的 assetStatus）渲染为蓝/红描边 + 等待/失败提示；
- * 视口 <= LOW_DETAIL_SCALE 时隐藏文字（文本框不再退化出占位块）。
+ * 视口 <= LOW_DETAIL_SCALE 时隐藏文字；文本框（文本元素 / 文本属性卡）此时退化为一个纯色面（替代不可读的文字预览）。
  * [POS]: lib/pomelo/world-canvas/blocks 的自由元素 vello block。
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -41,7 +41,7 @@ import {
   TEXT_SECONDARY,
   TEXT_TERTIARY,
 } from "../graph-theme";
-import { CAPTION_TOP_OFFSET, captionOpsV, coverImageOpsV, isLowDetail, moreHintOpsV, screenScaleOf } from "./vello-shared";
+import { CAPTION_TOP_OFFSET, captionOpsV, coverImageOpsV, isLowDetail, moreHintOpsV, screenScaleOf, textPlaneOpsV } from "./vello-shared";
 import { audioPlayerOpsV } from "./audio-block-ops";
 import { TEXT_ATTR_LINE_HEIGHT, TEXT_ATTR_PAD, TEXT_ATTR_SIZE, TEXT_ELEMENT_LINE_HEIGHT, TEXT_ELEMENT_PAD, TEXT_ELEMENT_SIZE, textAttrOverflows, textElementOverflows } from "./text-block-metrics";
 import { audioBlockRect, isAudioBlockRecord } from "./audio-block-metrics";
@@ -96,9 +96,11 @@ export class FreeElementBlockV extends VelloBlock {
 
     const ops: VelloOp[] = [];
     if (elementKind === "text") {
-      // 文本元素：无背景、圆角描边框，就是画布上的文本（低缩放下整体隐藏；就地编辑中藏文字留框）；
-      // 高度已封顶 16:9（textElementHeight），溢出裁剪到框内 + 右下角「＋更多」提示
-      if (!lowDetail) {
+      // 文本元素：无背景、圆角描边框，就是画布上的文本；低细节下退化为一个面（文字已不可读，
+      // 继续渲染只是一片噪点）；高度已封顶 16:9（textElementHeight），溢出裁剪到框内 + 「＋更多」提示
+      if (lowDetail) {
+        ops.push(...textPlaneOpsV(x, y, w, h, TEXT_BOX_RADIUS));
+      } else {
         ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS, fill: TRANSPARENT, stroke: CARD_STROKE_STRONG, strokeWidth: 1 });
         if (!editing) {
           ops.push({ kind: "pushClipRoundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS });
@@ -109,9 +111,11 @@ export class FreeElementBlockV extends VelloBlock {
       }
     } else if (elementKind === "attr") {
       // 文本框（media=text）：无背景、圆角描边框、无徽标——和实体卡区分开，只是画布上的文本；
-      // 高度已封顶 16:9（textAttrHeight），溢出裁剪到框内 + 右下角「＋更多」提示
+      // 低细节下退化为一个面；高度已封顶 16:9（textAttrHeight），溢出裁剪到框内 + 「＋更多」提示
       if (media === "text") {
-        if (!lowDetail) {
+        if (lowDetail) {
+          ops.push(...textPlaneOpsV(x, y, w, h, TEXT_BOX_RADIUS));
+        } else {
           ops.push({ kind: "roundRect", x, y, width: w, height: h, radius: TEXT_BOX_RADIUS, fill: TRANSPARENT, stroke: CARD_STROKE_STRONG, strokeWidth: 1 });
           if (!editing) {
             if (text) {

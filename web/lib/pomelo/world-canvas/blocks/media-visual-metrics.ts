@@ -3,7 +3,8 @@
  * [OUTPUT]: 对外提供「视觉媒体块」（图片 / 视频：独立 media 元素与 attr 属性卡）的尺寸策略单一真源：
  *           MEDIA_VISUAL_WIDTH / MEDIA_VISUAL_HEIGHT / MEDIA_VISUAL_SIZE（空媒体固定 16:9 = 240×135）、
  *           isMediaVisualModality / isMediaVisualRecord（判定图片/视频块）、
- *           mediaVisualSizeForRatio（按素材长宽比定尺：最长边锚 240，横竖同一缩放因子），
+ *           mediaVisualSizeForRatio（按素材长宽比定尺：最长边锚 240，横竖同一缩放因子）、
+ *           mediaAspectKey（实测比例的「素材身份」key：内容哈希优先，同一 assetId 内容被替换后失效重测）、
  *           measureMediaVisualRatio（从可渲染 URL 读 naturalWidth / videoWidth 得到长宽比）。
  *           图片/视频块不支持 resize（白名单见 world-canvas/resize-policy），尺寸只由素材比例或空态 16:9 决定。
  * [POS]: lib/pomelo/world-canvas/blocks 的视觉媒体块尺寸策略（渲染器无关；canvas-store / resize-policy / 宿主共用）。
@@ -41,6 +42,15 @@ export const MEDIA_VISUAL_LONG_SIDE = MEDIA_VISUAL_WIDTH;
 export function mediaVisualSizeForRatio(ratio: number): { width: number; height: number } {
   if (ratio >= 1) return { width: MEDIA_VISUAL_LONG_SIDE, height: Math.max(1, Math.round(MEDIA_VISUAL_LONG_SIDE / ratio)) };
   return { width: Math.max(1, Math.round(MEDIA_VISUAL_LONG_SIDE * ratio)), height: MEDIA_VISUAL_LONG_SIDE };
+}
+
+/** 实测比例的「素材身份」key：**优先内容哈希**——同一 assetId 的内容被替换（视频重新生成/重新上传）
+ *  后 contentHash 变化 → 旧比例 key 失效、重新测量；否则只改内容不改 id 时，旧 9:16 会被永久信任。
+ *  无哈希（proposed 资产、url-only）时回退 assetId，再回退 url。 */
+export function mediaAspectKey(assetId: string, url: string, contentHash?: string | null): string {
+  const id = String(assetId || "");
+  if (id) return contentHash ? `${id}:${contentHash}` : id;
+  return String(url || "");
 }
 
 /** 从可渲染 URL 读素材长宽比（图片 naturalSize / 视频 videoSize）；加载失败或尺寸未知返回 null。 */
