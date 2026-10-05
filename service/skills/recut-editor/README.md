@@ -6,7 +6,7 @@ Editor Agent 的导演契约与 treatment 参考。`SKILL.md` 只定义统一创
 
 成员清单
 
-- `SKILL.md`: intent/scope → route/scene-concept → design system → visual assets → timeline → proof/export 的主契约，并规定 graphics-first 的概念引导。
+- `SKILL.md`: 入口，五段结构 ① 时间线数据结构 → ② 元素与轨道 → ③ 工具列表 → ④ 常用工作流程（intent/scope → route → 概念媒介 → 视觉方向 → 工作循环）→ ⑤ 纪律与规则，并规定 graphics-first 与质量门禁；细节按需读 `references/`。
 - `references/speech-editing.md`（薄适配层，决策见 `service/skills/recut-director/references/a-roll`）: `script.*` 工具语义与 `timeline.command` 落地、操作↔全局判断对应表；语义决策指向全局 a-roll。
 - Motion Graphic 创作已迁到全局技能 `service/skills/recut-motion-graphic`（SKILL.md + `references/material.md`/`authoring.md`/`gsap.md`）；本技能只负责 `timeline.placeComponents` 落轨与素材登记。
 - `references/subject-protection.md`（薄适配层，决策见 `service/skills/recut-director/references/b-roll`）: `param`/`preview.frame` 的介质映射与验证步骤；主体/安全区/cover-contain 决策指向全局 b-roll。
