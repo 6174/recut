@@ -139,6 +139,8 @@ const zh: Record<string, string> = {
   "records.install": "下载权重",
   "records.empty": "暂无任务记录。",
   "records.started": "开始",
+  "records.remove": "删除记录",
+  "records.remove-confirm": "删除这条记录？该任务的日志与私有产物会一并移除；已入库的素材不受影响。",
 
   "timing.start": "开始",
   "timing.end": "结束",
@@ -320,6 +322,8 @@ const en: Record<string, string> = {
   "records.install": "Download weights",
   "records.empty": "No tasks yet.",
   "records.started": "Started",
+  "records.remove": "Delete record",
+  "records.remove-confirm": "Delete this record? Its logs and private output will be removed; assets already saved to the library are unaffected.",
 
   "timing.start": "Start",
   "timing.end": "End",

@@ -8,6 +8,7 @@
 //   5) engine.concurrency.generate=2 的预设包：同一应用内两条 generate 都 running
 //   6) prepare 全局单槽：会阻塞其它预设包的 generate（本机共用一个 venv）
 //   7) 运行中 generate 取消：按 generations/<recordId>.call_id 直接取消云端 Modal 调用，并终止本地 shell job
+//   8) 删除终态任务（modal.task.remove）：任务行/生成记录移除、私有文件交给 rm 清理；运行中的任务拒绝删除
 // 运行：node test/queue_smoke.mjs
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -250,6 +251,47 @@ const check = (name, cond) => { if (cond) console.log(`  ok  ${name}`); else { f
 
   const third = ops["modal.task.logs"]({ id: "g4", limit: 500, cursor: second.nextCursor }, w.ctx);
   check("S9 末页到达头部且 nextCursor=null", third.logs.length === 200 && third.logs[0].message === "line-0" && third.logs[199].message === "line-199" && third.nextCursor === null);
+}
+
+// S11：删除终态任务 —— 任务行与生成记录一并移除，私有文件（日志 + generations 产物/meta/call_id）交给 rm 清理
+{
+  const execArgs = [];
+  const w = makeWorld({ execArgs });
+  w.pump(); // ensureSchema
+  w.db.prepare("insert into modal_tasks (id, shell_job_id, action, modalapp, function, record_id, source, submitted_by, state, progress, meta_json, payload_json, log_path, error, created_at, started_at, resolved_at) values (?, ?, ?, ?, ?, ?, 'manual', '', 'completed', 0, '{}', '{}', ?, '', ?, '', ?)")
+    .run("g5", "sj-13", "generate", "sd-turbo", "text-to-image", "gen-5", "tasks/g5.log", "2026-01-01T00:00:00.000Z", "2026-01-01T00:01:00.000Z");
+  w.db.prepare("insert into modal_generations (id, modalapp, function, model, capability, output_kind, mime_type, params_json, prompt, reference_asset_ids, output_path, width, height, duration, seed, gpu_tier, saved_asset_id, created_at, job_id, status, error) values (?, 'sd-turbo', 'text-to-image', 'sd-turbo', 'image.generate', 'image', 'image/png', '{}', 'p', '[]', 'generations/gen-5.png', 0, 0, 0, 0, '', '', '2026-01-01T00:00:00.000Z', '', 'completed', '')")
+    .run("gen-5");
+  const result = ops["modal.task.remove"]({ id: "g5" }, w.ctx);
+  const remainingTasks = w.db.prepare("select count(*) as n from modal_tasks where id = 'g5'").get().n;
+  const remainingGens = w.db.prepare("select count(*) as n from modal_generations where id = 'gen-5'").get().n;
+  const rm = execArgs.find((spec) => spec.command === "rm");
+  const cleaned = rm ? rm.args : [];
+  check("S11 删除终态任务：任务行移除", result.removed === true && remainingTasks === 0);
+  check("S11 删除生成任务：生成记录移除", remainingGens === 0);
+  check("S11 清理私有文件（日志 + generations 产物/meta/call_id）", ["tasks/g5.log", "tasks/g5.params.json", "tasks/g5.refs.json", "generations/gen-5.png", "generations/gen-5.png.meta.json", "generations/gen-5.call_id"].every((p) => cleaned.includes(p)));
+}
+
+// S11b：运行中的任务不可删除（须先取消）
+{
+  const w = makeWorld();
+  w.seed("g6", "generate", "sd-turbo", "2026-01-01T00:00:00.000Z");
+  w.pump(); // queued → running（mock python.run 返回 running）
+  let threw = false;
+  try { ops["modal.task.remove"]({ id: "g6" }, w.ctx); } catch (_) { threw = true; }
+  check("S11b 运行中的任务拒绝删除", threw && w.states().g6 === "running");
+}
+
+// S11c：删除非 generate 任务只清任务文件，不碰 modal_generations
+{
+  const execArgs = [];
+  const w = makeWorld({ execArgs });
+  w.pump();
+  w.db.prepare("insert into modal_tasks (id, shell_job_id, action, modalapp, function, record_id, source, submitted_by, state, progress, meta_json, payload_json, log_path, error, created_at, started_at, resolved_at) values (?, ?, 'deploy', ?, '', '', 'manual', '', 'completed', 0, '{}', '{}', ?, '', ?, '', ?)")
+    .run("d5", "sj-15", "sd-turbo", "tasks/d5.log", "2026-01-01T00:00:00.000Z", "2026-01-01T00:01:00.000Z");
+  const result = ops["modal.task.remove"]({ id: "d5" }, w.ctx);
+  const rm = execArgs.find((spec) => spec.command === "rm");
+  check("S11c 删除部署任务：行移除且只清任务文件", result.removed === true && w.db.prepare("select count(*) as n from modal_tasks where id = 'd5'").get().n === 0 && Boolean(rm) && !(rm.args || []).some((a) => String(a).startsWith("generations/")));
 }
 
 console.log(failures ? `\n${failures} failing` : "\nall checks passed");

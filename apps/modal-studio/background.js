@@ -10,7 +10,7 @@
  *          设置（modal.settings.set：默认 profile / 权重源 / GPU 档位 / 每「预设包+函数」的 AI 默认参数（含默认 GPU 档位）agent_defaults:<id>:<fn>）、云端 Secret（modal.secret.set）、部署（modal.deploy）、权重（modal.install）、
  *          调用函数（modal.generate，按预设包单槽、跨预设包并行；兼容平台执行桥的 model 入参；非 origin="manual" 的调用用 agentDefaults 补全缺省字段；
  *          **派发前先预检目标函数所需产物**，缺失直接拒绝、不创建云端容器——否则容器会在 @modal.enter 里反复起不来 = crash-loop）、历史与入库（modal.generations / modal.generation.complete /
- *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel——params 回显参考素材时逐条带 kind/mimeType/field，供右侧按真实类型渲染，音频/视频不再被当成参考图）与取消（modal.cancel：运行中的 generate
+ *          modal.save）、停止（modal.teardown）、任务中心（modal.tasks.list/get/params/logs/cancel/remove——params 回显参考素材时逐条带 kind/mimeType/field，供右侧按真实类型渲染，音频/视频不再被当成参考图；remove 删除终态记录并清其私有文件/生成记录）与取消（modal.cancel：运行中的 generate
  *          先按 runner 落盘的调用 ID 直接取消云端 Modal 调用，再终止本地 shell job，避免云端 GPU 继续烧；拿不到调用 ID 时返回告警而非静默放过）。
  * [POS]: modal-studio 的唯一业务后端；经 manifest contributes.media 向平台注册 modal-cloud provider（每个 expose
  *        条目 → 一个平台模型；单个 modalapp 可暴露多个，平台默认生图/生视频路由可指向它，经通用执行桥调用 modal.generate），
@@ -1504,6 +1504,40 @@ function taskCancel(input, ctx) {
   return cancelTaskRow(ctx, rows[0]);
 }
 
+// 尽力删除一组相对 files 根的文件（日志/params 快照/私有产物）；`-f` 容忍不存在、`cwd:"files"` 让 shell
+// 在目标 files 根里解析相对路径（与 modal.modalapp.remove 同源）。清理是尽力而为：失败不阻断记录删除。
+function removeTaskFiles(ctx, paths) {
+  const list = (paths || []).filter(Boolean).map((path) => String(path).replace(/^\/+/, "")).filter((path) => path && !path.includes(".."));
+  if (!list.length) return;
+  try { ctx.shell.exec({ command: "rm", args: ["-rf", ...list], cwd: "files", timeoutSeconds: 60 }); }
+  catch (_) { /* ignore cleanup failure */ }
+}
+
+// 删除一条任务记录（记录 Tab 的删除）。只允许终态任务，运行中的任务须先取消；一并清掉该任务的私有文件
+// （日志、params/refs 快照）；generate 任务还会删除其生成记录与私有产物（generations/<recordId>.*）。
+// 已入库的素材不受影响——保存是把产物拷贝进素材库，与私有记录解耦。
+function taskRemove(input, ctx) {
+  ensureSchema(ctx);
+  pumpQueue(ctx);
+  const id = value(input, "id");
+  const rows = ctx.sqlite.query("select id, action, record_id, state, log_path from modal_tasks where id = ?", [id]);
+  if (!rows.length) throw new Error("modal task was not found.");
+  const row = rows[0];
+  if (isActiveJob(row.state)) throw new Error(tr(ctx, "任务仍在进行中，请先取消再删除。", "The task is still active; cancel it before deleting."));
+  const targets = [row.log_path || taskLogPath(id), taskParamsPath(id), taskRefsPath(id)];
+  if (row.action === "generate" && row.record_id) {
+    const records = ctx.sqlite.query("select output_path from modal_generations where id = ?", [row.record_id]);
+    for (const record of records) {
+      if (record.output_path) targets.push(record.output_path, `${record.output_path}.meta.json`);
+    }
+    targets.push(`generations/${row.record_id}.call_id`);
+    ctx.sqlite.execute("delete from modal_generations where id = ?", [row.record_id]);
+  }
+  removeTaskFiles(ctx, targets);
+  ctx.sqlite.execute("delete from modal_tasks where id = ?", [id]);
+  return { removed: true, id };
+}
+
 recut.operation.register("modal.status", status);
 recut.operation.register("modal.overview", overview);
 recut.operation.register("modal.catalog", catalog);
@@ -1536,3 +1570,4 @@ recut.operation.register("modal.task.get", taskGet);
 recut.operation.register("modal.task.params", taskParams);
 recut.operation.register("modal.task.logs", taskLogs);
 recut.operation.register("modal.task.cancel", taskCancel);
+recut.operation.register("modal.task.remove", taskRemove);

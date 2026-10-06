@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 recut-sdk（background.call + events.subscribe 实时事件）、Left 两 Tab 组件、Right 预览组件与 i18n
- * [OUTPUT]: Modal 云函数主工作区：首屏走 modal.overview（本机 registry + 上次就绪度快照，零等待）即时渲染出预设包与表单，就绪度/连通性由 modal.status 独立后台探测回填、不阻塞任何 UI；「运行」时动态校验该预设包的就绪度，未就绪则提示先准备或重新部署；任务列表按事件增量刷新、选中任务详情与产物、预览图「以此为参考图运行」回填左侧表单、**成功任务同样回读完整日志**（产物与参数/日志并存）、动作编排与语言同步；**当前 Tab 与 Right 面板聚焦的任务 id 经 useViewStore 持久化**（下次打开直接回到上次的 Tab 与预览目标，任务已失效则清掉）；宿主深链 ?taskId= 优先于本地恢复（素材库「生成任务」新标签页跳入时直接切到记录页并选中该任务）；**切换/增删 Modal 账号后作废旧账号的各 modalapp 就绪度并强制重探（刷新 store state、不整页 reload）**；外壳由 shadcn Tabs/Card/Button 承载
+ * [OUTPUT]: Modal 云函数主工作区：首屏走 modal.overview（本机 registry + 上次就绪度快照，零等待）即时渲染出预设包与表单，就绪度/连通性由 modal.status 独立后台探测回填、不阻塞任何 UI；「运行」时动态校验该预设包的就绪度，未就绪则提示先准备或重新部署；任务列表按事件增量刷新、选中任务详情与产物、预览图「以此为参考图运行」回填左侧表单、**成功任务同样回读完整日志**（产物与参数/日志并存）、动作编排与语言同步；**「记录」Tab 的终态任务可逐条删除（modal.task.remove，删中的记录同时清空右侧预览）**；**当前 Tab 与 Right 面板聚焦的任务 id 经 useViewStore 持久化**（下次打开直接回到上次的 Tab 与预览目标，任务已失效则清掉）；宿主深链 ?taskId= 优先于本地恢复（素材库「生成任务」新标签页跳入时直接切到记录页并选中该任务）；**切换/增删 Modal 账号后作废旧账号的各 modalapp 就绪度并强制重探（刷新 store state、不整页 reload）**；外壳由 shadcn Tabs/Card/Button 承载
  * [POS]: ui 的状态编排层；只经 App operation 契约访问后台，不直接读写本机文件
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -435,6 +435,26 @@ export default function App() {
     await renderRight(selectedId);
   }, [op, selectedId, refreshTasks, renderRight]);
 
+  const handleRemoveTask = useCallback(
+    async (id: string) => {
+      try {
+        await op("modal.task.remove", { id });
+        if (selectedIdRef.current === id) {
+          setSelectedId(null);
+          setDetail(null);
+          setGeneration(null);
+          setParams(null);
+          setLogs([]);
+          setLogsTruncated(false);
+        }
+        await refreshTasks();
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [op, refreshTasks, setSelectedId],
+  );
+
   const handleSave = useCallback(
     async (generationId: string, kind: "image" | "video" | "audio") => {
       await op("modal.save", { id: generationId, kind });
@@ -543,7 +563,7 @@ export default function App() {
                     />
                   </TabsContent>
                   <TabsContent value="records">
-                    <RecordsTab tasks={tasks} locale={locale} selectedId={selectedId} onSelect={selectTask} />
+                    <RecordsTab tasks={tasks} locale={locale} selectedId={selectedId} onSelect={selectTask} onRemove={handleRemoveTask} />
                   </TabsContent>
                 </>
               )}

@@ -1225,6 +1225,25 @@
       }
     },
     {
+      "name": "modal.task.remove",
+      "surfaces": [
+        "api",
+        "mcp"
+      ],
+      "description": "按任务中心 id 删除一条终态任务记录，并清理其私有文件（日志/参数快照）；generate 任务同时删除生成记录与私有产物。运行中的任务须先取消；已入库的素材不受影响。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
       "name": "modal.job",
       "surfaces": [
         "api"

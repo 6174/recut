@@ -24,7 +24,7 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 │    每个函数有自己的表单，       │  · 参数：完整回显全部参数 + 参考素材   │
 │    可选 GPU 档位               │    （图可全屏预览；视频/音频内联播放） │
 │  · 记录：部署/下载/运行统一列表 │  · 日志：成功/失败都展示完整日志、   │
-│                               │    生成中自动滚到最新（上滚时不打扰） │
+│    （终态任务可逐条删除）       │    生成中自动滚到最新（上滚时不打扰） │
 │                               │  · 部署/下载：实时日志 + 就绪度        │
 │                               │  · 顶部：Modal 账号连接状态           │
 └───────────────────────────────┴──────────────────────────────────────┘
@@ -56,13 +56,15 @@ Modal 云函数是一个 Recut **标准 App**（`standalone` 类型）：把「�
 | 本机环境 | `modal.prepare` |
 | 部署 / 权重 / 停止 | `modal.deploy` · `modal.install` · `modal.teardown` |
 | 运行 / 历史 / 入库 | `modal.generate` · `modal.generations` · `modal.generation.complete` · `modal.save` |
-| 任务中心 | `modal.tasks.list` · `modal.task.get` · `modal.task.logs` · `modal.task.cancel` · `modal.cancel` |
+| 任务中心 | `modal.tasks.list` · `modal.task.get` · `modal.task.logs` · `modal.task.cancel` · `modal.task.remove` · `modal.cancel` |
 
 > **已接入平台生图/生视频能力**：manifest `contributes.media` 声明 provider `modal-cloud`，每个声明 `expose` 的预设包注册为一个平台模型（`modal-cloud/<model>`，图片与视频都注册）。平台「生图/生视频默认路由」可指向它，生成经通用执行桥调用 `modal.generate`；**预设包未部署、或 `expose.function` 所需产物（基础权重 / LoRA / 离线合并）缺失时该模型 `ready=false`**（`modal.catalog.models[]` 动态上报，需 `deployed` 且所需产物齐备——离线合并产物缺失时基础权重卷仍是就绪的，只看 `volumeReady` 会把它误报为可用）。**纯文本请求（不带任何参考素材）会自动路由到该预设包的文生函数（`text-to-*`）；只有带参考时才走参考函数（参考生视频 / 图像编辑）**——参考是可选项（平台 budget 只设上限），因此「无参考走文生、有参考走参考」在平台默认路由下自动成立。其余能力仍经本 App 的 api/mcp operation 直接暴露。
 
 > **任务并发（按预设包隔离）**：运行（`modal.generate`）与部署（`modal.deploy`）**按预设包独立排队**——A 预设包的任务不会等 B 预设包。同一预设包内默认**单槽 FIFO**（`deploy` 与 `generate` 互斥、`deploy` 优先），可在该包 manifest 的 `engine.concurrency` 里调大上限（如 `{ "generate": 2 }`，缺省 1）。准备（`modal.prepare`）全局单槽（所有预设包共用一个本机 venv）、权重（`modal.install`）按预设包串行、停止（`modal.teardown`）并行。**提交永不拒绝**：未拿到槽位的任务留在账本里（UI 显示「排队中」），就绪后由队列自动派发。
 
 > **取消会传播到云端**：运行中任务的云端计算由 Modal `FunctionCall` 承载；本机 runner 在提交后把调用 ID 落在私有 `generations/<id>.call_id`（**只有成功取回结果后才撤掉**——取消/失败时保留，正是为了让 App 能按 ID 取消）。点「取消」时 App 会**先按该 ID 直接向 Modal 发起取消**，再终止本机 shell job——只杀本机进程是不够的（平台取消会把进程树 SIGKILL，runner 收不到 SIGTERM，取消也就传不到云端，云端 GPU 会继续烧）。排队中的任务直接落 cancelled。**拿不到调用 ID 时取消会返回一句告警**（提示云端容器可能仍在运行、可「停止环境」收敛），而不是静默放过——否则被取消的云端调用会继续跑，与下一次调用并存（同一 App 两个容器同时冷启动、互相拖慢）。
+
+> **删除记录**：「记录」Tab 的**终态**任务可逐条删除（`modal.task.remove`）。删除会连同该任务的私有文件一起清理——日志、参数/参考快照；`generate` 任务还会删掉它的生成记录与私有产物（`generations/<recordId>.*`）。**已入库的素材不受影响**（`modal.save` 是把产物拷贝进素材库，与私有记录解耦）。运行中的任务不能直接删，须先「取消」。
 
 ## 进入工作台时的加载顺序
 
