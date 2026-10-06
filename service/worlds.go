@@ -1234,6 +1234,16 @@ func (w *WorldStore) upsertEntityTx(tx *sql.Tx, input UpsertEntityInput, existin
 			return "", nil, err
 		}
 	}
+	// Explicit reparent (RFC 2026-10-06): only meaningful on update; create already
+	// writes parent_id. Refuse self/descendant cycles so the folder tree stays a DAG.
+	if input.EntityID != "" && input.ParentIDSet && input.ParentID != "" {
+		if input.ParentID == input.EntityID {
+			return "", nil, worldsError(WorldsErrContextInvalid, "entity cannot be its own parent")
+		}
+		if err := checkReparentCycle(tx, input.WorldID, input.EntityID, input.ParentID); err != nil {
+			return "", nil, err
+		}
+	}
 	// Attr merge: locked preset fields of the type are enforced from the schema
 	// (label/type pinned, value free); user attrs pass through validated.
 	// The type row may have been created inside this transaction (a custom
@@ -1290,7 +1300,12 @@ func (w *WorldStore) upsertEntityTx(tx *sql.Tx, input UpsertEntityInput, existin
 			return "", nil, err
 		}
 	} else {
-		if _, err := tx.Exec("update world_entities set type_id = ?, title = ?, summary = ?, detail = ?, cover_json = ?, attrs_json = ?, updated_at = ? where id = ? and world_id = ?",
+		if input.ParentIDSet {
+			if _, err := tx.Exec("update world_entities set type_id = ?, title = ?, summary = ?, detail = ?, cover_json = ?, attrs_json = ?, parent_id = ?, updated_at = ? where id = ? and world_id = ?",
+				input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, coverJSON, string(attrsJSON), nullIfEmpty(input.ParentID), now, entityID, input.WorldID); err != nil {
+				return "", nil, err
+			}
+		} else if _, err := tx.Exec("update world_entities set type_id = ?, title = ?, summary = ?, detail = ?, cover_json = ?, attrs_json = ?, updated_at = ? where id = ? and world_id = ?",
 			input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, coverJSON, string(attrsJSON), now, entityID, input.WorldID); err != nil {
 			return "", nil, err
 		}
@@ -3341,6 +3356,10 @@ type UpsertEntityInput struct {
 	Cover              *WorldEntityCover `json:"cover,omitempty"`
 	Attrs              []EntityAttr      `json:"attrs"`
 	ParentID           string            `json:"parentId"`
+	// ParentIDSet marks an explicit reparent request (RFC 2026-10-06): on update it
+	// distinguishes "move to root" (ParentID="" but set) from "leave unchanged"
+	// (omitted). HTTP probes the raw body key; MCP sets it when the key is present.
+	ParentIDSet        bool              `json:"-"`
 	ContainerRole      string            `json:"containerRole"`
 	IsProvisional      bool              `json:"isProvisional"`
 	ExpectedRevisionID string            `json:"expectedRevisionId"`

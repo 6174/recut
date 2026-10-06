@@ -1,16 +1,20 @@
 /*
- * [INPUT]: 依赖 react、canvas-store（contextMenu 与 copy/cut/delete、rename/inline-edit/setContext/
- * startRelating/setDeleteTarget/removeElement/removeRelation/setDeleteSelectionIds 动作）
- * [OUTPUT]: 对外提供 CanvasContextMenu（T3 右键菜单）：复制 / 剪切（对当前选中集合）恒在；实体 = 重命名 /
- * 进入内部 / 建立关系…；便签/文本 = 就地编辑 / 提升为设定…；关系 = 删除；末尾删除（多选走批量确认弹框）
+ * [INPUT]: 依赖 react、canvas-store（contextMenu 与 copy/cut/paste/delete、rename/inline-edit/setContext/
+ * startRelating/setDeleteTarget/removeElement/removeRelation/setDeleteSelectionIds/selectMany/editor 动作）、
+ * canvas-clipboard（readCanvasClipboard 判定粘贴可用）、viewport-plugin（centerContent 适应视图）
+ * [OUTPUT]: 对外提供 CanvasContextMenu（T3 右键菜单）：复制 / 剪切 / 粘贴 + 末尾删除（对当前选中集合，多选走批量确认弹框）；
+ * 实体 = 重命名 / 进入内部 / 建立关系…；便签/文本 = 就地编辑 / 提升为设定…；关系 = 删除；
+ * kind="canvas"（空白/世界节点）= 画布级菜单：粘贴到此处 / 全选 / 适应视图（RFC 2026-10-06）
  * [POS]: worlds/[worldID]/canvas 的右键菜单层（锚点与动作用 store，组件只做投影）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import { useState } from "react";
-import { useWorldCanvasStore } from "./canvas-store";
+import { useWorldCanvasStore, WORLD_ELEMENT_ID } from "./canvas-store";
 import { relationCandidatesOf } from "./canvas-relation-candidates";
+import { readCanvasClipboard } from "./canvas-clipboard";
+import { centerContent } from "@/lib/pomelo/world-canvas/plugins/viewport-plugin";
 
 export function CanvasContextMenu() {
   const menu = useWorldCanvasStore((state) => state.contextMenu);
@@ -23,47 +27,84 @@ export function CanvasContextMenu() {
     close();
     action();
   };
-  const entity = menu.kind === "entity" && menu.entityId ? useWorldCanvasStore.getState().entities.find((item) => item.id === menu.entityId) : null;
-  const element = menu.kind === "element" && menu.elementId ? useWorldCanvasStore.getState().elements.find((item) => item.id === menu.elementId) : null;
-  const relation = menu.kind === "relation" && menu.relationId ? useWorldCanvasStore.getState().relations.find((item) => item.id === menu.relationId) : null;
-  const multi = selectedIds.length > 1;
-  const items: Array<{ label: string; danger?: boolean; disabled?: boolean; action: () => void }> = [
-    { label: "复制", disabled: selectedIds.length === 0, action: () => run(() => useWorldCanvasStore.getState().copySelection()) },
-    { label: "剪切", disabled: readOnly || selectedIds.length === 0, action: () => run(() => void useWorldCanvasStore.getState().cutSelection()) },
-  ];
-  if (entity && !multi) {
-    items.push(
-      { label: "重命名", action: () => run(() => startRename(entity.id)) },
-      { label: "进入内部", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setContext({ entityId: entity.id, title: entity.name })) },
-      { label: "建立关系…", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().startRelating(entity.id)) },
-    );
-  } else if (element && !multi && (element.kind === "note" || element.kind === "text")) {
-    items.push(
-      { label: "就地编辑", action: () => run(() => startElementEdit(element.id, element.kind === "note" ? "note-body" : "text-body")) },
-      { label: "提升为设定…", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setPromoting(element.id)) },
-    );
-  }
-  if (!entity && !relation && selectedIds.length > 1) {
-    items.push({ label: "编组", disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().groupSelection()) });
-  }
-  if (multi) {
-    items.push({
-      label: `删除 ${selectedIds.length} 项…`,
-      danger: true,
-      disabled: readOnly,
-      action: () => run(() => useWorldCanvasStore.getState().setDeleteSelectionIds([...selectedIds])),
-    });
-  } else if (entity) {
-    items.push({ label: "删除…", danger: true, disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setDeleteTarget(entity)) });
-  } else if (element && element.kind === "group") {
-    items.push(
-      { label: "解散分组", disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().ungroup(element.id)) },
-      { label: "删除分组…", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().deleteGroup(element.id)) },
-    );
-  } else if (element) {
-    items.push({ label: "删除", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().removeElement(element.id)) });
-  } else if (relation) {
-    items.push({ label: "删除", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().removeRelation(relation.id)) });
+  const anchor = menu.worldX != null && menu.worldY != null ? { x: menu.worldX, y: menu.worldY } : undefined;
+  const pasteItem = {
+    label: "粘贴",
+    disabled: readOnly || !readCanvasClipboard(),
+    action: () => run(() => void useWorldCanvasStore.getState().pasteClipboard(anchor)),
+  };
+  let items: Array<{ label: string; danger?: boolean; disabled?: boolean; action: () => void }>;
+  if (menu.kind === "canvas") {
+    // 画布级菜单（空白/世界节点右键）：粘贴到此处 + 全选 + 适应视图（RFC 2026-10-06）。
+    items = [
+      pasteItem,
+      {
+        label: "全选",
+        action: () =>
+          run(() => {
+            const state = useWorldCanvasStore.getState();
+            const ids = [
+              ...state.entities.map((entity) => `entity:${entity.id}`),
+              ...state.elements.filter((element) => element.kind !== "entity" && element.id !== WORLD_ELEMENT_ID).map((element) => element.id),
+              ...state.relations.map((relation) => `arrow:${relation.id}`),
+            ];
+            state.selectMany(ids);
+          }),
+      },
+      {
+        label: "适应视图",
+        disabled: !useWorldCanvasStore.getState().editor,
+        action: () =>
+          run(() => {
+            const editor = useWorldCanvasStore.getState().editor;
+            if (editor) centerContent(editor);
+          }),
+      },
+    ];
+  } else {
+    const entity = menu.kind === "entity" && menu.entityId ? useWorldCanvasStore.getState().entities.find((item) => item.id === menu.entityId) : null;
+    const element = menu.kind === "element" && menu.elementId ? useWorldCanvasStore.getState().elements.find((item) => item.id === menu.elementId) : null;
+    const relation = menu.kind === "relation" && menu.relationId ? useWorldCanvasStore.getState().relations.find((item) => item.id === menu.relationId) : null;
+    const multi = selectedIds.length > 1;
+    items = [
+      { label: "复制", disabled: selectedIds.length === 0, action: () => run(() => useWorldCanvasStore.getState().copySelection()) },
+      { label: "剪切", disabled: readOnly || selectedIds.length === 0, action: () => run(() => void useWorldCanvasStore.getState().cutSelection()) },
+      pasteItem,
+    ];
+    if (entity && !multi) {
+      items.push(
+        { label: "重命名", action: () => run(() => startRename(entity.id)) },
+        { label: "进入内部", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setContext({ entityId: entity.id, title: entity.name })) },
+        { label: "建立关系…", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().startRelating(entity.id)) },
+      );
+    } else if (element && !multi && (element.kind === "note" || element.kind === "text")) {
+      items.push(
+        { label: "就地编辑", action: () => run(() => startElementEdit(element.id, element.kind === "note" ? "note-body" : "text-body")) },
+        { label: "提升为设定…", disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setPromoting(element.id)) },
+      );
+    }
+    if (!entity && !relation && selectedIds.length > 1) {
+      items.push({ label: "编组", disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().groupSelection()) });
+    }
+    if (multi) {
+      items.push({
+        label: `删除 ${selectedIds.length} 项…`,
+        danger: true,
+        disabled: readOnly,
+        action: () => run(() => useWorldCanvasStore.getState().setDeleteSelectionIds([...selectedIds])),
+      });
+    } else if (entity) {
+      items.push({ label: "删除…", danger: true, disabled: readOnly, action: () => run(() => useWorldCanvasStore.getState().setDeleteTarget(entity)) });
+    } else if (element && element.kind === "group") {
+      items.push(
+        { label: "解散分组", disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().ungroup(element.id)) },
+        { label: "删除分组…", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().deleteGroup(element.id)) },
+      );
+    } else if (element) {
+      items.push({ label: "删除", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().removeElement(element.id)) });
+    } else if (relation) {
+      items.push({ label: "删除", danger: true, disabled: readOnly, action: () => run(() => void useWorldCanvasStore.getState().removeRelation(relation.id)) });
+    }
   }
   if (!items.length) return null;
   return (

@@ -1449,6 +1449,28 @@ func (w *WorldStore) checkParent(tx *sql.Tx, worldID, parentID string) error {
 	return nil
 }
 
+// checkReparentCycle refuses a reparent that would make entityID its own ancestor
+// (RFC 2026-10-06): walk up from the prospective parent; hitting entityID is a cycle.
+// Bounded depth guards against pre-existing data cycles.
+func checkReparentCycle(tx *sql.Tx, worldID, entityID, newParentID string) error {
+	current := newParentID
+	for depth := 0; depth < 512 && current != ""; depth++ {
+		if current == entityID {
+			return worldsError(WorldsErrContextInvalid, "reparent would create a cycle")
+		}
+		var parent sql.NullString
+		err := tx.QueryRow("select parent_id from world_entities where id = ? and world_id = ? and archived_at is null", current, worldID).Scan(&parent)
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		current = parent.String
+	}
+	return nil
+}
+
 func (w *WorldStore) listChildren(db *sql.DB, worldID, parentID string) ([]WorldEntitySummary, error) {
 	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, parent_id, container_role, is_provisional, updated_at from world_entities where world_id = ? and parent_id = ? and archived_at is null order by updated_at desc", worldID, parentID)
 	if err != nil {

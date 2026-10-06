@@ -17,7 +17,8 @@
  * 边即属性关联，不新建节点），其余落点（含 World 节点）= 属性引导菜单（setAttrCreator，创建属性节点 +
  * 属性边）；双击实体卡进入容器（命名态再次双击先退出命名）；双击媒体节点（独立媒体卡 / 媒体属性卡，含图片/视频/音频）
  * 有 assetId = 全局素材详情弹框（setAssetDetail，proposal/计划态照常呈现）、仅 url = 预览浮层、无内容 = 全局素材选择弹框（setMediaPicker，按模态过滤）挑素材或上传；双击空白 = 最近类型快捷建卡
- * （Alt = 创建菜单）；右键 = 实体/任意自由元素/语义关系上下文菜单（T3，含复制/剪切/删除，右键未选中项先收敛选择）；
+ * （Alt = 创建菜单）；右键 = 实体/任意自由元素/语义关系上下文菜单（T3，含复制/剪切/粘贴/删除，右键未选中项先收敛选择）；
+ * 空白/世界节点右键 = 画布级菜单（粘贴到此处/全选/适应视图，带世界坐标，RFC 2026-10-06）；
  * Delete/Backspace 删除关系/草稿、实体走删除确认（B.6）；Cmd/Ctrl+Z = 语义撤销、Cmd/Ctrl+Shift+Z = 语义重做
  * （store.undoLastChange/redoLastChange，画布真相在 store/服务端）；Cmd/Ctrl+C/X/V = 复制/剪切/粘贴
  * （store.copySelection/cutSelection/pasteClipboard，实体与画布元素，world 根节点由 store 过滤）；
@@ -1219,16 +1220,16 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       }
     };
 
-    // 右键菜单（T3）：实体 / 任意自由元素 / 语义关系 → CanvasContextMenu（复制/剪切/删除在菜单内）。
+    // 右键菜单（T3）：实体 / 任意自由元素 / 语义关系 → CanvasContextMenu；
+    // 空白与世界根节点 → 画布级菜单（粘贴/全选/适应视图，带世界坐标供「粘贴到此处」，RFC 2026-10-06）。
     // 右键未选中对象先把选择收敛到它，菜单动作才有明确目标；已选中则保留多选（菜单按整组操作）。
-    // 空白与 world 根节点不开菜单（根节点不与 sub 一起复制/剪切）。
     const onContextMenu = (event: MouseEvent) => {
       event.preventDefault();
       const world = toWorld({ clientX: event.clientX, clientY: event.clientY } as unknown as PointerEvent);
       const hit = hitTest(world);
       const store = useWorldCanvasStore.getState();
       if (!hit || hit.blockId === WORLD_ELEMENT_ID) {
-        store.setContextMenu(null);
+        store.setContextMenu({ kind: "canvas", screenX: event.clientX, screenY: event.clientY, worldX: world.x, worldY: world.y });
         return;
       }
       const blockId = hit.blockId;
@@ -1240,14 +1241,16 @@ export class CanvasBindsPlugin extends PomeloPlugin {
           relationId: blockId.slice(RELATION_PREFIX.length),
           screenX: event.clientX,
           screenY: event.clientY,
+          worldX: world.x,
+          worldY: world.y,
         });
         return;
       }
       if (blockId.startsWith("entity:")) {
-        store.setContextMenu({ kind: "entity", entityId: blockId.slice("entity:".length), screenX: event.clientX, screenY: event.clientY });
+        store.setContextMenu({ kind: "entity", entityId: blockId.slice("entity:".length), screenX: event.clientX, screenY: event.clientY, worldX: world.x, worldY: world.y });
         return;
       }
-      store.setContextMenu({ kind: "element", elementId: blockId, screenX: event.clientX, screenY: event.clientY });
+      store.setContextMenu({ kind: "element", elementId: blockId, screenX: event.clientX, screenY: event.clientY, worldX: world.x, worldY: world.y });
     };
 
     // Delete/Backspace：只作用于可删对象（关系/自由草稿）；实体与世界节点是投影，不可删。

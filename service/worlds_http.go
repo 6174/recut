@@ -260,10 +260,23 @@ func (s *Server) getWorldEntity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateWorldEntity(w http.ResponseWriter, r *http.Request) {
-	var input UpsertEntityInput
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
 		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
 		return
+	}
+	var input UpsertEntityInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		writeWorldsError(w, worldsError(WorldsErrContextInvalid, "invalid JSON body"))
+		return
+	}
+	// Explicit reparent (RFC 2026-10-06): presence of the raw `parentId` key — even "" —
+	// is what distinguishes "move to root" from "leave parent unchanged".
+	var probe struct {
+		ParentID *json.RawMessage `json:"parentId"`
+	}
+	if err := json.Unmarshal(body, &probe); err == nil {
+		input.ParentIDSet = probe.ParentID != nil
 	}
 	input.WorldID = r.PathValue("worldID")
 	input.EntityID = r.PathValue("entityID")

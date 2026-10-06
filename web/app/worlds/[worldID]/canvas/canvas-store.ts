@@ -10,7 +10,8 @@
  * 与全部写动作（关系原位改 updateRelation：类型/方向 patch，保留 id/scope 与画布锚点）；画布元素写 world_canvas 不产 revision，
  * 多选对齐/分布间距/网格排布（arrangeSelection，几何单一实现在 lib/pomelo/world-canvas/arrange.ts）只改元素 x/y，整批合并为一条撤销，
  * 剪贴板 copySelection/cutSelection/pasteClipboard（片段由 canvas-clipboard.buildCanvasFragment 抽取：实体+投影卡+自由元素+
- * 两端都在选中集合内的关系/属性边；world 根节点恒过滤；copy 与跨 world cut 克隆新 id、同 world cut 按原 id 真移动；整次粘贴合并为一条撤销），
+ * 两端都在选中集合内的关系/属性边；world 根节点恒过滤；copy 与跨 world cut 克隆新 id、同 world cut 同层按原 id 层内移动、
+ * 跨层为一等跨画布移动——迁投影 + 重挂实体 parentId + 重建内部关系，RFC 2026-10-06；整次粘贴合并为一条撤销），
  * 语义写（实体/关系/promote）产出 revision 并在 revision 冲突时刷新后重试一次；附几何工具函数与尺寸常量。
  * 内容定尺类节点（实体卡封面、图片/视频媒体与属性卡）的尺寸由实测比例派生：fitEntityCover / fitMediaVisualElement
  * 在素材**加载成功时**测出比例，回写元素 props（coverAspect / visualAspect + Key，落库）并推进 dataVersion；
@@ -21,6 +22,10 @@
  * （一次撤销整组，undo 逆序/redo 正序），栈深 HISTORY_LIMIT；自由元素（便签/文本/媒体/属性）创建、
  * 拖拽/resize（插件 pointerup 经 logGeometryChange 记一条）与便签/文本正文编辑均可撤销；回放期整层重载合并
  * （loadForHistory：一笔批量撤销只 load(false) 一次）；历史菜单逐条撤销 = 从栈顶连续回放到该条（含其上的更新条目）。
+ * 历史是 world 级、绑定发生层（RFC 2026-10-06）：切层不清（open 仅换 world 时重置）；每条 CanvasChange 带
+ * contextId/context/contextTrail，回放前经 ensureChangeLayer 先 activateContext 激活该层，元素级撤销才落在正确文档。
+ * 画布层切换原子化：setContext/exitContext 走 activateContext（fetchContextData 收敛原 load 的 scope 过滤/归一/脏合并/
+ * 属性反向投影），先 flush 来源层再一次性 set（context+trail+数据+清选择），消除旧层残影。
  * 画布存储为文档粒度（RFC 2026-09-09）：一张画布 = 一个 Document，canvas.get/save 整包读写 + version 乐观锁；
  * 元素级动作（upsertElement/persistGeometry/moveElement/removeElement）只改本地文档 + 脏字段组，去抖以
  * 字段补丁落库（patch:true：只发脏分组，服务端按 key 合并——不同字段天然互补、同字段后者胜，
@@ -178,14 +183,17 @@ export type InlineEdit =
   | { kind: "entity-title"; entityId: string; rect: { x: number; y: number; width: number; height: number }; value: string }
   | null;
 
-// 右键菜单（T3）：实体 / 便签文本元素；screen 坐标由宿主渲染菜单
+// 右键菜单（T3）：实体 / 便签文本元素；screen 坐标由宿主渲染菜单。
+// kind="canvas" = 空白/世界节点右键的画布级菜单（粘贴/全选/适应视图），带世界坐标供「粘贴到此处」。
 export type CanvasContextMenu = {
-  kind: "entity" | "element" | "relation";
+  kind: "entity" | "element" | "relation" | "canvas";
   entityId?: string;
   elementId?: string;
   relationId?: string;
   screenX: number;
   screenY: number;
+  worldX?: number;
+  worldY?: number;
 } | null;
 
 // 轻反馈 toast（B.4/T10）：结构性语义操作 3s 自消；错误态带重试由调用方决定
@@ -197,10 +205,15 @@ export type CanvasToast = { id: number; text: string; kind: "info" | "success" |
 // 重建关系墓碑并保留画布投影），关系走 relation.restore（墓碑原 id 重建），画布元素走
 // restoreElement（快照 upsert）。撤销把条目移入 redoLog，重做再移回 changeLog（LIFO 双栈）；
 // 批量操作（多选删除）与多笔创建（属性=节点+边）经 withChangeGroup 合并为单条，整组一次回退。
+// context/contextId/contextTrail：该次变更发生在哪个画布层。历史是 world 级的（切层不清），
+// 但元素级操作只在其发生层的文档上成立；回放前据此先激活该层（RFC 2026-10-06）。
 export type CanvasChange = {
   id: number;
   label: string;
   at: string;
+  contextId: string;
+  context: CanvasContext;
+  contextTrail: Array<{ entityId: string; title: string }>;
   undo: () => Promise<void> | void;
   redo: () => Promise<void> | void;
 };
@@ -520,13 +533,28 @@ function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
 // 粘贴整体相对原始几何偏移一个网格量，多次粘贴在片段内保持相对布局，只整体错开。
 const PASTE_OFFSET = 32;
 
-function offsetGeometry(geometry: WorldCanvasElement["geometry"] | undefined): Record<string, unknown> {
+function offsetGeometry(geometry: WorldCanvasElement["geometry"] | undefined, dx = PASTE_OFFSET, dy = PASTE_OFFSET): Record<string, unknown> {
   const next: Record<string, unknown> = { ...(geometry ?? {}) };
   const x = Number(next.x);
   const y = Number(next.y);
-  next.x = Math.round((Number.isFinite(x) ? x : 0) + PASTE_OFFSET);
-  next.y = Math.round((Number.isFinite(y) ? y : 0) + PASTE_OFFSET);
+  next.x = Math.round((Number.isFinite(x) ? x : 0) + dx);
+  next.y = Math.round((Number.isFinite(y) ? y : 0) + dy);
   return next;
+}
+
+// 粘贴整体偏移：给了锚点（右键「粘贴到此处」）时把片段包围盒左上角对到锚点；否则固定 +32。
+function pasteOffset(elements: WorldCanvasElement[], anchor?: Point): { dx: number; dy: number } {
+  if (!anchor) return { dx: PASTE_OFFSET, dy: PASTE_OFFSET };
+  let minX = Infinity;
+  let minY = Infinity;
+  for (const element of elements) {
+    const x = Number(element.geometry?.x);
+    const y = Number(element.geometry?.y);
+    if (Number.isFinite(x)) minX = Math.min(minX, x);
+    if (Number.isFinite(y)) minY = Math.min(minY, y);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return { dx: PASTE_OFFSET, dy: PASTE_OFFSET };
+  return { dx: Math.round(anchor.x - minX), dy: Math.round(anchor.y - minY) };
 }
 
 // 克隆自由元素的新 id：保留 kind 前缀（note/text/attr/media/arrow…），时间戳 + 随机尾号避免同日碰撞。
@@ -799,11 +827,25 @@ function geometryDeltaChanged(before: Record<string, unknown>, after: Record<str
 let changeGroupDepth = 0;
 let changeGroupLabel = "";
 let changeGroupEntries: Array<{ label: string; undo: () => Promise<void> | void; redo: () => Promise<void> | void }> = [];
+// 分组起始时的画布层（回放前要激活它）；与 entries 同生命周期。
+let changeGroupScope: ChangeScope = { contextId: "", context: null, contextTrail: [] };
+
+// 变更发生的画布层快照（RFC 2026-10-06）：历史是 world 级的，但元素操作绑定其发生层。
+type ChangeScope = { contextId: string; context: CanvasContext; contextTrail: Array<{ entityId: string; title: string }> };
+function currentChangeScope(): ChangeScope {
+  const state = useWorldCanvasStore.getState();
+  return {
+    contextId: state.context?.entityId ?? "",
+    context: state.context,
+    contextTrail: state.contextTrail.map((item) => ({ ...item })),
+  };
+}
 
 // 语义操作入栈（LIFO）：新操作清空重做栈（分支失效）。
-function pushChangeEntry(label: string, undo: () => Promise<void> | void, redo: () => Promise<void> | void) {
+function pushChangeEntry(label: string, undo: () => Promise<void> | void, redo: () => Promise<void> | void, scope?: ChangeScope) {
+  const entryScope = scope ?? currentChangeScope();
   useWorldCanvasStore.setState((state) => ({
-    changeLog: [{ id: Date.now() + Math.random(), label, at: new Date().toLocaleTimeString(), undo, redo }, ...state.changeLog].slice(0, HISTORY_LIMIT),
+    changeLog: [{ id: Date.now() + Math.random(), label, at: new Date().toLocaleTimeString(), ...entryScope, undo, redo }, ...state.changeLog].slice(0, HISTORY_LIMIT),
     redoLog: [],
   }));
 }
@@ -813,6 +855,7 @@ async function withChangeGroup<T>(label: string, action: () => Promise<T> | T): 
   if (outermost) {
     changeGroupLabel = label;
     changeGroupEntries = [];
+    changeGroupScope = currentChangeScope();
   }
   changeGroupDepth += 1;
   try {
@@ -822,6 +865,7 @@ async function withChangeGroup<T>(label: string, action: () => Promise<T> | T): 
     if (changeGroupDepth === 0) {
       const entries = changeGroupEntries;
       const mergedLabel = changeGroupLabel;
+      const scope = changeGroupScope;
       changeGroupEntries = [];
       changeGroupLabel = "";
       if (entries.length > 0) {
@@ -833,6 +877,7 @@ async function withChangeGroup<T>(label: string, action: () => Promise<T> | T): 
           async () => {
             for (const entry of entries) await entry.redo();
           },
+          scope,
         );
       }
     }
@@ -1394,9 +1439,11 @@ type WorldCanvasState = {
   logElementChanges: (label: string, entries: CanvasPatchEntry[]) => void;
   // 剪贴板（Cmd/Ctrl+C/X/V 与右键菜单）：复制为克隆副本；同 world 剪切粘贴为真移动（保留 id 与外部关系），
   // 跨 world 剪切粘贴克隆新 id 并删除源实体；当前 world 根节点（shape:world）恒被过滤。
+  // 同 world 跨画布层剪切粘贴 = 一等移动（迁投影 + 重挂实体 + 重建关系，RFC 2026-10-06）。
+  // anchor 给定时片段左上角对到该世界坐标（右键「粘贴到此处」），否则 +32。
   copySelection: () => void;
   cutSelection: () => Promise<void>;
-  pasteClipboard: () => Promise<void>;
+  pasteClipboard: (anchor?: Point) => Promise<void>;
   setAddFieldFor: (kind: string | null) => void;
   // T8 媒体：素材来源浮层（仅独立素材；实体媒体 = media 属性，无独立「挂接目标」状态）与预览浮层
   mediaSource: { modality?: "image" | "video" | "audio" } | null;
@@ -1473,6 +1520,125 @@ type WorldCanvasState = {
   toast: (text: string, kind?: CanvasToast["kind"], action?: CanvasToast["action"]) => void;
   dismissToast: (id: number) => void;
 };
+
+// ---- 画布层激活（RFC 2026-10-06）：世界是操作/历史单位，画布层是持久化分片 ----
+// 每次元素写都落在「当前激活层」。切层/历史回放前先激活目标层：拉该层实体 + 文档，
+// 做 scope 过滤 / 归一 / 脏合并 / 属性反向投影，然后一次性 set（不先切 context，避免旧层残影）。
+type ContextData = {
+  entities: WorldEntity[];
+  elements: WorldCanvasElement[];
+  relations: WorldEntityRelation[];
+  relationTypes: WorldRelationType[];
+  entityTypes: WorldEntityType[];
+  docVersion: number;
+};
+
+// 切层导航序号：后发导航使先发导航的结果作废（避免慢响应覆盖新层）。
+let contextNavSeq = 0;
+
+async function fetchContextData(contextId: string): Promise<ContextData | null> {
+  const { apiBase, worldId } = useWorldCanvasStore.getState();
+  if (!apiBase || !worldId) return null;
+  const client = createRecutWorldsClient(apiBase);
+  // 刷新前先落盘当前文档的去抖窗口（此时 elementsContextId 仍是来源层）。
+  await flushCanvasSave();
+  const [entityList, doc, entityTypeData] = await Promise.all([
+    client.entities.list({ worldId, limit: 500, includeProvisional: true }),
+    client.canvas.get({ worldId, contextId }),
+    client.entityTypes.list({ worldId }),
+  ]);
+  const scope = entityList.items.filter((summary) => (contextId ? summary.parentId === contextId : !summary.parentId));
+  const full = await Promise.all(scope.map((summary) => client.entities.get({ worldId, entityId: summary.id }).catch(() => null)));
+  // 容器自身 entity 默认也在本容器画布中（T6/D3：进入子世界能直接看到当前实体卡）
+  if (contextId) {
+    const self = await client.entities.get({ worldId, entityId: contextId }).catch(() => null);
+    if (self) full.unshift(self);
+  }
+  const entities = full.filter((entity): entity is WorldEntity => entity !== null);
+  const ids = new Set(entities.map((entity) => entity.id));
+  const relations: WorldEntityRelation[] = [];
+  for (const entity of entities) {
+    for (const relation of entity.relations ?? []) {
+      if (!relation.scopeEntityId || relation.scopeEntityId === contextId) relations.push(relation);
+    }
+  }
+  const visibleRelations = relations.filter((relation) => ids.has(relation.fromEntityId) && ids.has(relation.toEntityId));
+  // 导入 bundle 的实体元素 id 未带世界前缀：加载时归一为 shape:<entityId>（并重映射箭头端点）。
+  const canonical = canonicalizeCanvasElements(doc.elements, (raw) => {
+    const value = raw.trim();
+    if (!value) return null;
+    if (ids.has(value)) return value;
+    const prefixed = `${worldId}:${value}`;
+    return ids.has(prefixed) ? prefixed : null;
+  });
+  let nextElements = canonical.elements;
+  // 本页未落盘的编辑（dirty/removed）覆盖远端结果——仅在「同一画布层」内合并（切层后旧层脏 id 不能套到新层）。
+  const sameLayer = useWorldCanvasStore.getState().elementsContextId === contextId;
+  if (sameLayer && (canvasSaveState.dirty.size || canvasSaveState.removed.size)) {
+    const byId = new Map(canonical.elements.map((element) => [element.id, element]));
+    for (const id of canvasSaveState.removed) byId.delete(id);
+    for (const element of useWorldCanvasStore.getState().elements) {
+      if (canvasSaveState.dirty.has(element.id)) byId.set(element.id, element);
+    }
+    nextElements = [...byId.values()];
+  }
+  if (canonical.changed) {
+    for (const element of nextElements) markCanvasDirty(element.id);
+  }
+  const projected = projectEntityAttrsIntoElements(
+    nextElements,
+    entities,
+    entityTypeData.items ?? [],
+    sameLayer ? new Set(canvasSaveState.dirty.keys()) : undefined,
+  );
+  nextElements = projected.elements;
+  if (!useWorldCanvasStore.getState().readOnly) for (const id of projected.changedIds) markCanvasDirty(id, ["props"]);
+  return {
+    entities,
+    elements: nextElements,
+    relations: visibleRelations,
+    relationTypes: entityTypeData.relations ?? [],
+    entityTypes: entityTypeData.items ?? [],
+    docVersion: doc.version,
+  };
+}
+
+// 原子切层：先 flush 来源层，拉目标层数据，成功且未被更晚的导航取代时一次性 set。
+async function activateContext(context: CanvasContext, contextTrail: Array<{ entityId: string; title: string }>): Promise<void> {
+  const targetId = context?.entityId ?? "";
+  const seq = ++contextNavSeq;
+  try {
+    const data = await fetchContextData(targetId);
+    if (!data || seq !== contextNavSeq) return;
+    useWorldCanvasStore.setState({
+      context,
+      contextTrail,
+      selection: null,
+      selectedIds: [],
+      relatingFrom: null,
+      relatingTo: null,
+      inlineEdit: null,
+      entities: data.entities,
+      elements: data.elements,
+      elementsContextId: targetId,
+      relations: data.relations,
+      relationTypes: data.relationTypes,
+      entityTypes: data.entityTypes,
+      docVersion: data.docVersion,
+      dataVersion: useWorldCanvasStore.getState().dataVersion + 1,
+    });
+  } catch (cause) {
+    applyCanvasError(cause);
+  }
+}
+
+// 历史回放前激活条目所属画布层（RFC 2026-10-06）：元素级 undo/redo 只在其发生层成立，
+// 先把该层变为当前层，闭包内的 removeElement/restoreElement 才会作用到正确的文档。
+async function ensureChangeLayer(entry: CanvasChange): Promise<void> {
+  if ((useWorldCanvasStore.getState().context?.entityId ?? "") !== entry.contextId) {
+    await activateContext(entry.context, entry.contextTrail);
+  }
+}
 
 export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   apiBase: "",
@@ -1582,72 +1748,13 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const { apiBase, worldId } = get();
     if (!apiBase || !worldId) return;
     const contextId = get().context?.entityId ?? "";
+    const seq = contextNavSeq;
     try {
-      const client = createRecutWorldsClient(apiBase);
-      // 文档粒度存储：刷新前先落盘当前文档的去抖窗口
-      await flushCanvasSave();
-      const [entityList, doc, entityTypeData] = await Promise.all([
-        client.entities.list({ worldId, limit: 500, includeProvisional: true }),
-        client.canvas.get({ worldId, contextId }),
-        client.entityTypes.list({ worldId }),
-      ]);
-      const scope = entityList.items.filter((summary) => (contextId ? summary.parentId === contextId : !summary.parentId));
-      const full = await Promise.all(scope.map((summary) => client.entities.get({ worldId, entityId: summary.id }).catch(() => null)));
-      // 容器自身 entity 默认也在本容器画布中（T6/D3：进入子世界能直接看到当前实体卡）
-      if (contextId) {
-        const self = await client.entities.get({ worldId, entityId: contextId }).catch(() => null);
-        if (self && (get().context?.entityId ?? "") === contextId) full.unshift(self);
-      }
-      // 上下文已切换时丢弃过期响应。
-      if (get().worldId !== worldId || (get().context?.entityId ?? "") !== contextId) return;
-      const entities = full.filter((entity): entity is WorldEntity => entity !== null);
-      const ids = new Set(entities.map((entity) => entity.id));
-      const relations: WorldEntityRelation[] = [];
-      for (const entity of entities) {
-        for (const relation of entity.relations ?? []) {
-          if (!relation.scopeEntityId || relation.scopeEntityId === contextId) relations.push(relation);
-        }
-      }
-      const visibleRelations = relations.filter((relation) => ids.has(relation.fromEntityId) && ids.has(relation.toEntityId));
-      // 导入 bundle 的实体元素 id 未带世界前缀：加载时归一为 shape:<entityId>（并重映射箭头端点），
-      // 否则拖拽会新建重复投影、刷新回退到旧位置（见 canonicalizeCanvasElements）。
-      const canonical = canonicalizeCanvasElements(doc.elements, (raw) => {
-        const value = raw.trim();
-        if (!value) return null;
-        if (ids.has(value)) return value;
-        const prefixed = `${worldId}:${value}`;
-        return ids.has(prefixed) ? prefixed : null;
-      });
-      // AI 锁期内本地保存被暂停：远端回拉时保留本地脏元素/删除覆盖，避免用户未落盘的改动被覆盖。
-      let nextElements = canonical.elements;
-      // 本页未落盘的编辑（dirty/removed）始终覆盖远端结果——多标签页 / Agent 触发的远端 reload
-      // 不得吞掉本地改动。仅在「同一画布层」内合并：切层后 elements 仍是旧层数据，套到新层会串元素。
-      const sameLayer = get().elementsContextId === contextId;
-      if (sameLayer && (canvasSaveState.dirty.size || canvasSaveState.removed.size)) {
-        const byId = new Map(canonical.elements.map((element) => [element.id, element]));
-        for (const id of canvasSaveState.removed) byId.delete(id);
-        for (const element of get().elements) {
-          if (canvasSaveState.dirty.has(element.id)) byId.set(element.id, element);
-        }
-        nextElements = [...byId.values()];
-      }
-      if (canonical.changed) {
-        // 一次性迁移：归一后的文档立即落库，避免每次加载重复归一。
-        for (const element of nextElements) markCanvasDirty(element.id);
-      }
-      // 反向投影（实体 → 画布属性卡）：AI/MCP 只写实体（recut.worlds.entity）或面板改字段后，
-      // 本次远端 reload 把绑定卡片的显示值刷新（text/assetId…）；变化的卡片标脏随统一保存落库。
-      // 本地未落盘的脏元素跳过，人机并发以本地编辑为准。
-      const projected = projectEntityAttrsIntoElements(
-        nextElements,
-        entities,
-        entityTypeData.items ?? [],
-        // 脏集只在同一层内有效：切层后 elements 仍是旧层数据，旧层脏 id 不能当作新层的跳过集
-        sameLayer ? new Set(canvasSaveState.dirty.keys()) : undefined,
-      );
-      nextElements = projected.elements;
-      // 只读世界不标脏（仅内存投影供预览，不触发落库，避免脏集跨世界泄漏）
-      if (!get().readOnly) for (const id of projected.changedIds) markCanvasDirty(id, ["props"]);
+      const data = await fetchContextData(contextId);
+      if (!data) return;
+      // 世界已切换或期间发生了切层导航：丢弃过期响应。
+      if (get().worldId !== worldId || contextNavSeq !== seq) return;
+      const { entities, elements, relations, relationTypes, entityTypes, docVersion } = data;
       // 远端刷新（AI/另一端的写）后按 id 重新解析当前选中，避免面板继续指向旧快照。
       const currentSelection = get().selection;
       let nextSelection: CanvasSelection = currentSelection;
@@ -1655,26 +1762,26 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         const matched = entities.find((entity) => entity.id === currentSelection.entity.id) ?? null;
         nextSelection = matched ? { type: "entity", entity: matched } : null;
       } else if (currentSelection?.type === "relation") {
-        const matched = visibleRelations.find((relation) => relation.id === currentSelection.relation.id) ?? null;
+        const matched = relations.find((relation) => relation.id === currentSelection.relation.id) ?? null;
         nextSelection = matched ? { type: "relation", relation: matched } : null;
       } else if (currentSelection?.type === "canvas") {
-        const matched = nextElements.find((element) => element.id === currentSelection.element.id) ?? null;
+        const matched = elements.find((element) => element.id === currentSelection.element.id) ?? null;
         nextSelection = matched
           ? { type: "canvas", element: matched, ...(currentSelection.fromEntityId ? { fromEntityId: currentSelection.fromEntityId } : {}), ...(currentSelection.toEntityId ? { toEntityId: currentSelection.toEntityId } : {}) }
           : null;
       }
       // 多选集同样按 id 过滤：远端刷新后已消失的条目从集合剔除，避免指向旧快照
       const nextSelectedIds = get().selectedIds.filter(
-        (id) => resolveBlockSelection({ entities, elements: nextElements, relations: visibleRelations }, id) !== null,
+        (id) => resolveBlockSelection({ entities, elements, relations }, id) !== null,
       );
       set({
         entities,
-        elements: nextElements,
+        elements,
         elementsContextId: contextId,
-        docVersion: doc.version,
-        relations: visibleRelations,
-        relationTypes: entityTypeData.relations ?? [],
-        entityTypes: entityTypeData.items ?? [],
+        docVersion,
+        relations,
+        relationTypes,
+        entityTypes,
         dataVersion: get().dataVersion + 1,
         selection: nextSelection,
         selectedIds: nextSelectedIds,
@@ -1699,9 +1806,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   // 语义写统一约定：先按当前 revision 执行，冲突时 refreshRevision 后重试一次（见各写动作）。
 
   setContext: (context) => {
-    // 切层前先落盘当前层文档（flush 捕获的是切换前的 context 快照）
-    void flushCanvasSave();
-    const prev = get().context;
     const trail = get().contextTrail;
     let nextTrail: Array<{ entityId: string; title: string }> = [];
     if (context) {
@@ -1709,8 +1813,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       // 已在路径中 = 向上（面包屑点击）截断；否则 = 向下进入，追加一级
       nextTrail = idx >= 0 ? trail.slice(0, idx + 1) : [...trail, context];
     }
-    set({ context, contextTrail: nextTrail, selection: null, selectedIds: [], relatingFrom: null, relatingTo: null, inlineEdit: null });
-    void get().load(true);
+    // 原子切层：先 flush 来源层、拉目标层数据，再一次性 set（不先切 context，避免旧层残影）。
+    void activateContext(context, nextTrail);
   },
 
   // URL 深链恢复：实体标题就绪后走标准 setContext（面包屑/导航语义一致）
@@ -1727,13 +1831,11 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
   // 上一层容器（Cmd+[ / 面包屑折叠）：弹出一级；已到根则回全局
   exitContext: () => {
-    void flushCanvasSave();
     const trail = get().contextTrail;
     if (!trail.length) return;
     const nextTrail = trail.slice(0, -1);
     const context = nextTrail.length ? nextTrail[nextTrail.length - 1] : null;
-    set({ context, contextTrail: nextTrail, selection: null, selectedIds: [], relatingFrom: null, relatingTo: null, inlineEdit: null });
-    void get().load(true);
+    void activateContext(context, nextTrail);
   },
   zoomIn: () => set((state) => ({ zoom: Math.min(2, state.zoom + 0.2) })),
   zoomOut: () => set((state) => ({ zoom: Math.max(0.4, state.zoom - 0.2) })),
@@ -2931,6 +3033,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       for (let i = 0; i < doomed.length; i += 1) {
         const entry = doomed[i];
         try {
+          await ensureChangeLayer(entry);
           await entry.undo();
           set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, HISTORY_LIMIT) }));
         } catch (cause) {
@@ -2954,6 +3057,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       }
       set((state) => ({ changeLog: state.changeLog.filter((item) => item.id !== entry.id) }));
       try {
+        await ensureChangeLayer(entry);
         await entry.undo();
         set((state) => ({ redoLog: [entry, ...state.redoLog].slice(0, HISTORY_LIMIT) }));
         get().toast(`已撤销：${entry.label}`, "success");
@@ -2972,6 +3076,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       }
       set((state) => ({ redoLog: state.redoLog.filter((item) => item.id !== entry.id) }));
       try {
+        await ensureChangeLayer(entry);
         await entry.redo();
         set((state) => ({ changeLog: [entry, ...state.changeLog].slice(0, HISTORY_LIMIT) }));
         get().toast(`已重做：${entry.label}`, "success");
@@ -3089,8 +3194,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     get().toast(`已剪切 ${describeFragment(fragment)}`, "success");
   },
 
-  // 粘贴：copy 或跨 world cut = 克隆新 id；同 world cut = 真移动（复用原 id 与关系）。
-  pasteClipboard: async () => {
+  // 粘贴：copy / 跨 world cut = 克隆新 id；同 world cut 同层 = 层内移动；同 world cut 跨层 = 一等迁移（RFC 2026-10-06）。
+  pasteClipboard: async (anchor?: Point) => {
     const state = get();
     if (state.readOnly) return;
     const fragment = readCanvasClipboard();
@@ -3099,9 +3204,13 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
       return;
     }
     const sameWorld = fragment.sourceWorldId === state.worldId;
-    const isMove = fragment.mode === "cut" && sameWorld;
+    const sameLayer = fragment.sourceContextId === state.elementsContextId;
+    const isMove = fragment.mode === "cut" && sameWorld && sameLayer;
+    const isMigrate = fragment.mode === "cut" && sameWorld && !sameLayer;
     const targetContextId = state.elementsContextId;
     const targetParentId = state.context?.entityId ?? "";
+    const targetContextTitle = state.context?.title ?? "全局画布";
+    const { dx, dy } = pasteOffset(fragment.elements, anchor);
     const client = createRecutWorldsClient(state.apiBase);
     const runWithRevision = async <T,>(action: (revisionId: string) => Promise<T>): Promise<T> => {
       try {
@@ -3114,7 +3223,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     };
     type Created = { entityIds: string[]; elementIds: string[]; relationIds: string[] };
 
-    // 同 world 移动：投影卡/自由元素按原 id 落回并整体偏移；内部关系按原两端重建（实体未删，外部关系无损）。
+    // 同 world 层内移动：投影卡/自由元素按原 id 落回并整体偏移；内部关系按原两端重建（实体未删，外部关系无损）。
     const moveFragment = async (): Promise<Created> => {
       for (const element of nodeFirstElements(fragment.elements)) {
         const isProjection = element.kind === "entity" || element.refKind === "entity";
@@ -3127,7 +3236,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           name: element.name ?? "",
           // 剪切时实体卡是 props.hidden=true（进「移除区」）：落回必须显式清掉（patch 的 props 是按 key 合并）。
           props: isProjection ? { ...(element.props ?? {}), hidden: false } : (element.props ?? {}),
-          geometry: offsetGeometry(element.geometry),
+          geometry: offsetGeometry(element.geometry, dx, dy),
           style: element.style ?? {},
           layer: element.layer ?? "0",
         });
@@ -3153,6 +3262,76 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         }
       }
       return { entityIds: [], elementIds: fragment.elements.map((element) => element.id), relationIds };
+    };
+
+    // 跨画布层移动（同 world、不同层，RFC 2026-10-06）：元素迁到目标层（复用原 id）、实体重挂 parentId、
+    // 内部关系重建。片段内的父子关系保持（父实体也在片段里则子挂父），否则挂到目标层容器。
+    const fragmentEntityIds = new Set(fragment.entities.map((entity) => entity.id));
+    const reparentOf = (entity: CanvasClipboardEntity): string =>
+      entity.parentId && fragmentEntityIds.has(entity.parentId) ? entity.parentId : targetParentId;
+    const setEntityParent = async (entity: CanvasClipboardEntity, parentId: string): Promise<void> => {
+      const updated = await runWithRevision((revisionId) =>
+        client.entities.upsert({
+          worldId: state.worldId,
+          entityId: entity.id,
+          typeId: entity.typeId as EntityKind,
+          name: entity.name,
+          intro: entity.intro,
+          detail: entity.detail,
+          ...(entity.cover !== undefined ? { cover: entity.cover } : {}),
+          attrs: entity.attrs,
+          // 显式给出 parentId（含空串 = 移到根）：服务端据此 reparent（RFC 2026-10-06）。
+          parentId: parentId ?? "",
+          ...(entity.containerRole ? { containerRole: entity.containerRole } : {}),
+          expectedRevisionId: revisionId,
+        }),
+      );
+      set((current) => ({ entities: upsertById(current.entities, updated) }));
+    };
+    const migrateFragment = async (): Promise<Created> => {
+      for (const element of nodeFirstElements(fragment.elements)) {
+        const isProjection = element.kind === "entity" || element.refKind === "entity";
+        await get().upsertElement({
+          id: element.id,
+          contextId: targetContextId,
+          kind: element.kind,
+          refKind: element.refKind ?? "",
+          refId: element.refId ?? "",
+          name: element.name ?? "",
+          props: isProjection ? { ...(element.props ?? {}), hidden: false } : (element.props ?? {}),
+          geometry: offsetGeometry(element.geometry, dx, dy),
+          style: element.style ?? {},
+          layer: element.layer ?? "0",
+        });
+      }
+      for (const entity of orderEntitiesParentFirst(fragment.entities)) {
+        try {
+          await setEntityParent(entity, reparentOf(entity));
+        } catch (cause) {
+          applyCanvasError(cause);
+        }
+      }
+      const relationIds: string[] = [];
+      for (const relation of fragment.relations) {
+        try {
+          const created = await runWithRevision((revisionId) =>
+            client.relations.create({
+              worldId: state.worldId,
+              fromEntityId: relation.fromEntityId,
+              toEntityId: relation.toEntityId,
+              fromRole: relation.fromRole,
+              ...(relation.toRole ? { toRole: relation.toRole } : {}),
+              ...(relation.scopeEntityId ? { scopeEntityId: relation.scopeEntityId } : {}),
+              expectedRevisionId: revisionId,
+            }),
+          );
+          relationIds.push(created.id);
+          set((current) => ({ relations: upsertById(current.relations, created) }));
+        } catch (cause) {
+          applyCanvasError(cause);
+        }
+      }
+      return { entityIds: fragment.entities.map((entity) => entity.id), elementIds: fragment.elements.map((element) => element.id), relationIds };
     };
 
     // 克隆：实体 → 元素 → 内部关系，全部映射为新 id 后落位。
@@ -3217,7 +3396,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
           refId: isProjection ? (mappedEntity ?? "") : (element.refId ?? ""),
           name: element.name ?? "",
           props,
-          geometry: offsetGeometry(element.geometry),
+          geometry: offsetGeometry(element.geometry, dx, dy),
           style: element.style ?? {},
           layer: element.layer ?? "0",
         });
@@ -3287,6 +3466,35 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         const movedBlockIds = fragment.entities.map((entity) => `entity:${entity.id}`);
         if (movedBlockIds.length) get().selectMany(movedBlockIds);
         get().toast("已移动所选对象", "success");
+        clearCanvasClipboard();
+      } else if (isMigrate) {
+        // 跨画布层移动：迁元素 + 重挂实体；撤销 = 移除目标层元素 + 实体挂回原父级。
+        let created = await migrateFragment();
+        get().logChange(
+          `移动到「${targetContextTitle}」`,
+          async () => {
+            for (const id of created.relationIds) await get().removeRelation(id);
+            for (const element of fragment.elements) {
+              const isProjection = element.kind === "entity" || element.refKind === "entity";
+              if (isProjection && element.refId) await get().hideEntityFromCanvas(element.refId);
+              else await get().removeElement(element.id);
+            }
+            for (const entity of fragment.entities) {
+              try {
+                await setEntityParent(entity, entity.parentId ?? "");
+              } catch (cause) {
+                applyCanvasError(cause);
+              }
+            }
+          },
+          async () => {
+            created = await migrateFragment();
+          },
+        );
+        const migratedBlockIds = fragment.entities.map((entity) => `entity:${entity.id}`);
+        if (migratedBlockIds.length) get().selectMany(migratedBlockIds);
+        get().toast(`已移动到「${targetContextTitle}」`, "success");
+        clearCanvasClipboard();
       } else {
         let created = await cloneFragment();
         get().logChange(
@@ -3313,7 +3521,6 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
         if (pastedBlockIds.length) get().selectMany(pastedBlockIds);
         get().toast(`已粘贴 ${describeFragment(fragment)}`, "success");
       }
-      await get().load(false);
     } catch (cause) {
       applyCanvasError(cause);
     }

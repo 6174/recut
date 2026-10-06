@@ -1314,3 +1314,70 @@ func TestEntityCoverIsFirstClassField(t *testing.T) {
 		t.Fatalf("cover after empty value = %#v, want nil", cleared.Cover)
 	}
 }
+
+// TestEntityReparent covers explicit reparenting on update (RFC 2026-10-06):
+// cross-container move, move-to-root (empty parentId + ParentIDSet), cycle refusal,
+// and "omitted parentId leaves the parent unchanged".
+func TestEntityReparent(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	worldID := createTestWorld(t, worlds)
+
+	parentA, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeWork, Name: "Work A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentB, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeWork, Name: "Work B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := worlds.UpsertEntity(UpsertEntityInput{WorldID: worldID, TypeID: EntityTypeCharacter, Name: "Hero", ParentID: parentA.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.ParentID != parentA.ID {
+		t.Fatalf("created parent = %q, want %q", child.ParentID, parentA.ID)
+	}
+
+	// A cycle: moving A under its own child must be refused.
+	if _, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: parentA.ID, TypeID: parentA.TypeID, Name: parentA.Name,
+		ParentID: child.ID, ParentIDSet: true,
+	}); err == nil {
+		t.Fatal("reparent producing a cycle must be refused")
+	}
+
+	// Move child from A to B.
+	moved, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: child.ID, TypeID: child.TypeID, Name: child.Name,
+		ParentID: parentB.ID, ParentIDSet: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.ParentID != parentB.ID {
+		t.Fatalf("moved parent = %q, want %q", moved.ParentID, parentB.ID)
+	}
+
+	// Omitting parentId keeps the current parent.
+	kept, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: child.ID, TypeID: child.TypeID, Name: "Hero Renamed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept.ParentID != parentB.ID {
+		t.Fatalf("parent after rename = %q, want unchanged %q", kept.ParentID, parentB.ID)
+	}
+
+	// Explicit empty parentId moves to root.
+	rooted, err := worlds.UpsertEntity(UpsertEntityInput{
+		WorldID: worldID, EntityID: child.ID, TypeID: child.TypeID, Name: kept.Name,
+		ParentID: "", ParentIDSet: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rooted.ParentID != "" {
+		t.Fatalf("rooted parent = %q, want empty", rooted.ParentID)
+	}
+}
