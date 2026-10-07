@@ -12,7 +12,6 @@
 import type { WorldEntity, WorldEntityType } from "@/lib/recut-worlds-client";
 import { EntityEditor } from "@/components/world-entity/entity-editor";
 import { typeLabelOf } from "@/components/world-entity/field-row";
-import { styleLockFromEntities } from "@/lib/world-entity/guided";
 import { useWorldCanvasStore } from "../canvas-store";
 
 export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; entityTypes: WorldEntityType[] }) {
@@ -26,7 +25,6 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
       entity={entity}
       entityTypes={entityTypes}
       fields={type?.fields ?? []}
-      guided={{ worldId: store.worldId, worldName: store.worldName, ...(styleLockFromEntities(store.entities) ? { styleLock: styleLockFromEntities(store.entities)! } : {}) }}
       readOnly={readOnly}
       hideRelations
       // 取当前 store 快照的实体（而非渲染期 prop）：连续字段编辑间 prop 可能仍指向旧快照，

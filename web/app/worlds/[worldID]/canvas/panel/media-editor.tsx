@@ -25,7 +25,7 @@
  */
 "use client";
 
-import { Globe, Image as ImageIcon, RefreshCcw, Trash2, Upload, X } from "lucide-react";
+import { Globe, Image as ImageIcon, RefreshCcw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AssetPreviewDialog, mediaContentURL, type PreviewAsset } from "@/components/asset-preview-dialog";
 import { AssetReferenceDialog, type MediaPickerKind } from "@/components/asset-reference-picker";
@@ -47,7 +47,6 @@ import { PanelSection } from "@/components/panel-section";
 type MediaModality = "image" | "video" | "audio";
 // 选择器缺省值共享同一引用：state.histories[elementId] 缺席时 ?? [] 会造新数组，getSnapshot 永不相等 → 无限循环
 const EMPTY_HISTORY: string[] = [];
-const CONTRIBUTED_LABELS: Record<MediaModality, string> = { image: "图片", video: "视频", audio: "音频" };
 // 每种媒体节点对应的生产 capability：音频走平台 speech.generate（云端 provider 与
 // 本机 Audio Studio 同一路由），不再误落到 image.generate。
 const RECIPE_CAPABILITY: Record<MediaModality, Capability> = { image: "image.generate", video: "video.generate", audio: "speech.generate" };
@@ -164,7 +163,6 @@ function MediaAssetEditor({ element, guided, identity }: { element: MediaEditorE
         metadata: fetched?.metadata ?? {},
       }
     : null;
-  const [sourceView, setSourceView] = useState<"none" | "library">("none");
   // 预览区图片单击 → 全局素材详情弹框（AssetPreviewDialog，与实体属性字段 AssetFieldRow 同源）
   const [detailOpen, setDetailOpen] = useState(false);
   // 音频统一走 AudioWaveformPlayer：有源（url 或 assetId）且已就绪时就地播放，不再渲染成图片
@@ -200,43 +198,13 @@ function MediaAssetEditor({ element, guided, identity }: { element: MediaEditorE
           )}
         </div>
         {assetId && modality === "image" && <p className="text-[10px] text-muted-foreground">点击图片查看素材详情</p>}
-        <div className="grid grid-cols-2 gap-1.5">
-          <SourceButton icon={<ImageIcon className="size-3.5" />} label="素材库" onClick={() => setSourceView("library")} />
-          <UploadButton modality={modality} onAdopt={adopt} />
-          <SourceButton
-            icon={<Trash2 className="size-3.5" />}
-            label="清除"
-            onClick={() => {
-              void (isAttr ? setAttrMediaAsset(element.id, null) : setMediaElementAsset(element.id, null));
-            }}
-          />
-        </div>
       </PanelSection>
       {/* 名称：媒体元素只有「名称」是重要的身份信息，独立成组紧接预览 */}
       {identity && <PanelSection title="名称">{identity}</PanelSection>}
       {/* 用 AI 完善（引导动作）——由宿主注入的分组 */}
       {guided}
-      {/* 素材历史（默认收起）+ 手动生成（低层逐张生成） */}
+      {/* 素材历史（默认收起）：生成/换图入口已迁到节点上的生成输入框（RFC 2026-10-07），面板不再重复生成区 */}
       <GenerationHistory apiBase={apiBase} elementId={element.id} modality={modality} currentId={assetId} onAdopt={adopt} />
-      <PanelSection title="手动生成">
-        <GenerationRecipe apiBase={apiBase} capability={RECIPE_CAPABILITY[modality]} elementId={element.id} current={current} modality={modality} onAdopt={adopt} />
-      </PanelSection>
-      {sourceView === "library" && (
-        <AssetReferenceDialog
-          apiBase={apiBase}
-          description="选择后以稳定 assetId 引用；也可以在这里直接上传。"
-          kinds={[modality] as MediaPickerKind[]}
-          onClose={() => setSourceView("none")}
-          onPick={(picked) => {
-            adopt({ id: picked.id, name: picked.name });
-            setSourceView("none");
-          }}
-          open
-          projectID={null}
-          selectedIDs={assetId ? [assetId] : []}
-          title={`选择${CONTRIBUTED_LABELS[modality]}素材`}
-        />
-      )}
       {/* 当前 asset 素材详情弹框（预览区图片单击 / 与实体属性字段同一弹框） */}
       {detailOpen && current && <AssetPreviewDialog apiBase={apiBase} asset={current} onClose={() => setDetailOpen(false)} />}
     </div>
@@ -321,67 +289,6 @@ function GenerationProposalEditor({ element, proposal }: { element: MediaEditorE
   );
 }
 
-function SourceButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active?: boolean; onClick: () => void }) {
-  return (
-    <button
-      className={`flex h-8 items-center justify-center gap-1.5 rounded-md border text-xs hover:bg-muted ${active ? "border-primary bg-primary/10 text-primary" : ""}`}
-      onClick={onClick}
-      type="button"
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-// 本地上传：POST /v1/media/assets multipart（沿用素材库上传校验），成功即采纳并进历史
-function UploadButton({ modality, onAdopt }: { modality: MediaModality; onAdopt: (asset: { id: string; name?: string }) => void }) {
-  const apiBase = useWorldCanvasStore((state) => state.apiBase);
-  const toast = useWorldCanvasStore((state) => state.toast);
-  const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const upload = async (files: File[]) => {
-    for (const file of files) {
-      if (!file.type.startsWith(`${modality}/`)) {
-        toast(`仅支持${CONTRIBUTED_LABELS[modality]}文件`, "error");
-        continue;
-      }
-      setBusy(true);
-      try {
-        const form = new FormData();
-        form.append("file", file);
-        const response = await fetch(`${apiBase}/v1/media/assets`, { method: "POST", body: form });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null) as { error?: string } | null;
-          throw new Error(body?.error ?? "上传失败，请重试");
-        }
-        const asset = normalizeAsset((await response.json()) as Asset);
-        onAdopt({ id: asset.id, name: asset.name });
-      } catch (cause) {
-        toast(cause instanceof Error ? cause.message : "上传失败，请重试", "error");
-      } finally {
-        setBusy(false);
-      }
-    }
-  };
-  return (
-    <>
-      <SourceButton icon={<Upload className="size-3.5" />} label={busy ? "上传中…" : "本地上传"} onClick={() => inputRef.current?.click()} />
-      <input
-        className="hidden"
-        ref={inputRef}
-        type="file"
-        accept={`${modality}/*`}
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? []);
-          event.target.value = "";
-          void upload(files);
-        }}
-      />
-    </>
-  );
-}
-
 // D. 素材历史（历史即素材）：展开时逐 id 拉取 asset 详情；点缩略图设为当前（指针写回 + 配方继承）；
 // 移除历史项 = 仅解除本元素的引用指针，绝不删除底层 asset（素材库跨世界长期保活）
 function GenerationHistory({ apiBase, elementId, modality, currentId, onAdopt }: { apiBase: string; elementId: string; modality: MediaModality; currentId: string; onAdopt: (asset: { id: string; name?: string }) => void }) {
@@ -459,6 +366,8 @@ function apiBaseAssetURL(apiBase: string, id: string): string {
 //   预设/角色），提交 output.voiceId；
 // 提交 /v1/media/jobs → 轮询 → 自适应采用首个完成的产出；配方常驻并自动回填。
 
+// 旧的「手动生成」面板表单：入口已迁到节点生成输入框（RFC 2026-10-07），此组件暂留作参考，不再挂载。
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function GenerationRecipe({ apiBase, capability, elementId, current, modality, onAdopt, focusSignal = 0 }: {
   apiBase: string;
   capability: Capability;

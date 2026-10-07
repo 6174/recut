@@ -61,6 +61,7 @@ import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
 import { entityAttrMediaRef, entityKindLabel, isProductionEntityKind, isRetiredEntityKind, productionKindIcons, productionKindLabels, type EntityAttrMediaValue } from "@/lib/recut-worlds-client";
+import { CanvasNodeOverlays } from "./overlays/node-overlays";
 
 // ---------- canvas-store → pomelo document 映射（block id 约定） ----------
 
@@ -1247,6 +1248,7 @@ export function CanvasPomeloHost() {
       )}
       <CanvasInlineEditor />
       <CanvasTextFullscreenEntry />
+      <CanvasNodeOverlays />
       <EmptyWorldGuide />
       <EmptyContainerGuide />
       <CanvasToasts />

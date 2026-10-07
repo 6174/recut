@@ -97,9 +97,10 @@ import { contextProtocolRegistry } from "@/lib/context-catalog/registry";
 import { confirmProposalAsset, createProposal as createProposalAsset, generationCapabilityOf, isProposalGate, proposalFromAsset, proposalIssues, proposalReferenceIds, readProposal, rejectProposalAsset, updateProposalAsset, type GenerationProposal } from "./canvas-proposal";
 import { canvasAssetOf, refreshCanvasAsset, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { modalityOfAssetKind } from "./canvas-media";
-import { buildGenerationRequest } from "@/lib/media/generation-request";
+import { buildGenerationRequest, type GenerationRequestInput } from "@/lib/media/generation-request";
 import { normalizeAsset, type Asset, type MediaJob } from "@/app/media/media-types";
 import { useElementAssetHistoryStore } from "./panel/element-asset-history-store";
+import { useElementRecipeDraftStore, type RecipeDraft } from "./panel/element-recipe-draft-store";
 
 // 图片/视频块（视觉媒体）与实体卡封面按素材比例定尺：素材**加载成功时**测 naturalWidth / videoWidth，
 // 比例**回写数据库**（元素 props 的 visualAspect / coverAspect + 对应 `<field>Key`），渲染按它派生尺寸；
@@ -643,6 +644,41 @@ function proposalFromAssetOfElement(elementId: string): GenerationProposal | nul
   if (!assetId) return null;
   const asset = useCanvasAssetStatusStore.getState().assets[assetId];
   return asset ? proposalFromAsset(asset) : null;
+}
+
+// 图片/音频直生（无提案门）：提交 /v1/media/jobs → 立即挂载预建 pending 素材（生成中）→ 轮询终态采用首个可用产物。
+// 与 pollProposalJob 的差别：直生不写画布提案状态，节点由 canvas-asset-status 的 assetStatus 呈现等待/就绪。
+async function pollMediaJob(elementId: string, jobId: string) {
+  const { apiBase } = useWorldCanvasStore.getState();
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const response = await fetch(`${apiBase}/v1/media/jobs/${encodeURIComponent(jobId)}`, { cache: "no-store" }).catch(() => null);
+    if (!response?.ok) continue;
+    const job = (await response.json()) as MediaJob;
+    const element = useWorldCanvasStore.getState().elements.find((item) => item.id === elementId);
+    if (!element) return;
+    if (job.status === "failed") {
+      useWorldCanvasStore.getState().toast(job.error ?? "生成失败，请重试。", "error");
+      return;
+    }
+    if (job.status !== "completed") continue;
+    let adopted = false;
+    for (const assetId of job.assetIds) {
+      const assetResponse = await fetch(`${apiBase}/v1/media/assets/${encodeURIComponent(assetId)}`, { cache: "no-store" }).catch(() => null);
+      const asset = assetResponse?.ok ? normalizeAsset((await assetResponse.json()) as Asset) : null;
+      if (!asset || asset.status !== "completed") continue;
+      useElementAssetHistoryStore.getState().record(elementId, asset.id);
+      if (!adopted) {
+        const current = useWorldCanvasStore.getState().elements.find((item) => item.id === elementId);
+        if (!current) return;
+        const bind = current.kind === "attr" ? useWorldCanvasStore.getState().setAttrMediaAsset : useWorldCanvasStore.getState().setMediaElementAsset;
+        await bind(elementId, { assetId: asset.id, name: asset.name });
+        useWorldCanvasStore.getState().toast("生成完成，已就绪", "success");
+        adopted = true;
+      }
+    }
+    return;
+  }
 }
 
 // 默认实体名（B.5 自动确认规则的「非默认名」判定；B.7 命名态预填同名）；reference 预设已退役
@@ -1455,6 +1491,9 @@ type WorldCanvasState = {
   setMediaSource: (input: { modality?: "image" | "video" | "audio" } | null) => void;
   setMediaPicker: (input: { elementId: string } | null) => void;
   setAssetDetail: (input: { assetId: string; name?: string } | null) => void;
+  // 实体卡工具栏「设置封面」：非空时渲染素材库选择弹框（图片/视频），选中即写实体一等封面字段
+  coverPicker: { entityId: string } | null;
+  setCoverPicker: (input: { entityId: string } | null) => void;
   // 画面删除（T16/D7 P1）：实体卡从画布移除，设定本身保留；outline 面板可放回
   hideEntityFromCanvas: (entityId: string) => Promise<void>;
   unhideEntity: (entityId: string) => Promise<void>;
@@ -1476,6 +1515,11 @@ type WorldCanvasState = {
   confirmProposal: (elementId: string) => Promise<void>;
   // 放弃提案：退回配方草稿（保留输入），不删除节点
   rejectProposal: (elementId: string) => Promise<void>;
+  // ---- 节点生成 overlay（RFC 2026-10-07）----
+  // 种提示词到该节点的生成配方草稿并选中节点（输入框随选中出现）；不新建持久状态。
+  openNodeComposer: (elementId: string, seed?: Partial<RecipeDraft>) => void;
+  // 图片/音频直生：提交生成任务 → 挂载 pending 素材 → 轮询采用终态产物（视频走 createProposal 提案门）。
+  runMediaJob: (elementId: string, request: GenerationRequestInput) => Promise<void>;
   // 面板换图（媒体元素）：persist props.assetId/name（画布投影随 dataVersion 重建）
   setMediaElementAsset: (elementId: string, media: { assetId: string; name?: string } | null) => Promise<void>;
   // 面板换图（attr 属性元素）：persist props.assetId/name；若有属性边连到实体，按字段映射回写 media 属性值
@@ -1678,6 +1722,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   mediaPreview: null,
   mediaPicker: null,
   assetDetail: null,
+  coverPicker: null,
   creatingAt: null,
   contextMenu: null,
   toasts: [],
@@ -3987,6 +4032,7 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
   },
   setMediaPreview: (mediaPreview) => set({ mediaPreview }),
   setAssetDetail: (assetDetail) => set({ assetDetail }),
+  setCoverPicker: (coverPicker) => set({ coverPicker }),
 
   // 面板换图（媒体元素）：null = 清除（保留元素骨架，待用户重新选择来源）
   setMediaElementAsset: async (elementId, media) => {
@@ -4202,6 +4248,43 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     if (!readProposal(element.props)) return;
     await get().updateProposal(elementId, { status: "draft", error: "" });
     get().toast("已取消提案，配方保留为草稿", "info");
+  },
+
+  // 节点生成 overlay（RFC 2026-10-07）：把工具栏 prompt 项/空节点入口的提示词种进该节点的配方草稿并选中节点。
+  openNodeComposer: (elementId, seed) => {
+    const element = get().elements.find((item) => item.id === elementId);
+    if (!element) return;
+    if (seed) useElementRecipeDraftStore.getState().setDraft(elementId, { ...seed, edited: true });
+    get().select({ type: "canvas", element });
+  },
+
+  // 图片/音频直生（视频在 composer 侧走 createProposal 提案门）：提交 → 挂载 pending → 轮询采用。
+  runMediaJob: async (elementId, request) => {
+    const element = get().elements.find((item) => item.id === elementId);
+    if (!element || get().readOnly) return;
+    try {
+      const response = await fetch(`${get().apiBase}/v1/media/jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildGenerationRequest(request)),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string } | null;
+        get().toast(body?.error ?? "创建任务失败，请检查 Provider 配置。", "error");
+        return;
+      }
+      const created = (await response.json()) as MediaJob;
+      const pendingId = created.assetIds?.[0];
+      if (pendingId) {
+        const bind = element.kind === "attr" ? get().setAttrMediaAsset : get().setMediaElementAsset;
+        await bind(elementId, { assetId: pendingId });
+        useElementAssetHistoryStore.getState().record(elementId, pendingId);
+        refreshCanvasAsset(get().apiBase, pendingId);
+      }
+      void pollMediaJob(elementId, created.id);
+    } catch (cause) {
+      get().toast(cause instanceof Error ? cause.message : "生成失败，请重试。", "error");
+    }
   },
 
   // 独立媒体元素落画布（kind='media'；不产 revision）。空素材 = placeholder 卡，

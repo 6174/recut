@@ -208,6 +208,12 @@ export function ContextMentionPanel({
     ];
   }, [drillFrames, drillOptions, pinnedOptions, t, visibleOptions]);
   const optionRows = useMemo(() => rows.filter((row): row is Extract<ContextRow, { kind: "option" }> => row.kind === "option"), [rows]);
+  // 预览 effect 只依赖 highlightedKey：optionRows/sourceFor 每次渲染都是新引用，若进依赖会让 hover 触发的
+  // 预览请求被反复取消（hover 移动即重渲染）→ 右侧详情一直空白。用 ref 取最新值，请求只在切换高亮项时重启。
+  const optionRowsRef = useRef(optionRows);
+  optionRowsRef.current = optionRows;
+  const sourceForRef = useRef(sourceFor);
+  sourceForRef.current = sourceFor;
 
   // 下钻层内：查询过滤导致高亮项消失时，自动落到第一个可选项。
   useEffect(() => {
@@ -216,14 +222,14 @@ export function ContextMentionPanel({
     setHighlightedKey(optionRows.find((row) => !row.option.disabled)?.option.key ?? null);
   }, [drillFrames.length, highlightedKey, optionRows]);
 
-  // 预览：高亮项变化时按 descriptor.preview() 懒加载。
+  // 预览：高亮项变化时按 descriptor.preview() 懒加载（hover 即高亮 → hover 即预览）。
   useEffect(() => {
-    const option = optionRows.find((row) => row.option.key === highlightedKey)?.option;
+    const option = optionRowsRef.current.find((row) => row.option.key === highlightedKey)?.option;
     if (!option || option.disabled) {
       setPreview(null);
       return;
     }
-    const source = sourceFor(option.sourceType);
+    const source = sourceForRef.current(option.sourceType);
     if (!source) {
       setPreview(null);
       return;
@@ -241,7 +247,7 @@ export function ContextMentionPanel({
     return () => {
       cancelled = true;
     };
-  }, [highlightedKey, optionRows, sourceFor]);
+  }, [highlightedKey]);
 
   // 记录最近一次查询上下文供 preview 使用。
   useEffect(() => {

@@ -12,13 +12,9 @@
  */
 "use client";
 
-import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { RichComposer } from "@/components/rich-composer/rich-composer";
-import { useLocaleStore } from "@/lib/i18n/locale-store";
-import { styleLockFromEntities, buildMediaContext, type MediaModality } from "@/lib/world-entity/guided";
 import { RichFieldRow } from "@/components/world-entity/rich-field-row";
-import { GuidedAiSection } from "@/components/world-entity/guided-ai-section";
 import type { RichComposerValue } from "@/lib/rich-composer/value";
 import { useWorldCanvasStore } from "../canvas-store";
 import { FieldRow } from "./field-row";
@@ -94,11 +90,7 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
   const elements = useWorldCanvasStore((state) => state.elements);
   const relationTypes = useWorldCanvasStore((state) => state.relationTypes);
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
-  const removeElement = useWorldCanvasStore((state) => state.removeElement);
   const setPromoting = useWorldCanvasStore((state) => state.setPromoting);
-  const worldId = useWorldCanvasStore((state) => state.worldId);
-  const worldName = useWorldCanvasStore((state) => state.worldName);
-  const locale = useLocaleStore((state) => state.locale);
   // selection.element 是选中时刻的快照；面板编辑（换图/改名）只更新 elements，
   // 若直接读快照会永远停在旧值（媒体面板换图后预览不刷新、生成配方不继承）。
   const element = selected ? (elements.find((item) => item.id === selected.id) ?? selected) : null;
@@ -126,19 +118,6 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
   const connectable = Boolean(fromEntityId && toEntityId && fromEntityId !== toEntityId);
   const fromTitle = titleOf(fromEntityId);
   const toTitle = attrTarget ? `「${String(attrTarget.props?.label ?? "") || String(attrTarget.name ?? "").replace(/^属性 · /, "")}」` : titleOf(toEntityId);
-  // 引导提示（媒体）：推断属性语义 → 组装动作上下文；所属实体用于写回与参考
-  const mediaModality = ((isAttrCard ? String(element.props?.media) : String(element.props?.modality)) || "image") as MediaModality;
-  const owningEntity = (() => {
-    const directId = String(element.props?.entityId ?? "").replace(/^shape:/, "");
-    if (directId) return entities.find((item) => item.id === directId) ?? null;
-    const edge = elements.find((item) => item.kind === "arrow" && item.props?.edgeType === "attr" && String(item.props?.toElementId ?? "") === element.id);
-    const fromId = String(edge?.props?.fromElementId ?? "").replace(/^shape:/, "");
-    return fromId ? entities.find((item) => item.id === fromId) ?? null : null;
-  })();
-  const mediaGuidedContext =
-    isMediaElement || isAttrCard
-      ? buildMediaContext({ element, modality: mediaModality, owningEntity, worldId, worldName, locale, ...(styleLockFromEntities(entities) ? { styleLock: styleLockFromEntities(entities)! } : {}) })
-      : null;
   const typeText = isMediaElement ? "媒体" : isAttrCard ? `${mediaLabelOf(String(element.props?.media ?? "image"))}属性` : isAttrTextCard ? "文本属性" : isNote ? "便签" : isText ? "文本" : isArrow ? (isAttrEdge ? "属性边" : "关系边（草稿）") : element.kind === "shape" ? "形状" : element.kind;
   const isMediaPanel = isMediaElement || isAttrCard;
   return (
@@ -154,7 +133,6 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
       {isMediaPanel && (
         <MediaElementEditor
           element={element}
-          guided={mediaGuidedContext ? <GuidedAiSection ctx={mediaGuidedContext} divider={false} readOnly={readOnly} tone="section" /> : undefined}
           identity={isAttrCard ? <AttrLabelEditor attrId={element.id} initialLabel={String(element.props?.label ?? "") || String(element.name ?? "").replace(/^属性 · /, "")} /> : undefined}
         />
       )}
@@ -208,13 +186,6 @@ export function ElementPanel({ fromEntityId: fromEntityIdProp, toEntityId: toEnt
               ↑ 提升为语义关系…
             </button>
           )}
-          <button
-            className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-destructive/40 text-xs text-destructive hover:bg-destructive/10"
-            onClick={() => void removeElement(element.id)}
-            type="button"
-          >
-            <Trash2 className="size-3.5" /> 删除
-          </button>
         </div>
       )}
     </div>
