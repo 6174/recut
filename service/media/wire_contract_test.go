@@ -213,6 +213,48 @@ func TestCatalogWireContract(t *testing.T) {
 			"model": "openai/gpt-image-2/edit", "images": []string{image},
 		})
 	})
+	t.Run("wavespeed midjourney text-to-image", func(t *testing.T) {
+		model := models["wavespeed/midjourney/text-to-image"]
+		body := wavespeed.BuildPayload(wavespeed.GenerateInput{
+			Model: model.APIModelID, Prompt: "a fox",
+			Params: providerOutput(model, normalizedFor(t, model, map[string]any{
+				"aspectRatio": "16:9", "hd": true, "quality": float64(4), "stylize": float64(250), "seed": float64(42),
+			})),
+		})
+		assertBody(t, "wavespeed midjourney", body, map[string]any{
+			"model": "midjourney/text-to-image", "prompt": "a fox",
+			"aspect_ratio": "16:9", "hd": true, "quality": float64(4), "stylize": float64(250), "seed": float64(42),
+		})
+		if _, present := body["images"]; present {
+			t.Fatalf("text-to-image must not carry images: %#v", body)
+		}
+	})
+	t.Run("wavespeed seedream text-to-image enum params", func(t *testing.T) {
+		model := models["wavespeed/bytedance/seedream-v5.0-pro"]
+		body := wavespeed.BuildPayload(wavespeed.GenerateInput{
+			Model: model.APIModelID, Prompt: "a dog",
+			Params: providerOutput(model, normalizedFor(t, model, map[string]any{
+				"resolution": "2k", "outputFormat": "png", "promptOptimizationMode": "fast",
+			})),
+		})
+		assertBody(t, "wavespeed seedream", body, map[string]any{
+			"model": "bytedance/seedream-v5.0-pro", "prompt": "a dog",
+			"resolution": "2k", "output_format": "png", "prompt_optimization_mode": "fast",
+		})
+		if _, present := body["images"]; present {
+			t.Fatalf("text-to-image must not carry images: %#v", body)
+		}
+	})
+	t.Run("wavespeed seedream edit uses edit model and plural field", func(t *testing.T) {
+		model := models["wavespeed/bytedance/seedream-v5.0-pro/edit"]
+		body := wavespeed.BuildPayload(wavespeed.GenerateInput{
+			Model: model.APIModelID, Prompt: "make it night", Images: []string{image},
+			ReferenceFields: model.ReferenceFields,
+		})
+		assertBody(t, "wavespeed seedream edit", body, map[string]any{
+			"model": "bytedance/seedream-v5.0-pro/edit", "images": []string{image},
+		})
+	})
 	t.Run("wavespeed seedance text-to-video reference fields", func(t *testing.T) {
 		model := models["wavespeed/bytedance/seedance-2.0"]
 		body := wavespeed.BuildPayload(wavespeed.GenerateInput{

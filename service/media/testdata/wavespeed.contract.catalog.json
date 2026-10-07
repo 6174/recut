@@ -147,6 +147,264 @@
       "provider": "wavespeed",
       "available": true,
       "configurable": true,
+      "id": "wavespeed/midjourney/text-to-image",
+      "apiModelId": "midjourney/text-to-image",
+      "name": "Midjourney · 文生图",
+      "capability": "image.generate",
+      "inputModes": [
+        "text"
+      ],
+      "parameters": [
+        {
+          "name": "aspectRatio",
+          "providerKey": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "1:1",
+            "9:16",
+            "16:9",
+            "4:3",
+            "3:4",
+            "2:3",
+            "3:2",
+            "9:21",
+            "21:9"
+          ],
+          "default": "1:1"
+        },
+        {
+          "name": "hd",
+          "providerKey": "hd",
+          "type": "boolean",
+          "default": false
+        },
+        {
+          "name": "quality",
+          "providerKey": "quality",
+          "type": "integer",
+          "enum": [
+            "1",
+            "4"
+          ],
+          "default": 1
+        },
+        {
+          "name": "stylize",
+          "providerKey": "stylize",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 1000
+        },
+        {
+          "name": "chaos",
+          "providerKey": "chaos",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 100
+        },
+        {
+          "name": "weird",
+          "providerKey": "weird",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 3000
+        },
+        {
+          "name": "seed",
+          "providerKey": "seed",
+          "type": "integer",
+          "default": -1,
+          "minimum": -1
+        }
+      ],
+      "outputModes": [
+        "aspectRatio",
+        "hd",
+        "quality",
+        "stylize",
+        "chaos",
+        "weird",
+        "seed"
+      ],
+      "status": "stable",
+      "referenceBudgets": []
+    },
+    {
+      "provider": "wavespeed",
+      "available": true,
+      "configurable": true,
+      "id": "wavespeed/bytedance/seedream-v5.0-pro",
+      "apiModelId": "bytedance/seedream-v5.0-pro",
+      "name": "Seedream 5.0 Pro · 文生图",
+      "capability": "image.generate",
+      "inputModes": [
+        "text"
+      ],
+      "parameters": [
+        {
+          "name": "aspectRatio",
+          "providerKey": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "1:1",
+            "1:2",
+            "2:1",
+            "1:3",
+            "3:1",
+            "2:3",
+            "3:2",
+            "3:4",
+            "4:3",
+            "4:5",
+            "5:4",
+            "9:16",
+            "16:9",
+            "9:21",
+            "21:9"
+          ],
+          "default": "1:1"
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "1k",
+            "1.5k",
+            "2k"
+          ],
+          "default": "1k"
+        },
+        {
+          "name": "outputFormat",
+          "providerKey": "output_format",
+          "type": "string",
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "default": "jpeg"
+        },
+        {
+          "name": "promptOptimizationMode",
+          "providerKey": "prompt_optimization_mode",
+          "type": "string",
+          "enum": [
+            "standard",
+            "fast"
+          ],
+          "default": "standard"
+        }
+      ],
+      "outputModes": [
+        "aspectRatio",
+        "resolution",
+        "outputFormat",
+        "promptOptimizationMode"
+      ],
+      "status": "stable",
+      "referenceBudgets": []
+    },
+    {
+      "provider": "wavespeed",
+      "available": true,
+      "configurable": true,
+      "id": "wavespeed/bytedance/seedream-v5.0-pro/edit",
+      "apiModelId": "bytedance/seedream-v5.0-pro/edit",
+      "name": "Seedream 5.0 Pro · 图像编辑",
+      "capability": "image.generate",
+      "inputModes": [
+        "text",
+        "image"
+      ],
+      "referenceFields": {
+        "image": "images"
+      },
+      "parameters": [
+        {
+          "name": "aspectRatio",
+          "providerKey": "aspect_ratio",
+          "type": "string",
+          "enum": [
+            "1:1",
+            "1:2",
+            "2:1",
+            "1:3",
+            "3:1",
+            "2:3",
+            "3:2",
+            "3:4",
+            "4:3",
+            "4:5",
+            "5:4",
+            "9:16",
+            "16:9",
+            "9:21",
+            "21:9"
+          ],
+          "default": "1:1"
+        },
+        {
+          "name": "resolution",
+          "providerKey": "resolution",
+          "type": "string",
+          "enum": [
+            "1k",
+            "1.5k",
+            "2k"
+          ],
+          "default": "1k"
+        },
+        {
+          "name": "outputFormat",
+          "providerKey": "output_format",
+          "type": "string",
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "default": "jpeg"
+        },
+        {
+          "name": "promptOptimizationMode",
+          "providerKey": "prompt_optimization_mode",
+          "type": "string",
+          "enum": [
+            "standard",
+            "fast"
+          ],
+          "default": "standard"
+        }
+      ],
+      "outputModes": [
+        "aspectRatio",
+        "resolution",
+        "outputFormat",
+        "promptOptimizationMode"
+      ],
+      "status": "stable",
+      "referenceBudgets": [
+        {
+          "maxImages": 10,
+          "image": {
+            "maxBytes": 31457280,
+            "mimes": [
+              "image/jpeg",
+              "image/jpg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "provider": "wavespeed",
+      "available": true,
+      "configurable": true,
       "id": "wavespeed/bytedance/seedance-2.0",
       "apiModelId": "bytedance/seedance-2.0/text-to-video",
       "name": "Seedance 2.0 · 文生视频",
