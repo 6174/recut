@@ -2,16 +2,15 @@
  * [INPUT]: 依赖 react、canvas-store（renameEntity/confirmEntity/deleteEntity/select/setContext/
  * setPendingRelation/setAddFieldFor）、recut-worlds-client 类型、shared world-entity/field-row
  * [OUTPUT]: 对外提供 EntityPanel（B.8 Entity 态）：共享 EntityEditor 的画布宿主薄壳 —— 名称
- * 走 renameEntity（元素投影同步），字段/属性（media 属性同一路径）/关系全部由共享编辑器渲染；
- * 画布特有部分仅保留：子设定列表（[进入]）
+ * 走 renameEntity（元素投影同步），字段/属性（media 属性同一路径）由共享编辑器渲染；
+ * 画布侧不展示「关系」「子设定」（细节导航交给画布与大纲，降低详情复杂度）
  * [POS]: worlds/[worldID]/canvas/panel 的 Entity 态面板；编辑 UI 真相在 web/components/world-entity
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 "use client";
 
 import type { WorldEntity, WorldEntityType } from "@/lib/recut-worlds-client";
-import { EntityEditor, type RelationItem } from "@/components/world-entity/entity-editor";
-import { PanelSection } from "@/components/panel-section";
+import { EntityEditor } from "@/components/world-entity/entity-editor";
 import { typeLabelOf } from "@/components/world-entity/field-row";
 import { styleLockFromEntities } from "@/lib/world-entity/guided";
 import { useWorldCanvasStore } from "../canvas-store";
@@ -20,35 +19,16 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
   const store = useWorldCanvasStore();
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const type = entityTypes.find((item) => item.id === entity.typeId);
-  const childEntities = (entity.children ?? []).map((child) => store.entities.find((item) => item.id === child.id) ?? null);
-  const entities = useWorldCanvasStore((state) => state.entities);
-  const relationScope = store.context?.entityId ?? "";
-  const relations: RelationItem[] = (entity.relations ?? [])
-    .filter((relation) => !relation.scopeEntityId || relation.scopeEntityId === relationScope)
-    .map((relation) => {
-      const out = relation.fromEntityId === entity.id;
-      return {
-        id: relation.id,
-        // 观察端这一侧的语义：出边看 fromRole，入边优先看 toRole（未标记回退 fromRole）
-        role: out ? relation.fromRole : relation.toRole || relation.fromRole,
-        otherId: out ? relation.toEntityId : relation.fromEntityId,
-        out,
-        scoped: Boolean(relation.scopeEntityId),
-      };
-    });
-  const candidates = entities.map((item) => ({ id: item.id, name: item.name, typeId: item.typeId }));
 
   return (
     <EntityEditor
       apiBase={store.apiBase}
-      candidates={candidates}
       entity={entity}
       entityTypes={entityTypes}
       fields={type?.fields ?? []}
       guided={{ worldId: store.worldId, worldName: store.worldName, ...(styleLockFromEntities(store.entities) ? { styleLock: styleLockFromEntities(store.entities)! } : {}) }}
       readOnly={readOnly}
-      relationTypes={store.relationTypes}
-      relations={relations}
+      hideRelations
       // 取当前 store 快照的实体（而非渲染期 prop）：连续字段编辑间 prop 可能仍指向旧快照，
       // 全量 attrs 替换语义下会丢掉上一步的改动；字段管理（改名/删除/重置）同样依赖最新 attrs。
       saveField={(patch) => store.saveEntityField(useWorldCanvasStore.getState().entities.find((item) => item.id === entity.id) ?? entity, patch)}
@@ -56,33 +36,7 @@ export function EntityPanel({ entity, entityTypes }: { entity: WorldEntity; enti
       onAddTypeField={() => store.setAddFieldFor(entity.typeId)}
       onRenameTypeField={(fieldKey, label) => store.renameTypeField(entity.typeId, fieldKey, label)}
       onRemoveTypeField={(fieldKey) => store.removeTypeField(entity.typeId, fieldKey)}
-      onCreateRelation={async (toEntityId, relationType) => {
-        await store.createRelation(entity.id, toEntityId, relationType);
-      }}
       onRenameField={(value) => store.renameEntity(entity, value)}
-      tail={
-        (childEntities.length > 0 || !readOnly) && (
-          <PanelSection title={`子设定（${childEntities.length}）`}>
-            <ul className="space-y-1">
-              {childEntities.map((child, index) => (
-                <li className="flex items-center justify-between gap-2 rounded bg-muted/50 px-2 py-1.5 text-xs" key={child?.id ?? index}>
-                  <span className="truncate">⤷ {child?.name ?? "…"}</span>
-                  {child && (
-                    <button
-                      className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      onClick={() => store.setContext({ entityId: child.id, title: child.name })}
-                      type="button"
-                    >
-                      进入
-                    </button>
-                  )}
-                </li>
-              ))}
-              {!childEntities.length && <li className="text-xs text-muted-foreground">暂无子设定</li>}
-            </ul>
-          </PanelSection>
-        )
-      }
     />
   );
 }

@@ -6,7 +6,8 @@
  * 属性与普通属性同一条渲染路径，不再有独立「参考素材」网格 + ＋添加属性（文本/长文本/数字/开关/
  * 素材（图片/视频/音频），通用「素材」选项已移除，媒体拍平经 options 携 kind）+ ＋添加字段（宿主
  * 接类型级对话框）+ 字段行管理 icon（FieldManageMenu：重命名 / 重置内容 / 删除字段——实例属性作用于
- * 当前实体，类型字段作用于整个类型且 locked 预设字段仅可重置内容））、关系区（双向列表 + 受控词表内联建立）；useEntityEditorSaver（统一保存器：
+ * 当前实体，类型字段作用于整个类型且 locked 预设字段仅可重置内容））、关系区（双向列表 + 受控词表内联建立，
+ * `hideRelations` 时整体隐藏——画布 Entity 态不展示关系/子设定，降低详情复杂度）；useEntityEditorSaver（统一保存器：
  * attrs 全量替换语义的局部 patch，revision 冲突 → 刷新 revision → 重试一次）
  * [POS]: web/components/world-entity 的统一编辑容器；不依赖 store，画布与设定视图注入各自的动作
  * （saveField/rename/createRelation 等宿主钩子）；实体媒体唯一表示 = media attrs（卡面图源 =
@@ -91,6 +92,7 @@ export function EntityEditor({
   onRenameTypeField,
   onRemoveTypeField,
   onCreateRelation,
+  hideRelations = false,
   tail,
 }: {
   apiBase: string;
@@ -120,6 +122,8 @@ export function EntityEditor({
   /** 类型级字段删除（作用于该类型所有设定，仅画布宿主注入） */
   onRemoveTypeField?: (fieldKey: string) => Promise<void> | void;
   onCreateRelation?: (toEntityId: string, relationType: string) => Promise<void> | void;
+  /** 隐藏关系区（画布 Entity 态不展示，降低详情面板复杂度） */
+  hideRelations?: boolean;
   /** 宿主自定义的尾部区域（草稿徽标/子设定等置于编辑器之后） */
   tail?: ReactNode;
 }) {
@@ -207,7 +211,7 @@ export function EntityEditor({
             value={entity.cover ?? null}
           />
         )}
-        <RichFieldRow apiBase={apiBase} label="简介" minRows={1} onSave={(value) => saveField({ intro: value })} pinnedOptions={pinnedOptions} placeholder="一句话简介…" readOnly={readOnly} value={entity?.intro ?? ""} />
+        <RichFieldRow apiBase={apiBase} fullscreenOnly={false} label="简介" minRows={1} onSave={(value) => saveField({ intro: value })} pinnedOptions={pinnedOptions} placeholder="一句话简介…" readOnly={readOnly} value={entity?.intro ?? ""} />
         <RichFieldRow apiBase={apiBase} label="正文" minRows={4} onSave={(value) => saveField({ detail: value })} pinnedOptions={pinnedOptions} placeholder="详细内容…" readOnly={readOnly} value={entity?.detail ?? ""} />
       </PanelSection>
 
@@ -318,7 +322,8 @@ export function EntityEditor({
         {!readOnly && <AddAttrRow disabled={!entity} onSave={saveField} />}
       </PanelSection>
 
-      {/* 关系（双向语义） */}
+      {/* 关系（双向语义）；画布宿主可隐藏 */}
+      {!hideRelations && (
       <PanelSection
         title={`关系（${relations.length}）`}
         action={!readOnly && candidates.length > 0 && onCreateRelation ? (
@@ -375,6 +380,7 @@ export function EntityEditor({
           </ul>
         )}
       </PanelSection>
+      )}
 
       {tail}
     </div>

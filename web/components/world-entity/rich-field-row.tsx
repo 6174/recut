@@ -1,7 +1,8 @@
 /*
  * [INPUT]: 依赖 RichComposer、createPortal、stripRefs/contextProtocolRegistry、field-row（needsClamp）与 i18n
  * [OUTPUT]: 对外提供 RichFieldRow：FieldRow 的富文本版（referencing/field），展示态剥离标签、长文本 line-clamp-4 折叠 +
- * 展开/收起、编辑态 RichComposer，带「放大」全屏富文本编辑（⌘↵ 保存 / Esc 取消），⌘↵ 保存 / Esc 取消
+ * 展开/收起、编辑态 RichComposer，带「放大」全屏富文本编辑（⌘↵ 保存 / Esc 取消）；`fullscreenOnly`
+ * 时取消行内展开、点击直接进全屏查看/编辑（只读世界为全屏查看）
  * [POS]: web/components/world-entity 的复用验证原语（协议 RFC §4.5/§8.2）；只把 value.text 存回实体字段，不产生 contexts
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -27,6 +28,7 @@ export function RichFieldRow({
   manage,
   apiBase,
   onSave,
+  fullscreenOnly = true,
 }: {
   label: string;
   value: string;
@@ -38,6 +40,8 @@ export function RichFieldRow({
   manage?: ReactNode;
   apiBase: string;
   onSave: (value: string) => Promise<void> | void;
+  /** 长文本默认不给行内展开，直接以全屏放大查看/编辑；短字段（如简介）传 false 恢复行内展开 */
+  fullscreenOnly?: boolean;
 }) {
   const registry = useMemo(() => contextProtocolRegistry(), []);
   const [editing, setEditing] = useState(false);
@@ -82,13 +86,35 @@ export function RichFieldRow({
       <div>
         <div className="flex items-baseline justify-between gap-2">
           <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-          {clampable && (
+          {fullscreenOnly ? (
+            <button className="flex shrink-0 items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setFullscreen(true)} type="button">
+              <Maximize2 className="size-3" /> 放大
+            </button>
+          ) : clampable ? (
             <button className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setExpanded(!expanded)} type="button">
               {expanded ? "收起" : "展开"}
             </button>
-          )}
+          ) : null}
         </div>
-        <p className={`mt-0.5 break-words whitespace-pre-wrap text-sm leading-6 ${clamped ? "line-clamp-4 text-muted-foreground/80" : expanded ? "max-h-[48vh] overflow-y-auto" : ""}`}>{display || "—"}</p>
+        <p
+          className={`mt-0.5 break-words whitespace-pre-wrap text-sm leading-6 ${clamped ? "line-clamp-4 text-muted-foreground/80" : expanded ? "max-h-[48vh] overflow-y-auto" : ""} ${fullscreenOnly ? "cursor-zoom-in" : ""}`}
+          onClick={fullscreenOnly ? () => setFullscreen(true) : undefined}
+        >
+          {display || "—"}
+        </p>
+        {fullscreen && (
+          <RichFullscreenEditor
+            apiBase={apiBase}
+            label={label}
+            onCancel={() => setFullscreen(false)}
+            onCommit={() => setFullscreen(false)}
+            onDraft={setDraft}
+            pinnedOptions={pinnedOptions}
+            placeholder={placeholder}
+            readOnly
+            value={draft}
+          />
+        )}
       </div>
     );
   }
@@ -99,26 +125,42 @@ export function RichFieldRow({
         <div className="flex items-baseline justify-between gap-2">
           <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
           <span className="flex shrink-0 gap-2">
-            {clampable && (
-              <button className="text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/field:opacity-100" onClick={() => setExpanded(!expanded)} type="button">
-                {expanded ? "收起" : "展开"}
+            {fullscreenOnly ? (
+              <button
+                aria-label={`放大${label}`}
+                className="flex items-center gap-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/field:opacity-100"
+                onClick={() => { setFullscreen(true); setEditing(true); }}
+                type="button"
+              >
+                <Maximize2 className="size-3" /> 放大
               </button>
+            ) : (
+              <>
+                {clampable && (
+                  <button className="text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/field:opacity-100" onClick={() => setExpanded(!expanded)} type="button">
+                    {expanded ? "收起" : "展开"}
+                  </button>
+                )}
+                <button
+                  aria-label={`编辑${label}`}
+                  className="text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/field:opacity-100"
+                  onClick={() => setEditing(true)}
+                  type="button"
+                >
+                  ✎
+                </button>
+              </>
             )}
-            <button
-              aria-label={`编辑${label}`}
-              className="text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/field:opacity-100"
-              onClick={() => setEditing(true)}
-              type="button"
-            >
-              ✎
-            </button>
             {manage}
           </span>
         </div>
         <button
           className={`mt-0.5 w-full break-words whitespace-pre-wrap rounded px-1 py-0.5 text-left text-sm leading-6 hover:bg-muted/60 ${display ? "" : "text-muted-foreground/60"} ${clamped ? "line-clamp-4" : expanded ? "max-h-[48vh] overflow-y-auto" : ""}`}
-          onClick={() => setEditing(true)}
-          title={clampable ? "点击编辑（放大编辑可看全文）" : undefined}
+          onClick={() => {
+            if (fullscreenOnly) setFullscreen(true);
+            setEditing(true);
+          }}
+          title={fullscreenOnly ? "点击放大查看/编辑" : clampable ? "点击编辑（放大编辑可看全文）" : undefined}
           type="button"
         >
           {display || (placeholder ?? "点击填写")}
@@ -197,6 +239,7 @@ export function RichFullscreenEditor({
   onDraft,
   onCommit,
   onCancel,
+  readOnly = false,
 }: {
   label: string;
   value: RichComposerValue;
@@ -206,25 +249,30 @@ export function RichFullscreenEditor({
   onDraft: (value: RichComposerValue) => void;
   onCommit: () => void;
   onCancel: () => void;
+  /** 只读放大查看（无保存，仅关闭） */
+  readOnly?: boolean;
 }) {
   return createPortal(
     <div aria-modal="true" className="fixed inset-0 z-[80] grid place-items-center bg-foreground/40 p-6 backdrop-blur-[1px]" onMouseDown={onCancel} role="dialog">
       <section className="flex h-[80vh] w-full max-w-3xl flex-col rounded-xl border bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex shrink-0 items-center justify-between border-b px-4 py-2.5">
-          <p className="text-xs font-medium text-muted-foreground">{label} · 放大编辑</p>
+          <p className="text-xs font-medium text-muted-foreground">{label} · {readOnly ? "放大查看" : "放大编辑"}</p>
           <div className="flex gap-2">
             <button className="rounded-md border px-3 py-1 text-xs hover:bg-muted" onClick={onCancel} type="button">
-              取消
+              {readOnly ? "关闭" : "取消"}
             </button>
-            <button className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90" onClick={onCommit} type="button">
-              保存（⌘↵）
-            </button>
+            {!readOnly && (
+              <button className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90" onClick={onCommit} type="button">
+                保存（⌘↵）
+              </button>
+            )}
           </div>
         </header>
         <div
           className="min-h-0 flex-1 overflow-y-auto p-4"
           onKeyDownCapture={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              if (readOnly) return;
               event.preventDefault();
               onCommit();
             } else if (event.key === "Escape") {
@@ -241,11 +289,12 @@ export function RichFullscreenEditor({
             onChange={onDraft}
             pinnedOptions={pinnedOptions}
             placeholder={placeholder ?? "输入内容，@ 引用实体"}
+            readOnly={readOnly}
             value={value}
             variant="field"
           />
         </div>
-        <footer className="shrink-0 border-t px-4 py-1.5 text-[10px] text-muted-foreground">⌘↵ 保存 · Esc 取消 · 输入 @ 引用实体</footer>
+        <footer className="shrink-0 border-t px-4 py-1.5 text-[10px] text-muted-foreground">{readOnly ? "Esc 关闭" : "⌘↵ 保存 · Esc 取消 · 输入 @ 引用实体"}</footer>
       </section>
     </div>,
     document.body,

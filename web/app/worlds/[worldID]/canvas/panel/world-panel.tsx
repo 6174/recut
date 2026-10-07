@@ -111,6 +111,7 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
         <FieldRow label="名称" readOnly={store.readOnly} value={store.worldName} onSave={(value) => void saveMeta({ name: String(value) })} />
         <RichFieldRow
           apiBase={apiBase}
+          fullscreenOnly={false}
           label="简介"
           minRows={3}
           readOnly={store.readOnly}
@@ -152,10 +153,10 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
           </ul>
         </PanelSection>
       )}
-      <div className="space-y-2 pt-3">
+      <div className="flex flex-wrap items-center gap-2 pt-3">
         {!store.readOnly && (
           <button
-            className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            className="flex h-8 items-center justify-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted"
             onClick={() => setCreating(true)}
             type="button"
           >
@@ -163,7 +164,7 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
           </button>
         )}
         <button
-          className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border text-xs font-medium hover:bg-muted disabled:opacity-50"
+          className="flex h-8 items-center justify-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
           disabled={exporting}
           onClick={() => void exportWorldBundle()}
           type="button"
@@ -172,7 +173,7 @@ export function WorldPanel({ worldDetail }: { worldDetail: WorldDetail | undefin
         </button>
         {!store.readOnly && (
           <button
-            className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-destructive/40 text-xs text-destructive hover:bg-destructive/10"
+            className="flex h-8 items-center justify-center gap-1.5 rounded-md border px-3 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             onClick={() => { setDeleteName(""); setDeleteError(""); setDeleteOpen(true); }}
             type="button"
           >

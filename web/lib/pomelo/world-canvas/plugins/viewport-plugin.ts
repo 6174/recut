@@ -9,6 +9,7 @@
 import type { PomeloEditor } from "../../pomelo-core/pomelo-editor";
 import type { PomeloRendererAdapter } from "../../pomelo-core/pomelo-renderer";
 import { PomeloPlugin } from "../../pomelo-core/pomelo-plugin";
+import { blockRect } from "../arrow-geometry";
 import { entityCardRect } from "../blocks/entity-card-metrics";
 import { useWorldDemoStore, type Transform } from "../demo-store";
 
@@ -127,24 +128,30 @@ export function centerContent(editor: PomeloEditor) {
   const adapter = editor.renderAdapter as PomeloRendererAdapter;
   const state = editor.state;
   const blocks = state.getAllBlocks((record) => !record.isRoot && record.type !== "relation-arrow");
-  if (!blocks.length) return;
+  const view = adapter.getView();
+  if (!view) return;
+  const viewRect = view.getBoundingClientRect();
+  // 空层（如刚进入、尚无元素的子世界）：不能沿用上一层的 transform（会落在别处且缩放很小），
+  // 重置为「世界原点居中、1:1」，让后续新建/落卡出现在视野中央。
+  if (!blocks.length) {
+    adapter.setTransform(viewRect.width / 2, viewRect.height / 2, 1);
+    useWorldDemoStore.getState().setTransform({ x: adapter.transform.x, y: adapter.transform.y, scale: 1 });
+    return;
+  }
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
   for (const record of blocks) {
-    const x = Number(record.attrs.x) || 0;
-    const y = Number(record.attrs.y) || 0;
-    const width = Number(record.attrs.width) || 200;
-    const height = Number(record.attrs.height) || 110;
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x + width);
-    maxY = Math.max(maxY, y + height);
+    // 用渲染有效矩形（实体卡/音频块经 resolver 用固有尺寸，与所见一致），而非存储 attrs，
+    // 否则实体卡按默认高度算包围盒，fit 后仍会有卡片被裁掉。
+    const rect = blockRect(record);
+    minX = Math.min(minX, rect.x);
+    minY = Math.min(minY, rect.y);
+    maxX = Math.max(maxX, rect.x + rect.width);
+    maxY = Math.max(maxY, rect.y + rect.height);
   }
-  const view = adapter.getView();
-  if (!view) return;
-  const rect = view.getBoundingClientRect();
+  const rect = viewRect;
   const scale = clampScale(Math.min((rect.width / (maxX - minX + 160)) as number, (rect.height / (maxY - minY + 160)) as number, 1));
   const contentCenter = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
   adapter.setTransform(rect.width / 2 - contentCenter.x * scale, rect.height / 2 - contentCenter.y * scale, scale);

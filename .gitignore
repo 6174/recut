@@ -28,3 +28,4 @@ cdn/.r2-credentials
 cdn/.env
 output/
 .executor-tasks/
+research/

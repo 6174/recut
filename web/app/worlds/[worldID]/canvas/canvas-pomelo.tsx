@@ -25,8 +25,8 @@
  * 「+」引导面板（AttrCreatorPanel）与创建菜单共用 CreatePanel 交互结构（搜索 + 左分组卡片网格 + 右详情 +
  * 「创建」），支持把实体 schema 建议字段/简介/正文作为关联拖出；文本属性卡高度服从几何 box
  * （渲染侧裁剪溢出，不随内容自增长），双击就地编辑内滚动并支持全屏放大；
- * 视口按「世界+上下文」分键持久化（viewportKey/restoreViewport：root `wc:vp:<worldId>`、容器
- * `wc:vp:<worldId>:<contextId>`，进出容器先存回来源再恢复目标，无快照才 fit）；
+ * 视口持久化（viewportKey/restoreViewport）仅用于首挂恢复快照；进入/退出容器子世界一律
+ * fit 到刚好包含本层全部元素的视野（centerContent 用 blockRect 渲染有效矩形算包围盒）；
  * 撤销/重做 = 语义撤销/重做（canvas-store changeLog/redoLog 双栈，经 Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z 与工具栏），不走 yjs UndoManager
  * [POS]: worlds/[worldID]/canvas 的画布底座层（本组件经 index.tsx dynamic(ssr:false) 挂载）；
  * 语义真相只在 world_entities + world_relations，pomelo 文档是内存投影（canvas 变更永不产 revision）
@@ -940,14 +940,12 @@ export function CanvasPomeloHost() {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<PomeloEditor | null>(null);
   const pluginRef = useRef<CanvasBindsPlugin | null>(null);
-  // 进入容器时自动换视口（B.11/T12）：context 变化置位，文档同步后执行一次
-  const fitOnNextSync = useRef(false);
   // 视口持久化订阅（T12）：卸载时释放；lastViewportKeyRef 记录「来源上下文键」供切换时存回
   const viewportUnsubRef = useRef<{ dispose: () => void } | null>(null);
   const lastViewportKeyRef = useRef<string | null>(null);
-  // 上一次同步时的画布层：切层时清掉插件的拖拽实时几何（同名元素 id 跨层，
-  // 否则新层会按旧层的 liveGeometry 渲染，表现为位置「复原」）
-  const lastSyncedContextRef = useRef<string | null>(null);
+  // 上一次同步时的画布层：undefined=尚未同步；切层时清掉插件的拖拽实时几何（同名元素 id 跨层，
+  // 否则新层会按旧层的 liveGeometry 渲染，表现为位置「复原」），并作为「是否 fit 视口」的判据
+  const lastSyncedContextRef = useRef<string | null | undefined>(undefined);
   const [ready, setReady] = useState(false);
   const [rendererIssue, setRendererIssue] = useState<RendererIssue | null>(null);
   // 字体加载状态：字体在适配器侧后台加载，不阻塞首屏；这里只负责把状态/进度显式呈现出来。
@@ -1028,45 +1026,31 @@ export function CanvasPomeloHost() {
   }, [initAttempt]);
 
   // store → 文档重建（仅 dataVersion / 上下文 / worldName 变化时；拖拽走插件 transact，不重建）
+  // 切层判定与 fit 必须放在同一个 effect：若靠另一个 effect 先置 ref，React 按声明顺序会先跑本
+  // effect（ref 仍为 false），进/出容器时 fit 被跳过，于是沿用上一层的 transform——表现为子世界里
+  // 元素很小且被移出画布（沿用 root 的 51% 视野）。
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !ready) return;
     const contextId = context?.entityId ?? "";
-    if (lastSyncedContextRef.current !== contextId) {
-      lastSyncedContextRef.current = contextId;
+    const firstSync = lastSyncedContextRef.current === undefined;
+    const contextChanged = !firstSync && lastSyncedContextRef.current !== contextId;
+    lastSyncedContextRef.current = contextId;
+    if (contextChanged) {
       // 切层：拖拽实时几何属于旧层，清掉再同步，避免按同名 id 画到新层
       pluginRef.current?.liveGeometry.clear();
     }
     syncDocFromCanvasStore(editor);
-    if (fitOnNextSync.current) {
-      fitOnNextSync.current = false;
-      viewportSwitch(editor, context);
-    }
+    // 进/出容器一律 fit 到本层内容（深链首挂已直接落在子世界也 fit）；root 首挂保留已恢复的快照。
+    if (contextChanged || (firstSync && contextId !== "")) viewportSwitch(editor);
   }, [dataVersion, context, worldName, ready]);
 
-  // 进入容器自动换视口（B.11 + T12）：先把手头 transform 存回来源键，再恢复目标键
-  // （无目标快照 = fit 子内容一次）；exit 也要做（回到 root 的上次视口）
-  const viewportSwitch = (editor: PomeloEditor, context: CanvasContext | null) => {
-    const adapter = editor.renderAdapter as VelloRendererAdapter;
-    const fromKey = lastViewportKeyRef.current;
-    const toKey = viewportKey(context);
-    if (fromKey && fromKey !== toKey) {
-      try {
-        localStorage.setItem(fromKey, JSON.stringify(adapter.transform));
-      } catch {
-        // 静默
-      }
-    }
-    if (!restoreViewport(editor, toKey)) {
-      centerContent(editor);
-    }
-    lastViewportKeyRef.current = toKey;
+  // 进入 / 退出容器子世界：一律重新 fit 到「刚好包含全部元素」的视野。
+  // 不再按「世界+上下文」恢复上次视口快照——跨层后旧快照往往对不上目标层内容，
+  // 会落在空视野或残留位置；统一 fit 保证每次进入/退出都看得到本层元素。
+  const viewportSwitch = (editor: PomeloEditor) => {
+    centerContent(editor);
   };
-
-  // context 变化 → 下一次同步后换视口（进入/退出容器，B.11 + T12）
-  useEffect(() => {
-    if (context !== undefined) fitOnNextSync.current = true;
-  }, [context]);
 
   // 选中变化 → 重绘选区 overlay（多选只改 selectedIds、selection 为 null，必须一并作为依赖，
   // 否则 shift 点选/框选时数组已更新但 effect 不触发，overlay 停在旧选中态）
