@@ -145,6 +145,39 @@ func wavespeedImageSeedParameters() []MediaParameter {
 	}
 }
 
+// wavespeedMidjourneyParameters 是 Midjourney text-to-image 的参数面：
+// 画幅 + HD + 质量 + stylize/chaos/weird + seed。
+func wavespeedMidjourneyParameters() []MediaParameter {
+	return []MediaParameter{
+		{Name: "aspectRatio", ProviderKey: "aspect_ratio", Type: "string", Enum: []string{"1:1", "9:16", "16:9", "4:3", "3:4", "2:3", "3:2", "9:21", "21:9"}, Default: "1:1"},
+		{Name: "hd", ProviderKey: "hd", Type: "boolean", Default: false},
+		{Name: "quality", ProviderKey: "quality", Type: "integer", Enum: []string{"1", "4"}, Default: float64(1)},
+		{Name: "stylize", ProviderKey: "stylize", Type: "integer", Default: float64(0), Minimum: floatPtr(0), Maximum: floatPtr(1000)},
+		{Name: "chaos", ProviderKey: "chaos", Type: "integer", Default: float64(0), Minimum: floatPtr(0), Maximum: floatPtr(100)},
+		{Name: "weird", ProviderKey: "weird", Type: "integer", Default: float64(0), Minimum: floatPtr(0), Maximum: floatPtr(3000)},
+		{Name: "seed", ProviderKey: "seed", Type: "integer", Default: float64(-1), Minimum: floatPtr(-1)},
+	}
+}
+
+// wavespeedSeedreamParameters 是 Seedream V5.0 Pro 的参数面（文生图与 edit 同形）：
+// 画幅 + 分辨率档 + 输出格式 + prompt 优化模式。
+func wavespeedSeedreamParameters() []MediaParameter {
+	return []MediaParameter{
+		{Name: "aspectRatio", ProviderKey: "aspect_ratio", Type: "string", Enum: []string{"1:1", "1:2", "2:1", "1:3", "3:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "9:21", "21:9"}, Default: "1:1"},
+		{Name: "resolution", ProviderKey: "resolution", Type: "string", Enum: []string{"1k", "1.5k", "2k"}, Default: "1k"},
+		{Name: "outputFormat", ProviderKey: "output_format", Type: "string", Enum: []string{"jpeg", "png"}, Default: "jpeg"},
+		{Name: "promptOptimizationMode", ProviderKey: "prompt_optimization_mode", Type: "string", Enum: []string{"standard", "fast"}, Default: "standard"},
+	}
+}
+
+// wavespeedSeedreamEditReferenceBudget：Seedream V5.0 Pro Edit 最多 10 张参考图。
+func wavespeedSeedreamEditReferenceBudget() []ReferenceBudget {
+	return []ReferenceBudget{{
+		MaxImages: 10,
+		Image:     &ReferenceKindSpec{MaxBytes: 30 << 20, Mimes: []string{"image/jpeg", "image/jpg", "image/png", "image/webp"}},
+	}}
+}
+
 // wavespeedSeedanceReferenceBudget 是 Seedance 2.0/2.5 文本转视频统一参考预算
 // （图 ≤9 / 视频 ≤3 / 音频 ≤3），与 WaveSpeed 文档一致。
 func wavespeedSeedanceReferenceBudget() []ReferenceBudget {
@@ -204,6 +237,9 @@ var seedProviders = []MediaProvider{
 		{ID: "wavespeed/openai/gpt-image-2.5-flare/edit", Provider: "wavespeed", Name: "GPT Image 2.5 Flare · 图像编辑", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-flare/edit", InputModes: []string{"text", "image"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters(), ReferenceFields: wavespeedImageEditReferenceFields},
 		{ID: "wavespeed/openai/gpt-image-2.5-sunburst", Provider: "wavespeed", Name: "GPT Image 2.5 Sunburst · 文生图", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-sunburst/text-to-image", InputModes: []string{"text"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters()},
 		{ID: "wavespeed/openai/gpt-image-2.5-sunburst/edit", Provider: "wavespeed", Name: "GPT Image 2.5 Sunburst · 图像编辑", Capability: ImageGenerate, APIModelID: "openai/gpt-image-2.5-sunburst/edit", InputModes: []string{"text", "image"}, OutputModes: []string{"aspectRatio", "resolution", "quality", "outputFormat"}, Available: true, Configurable: true, Parameters: wavespeedImageSeedParameters(), ReferenceFields: wavespeedImageEditReferenceFields},
+		{ID: "wavespeed/midjourney/text-to-image", Provider: "wavespeed", Name: "Midjourney · 文生图", Capability: ImageGenerate, APIModelID: "midjourney/text-to-image", InputModes: []string{"text"}, OutputModes: []string{"aspectRatio", "hd", "quality", "stylize", "chaos", "weird", "seed"}, Available: true, Configurable: true, Parameters: wavespeedMidjourneyParameters()},
+		{ID: "wavespeed/bytedance/seedream-v5.0-pro", Provider: "wavespeed", Name: "Seedream 5.0 Pro · 文生图", Capability: ImageGenerate, APIModelID: "bytedance/seedream-v5.0-pro", InputModes: []string{"text"}, OutputModes: []string{"aspectRatio", "resolution", "outputFormat", "promptOptimizationMode"}, Available: true, Configurable: true, Parameters: wavespeedSeedreamParameters()},
+		{ID: "wavespeed/bytedance/seedream-v5.0-pro/edit", Provider: "wavespeed", Name: "Seedream 5.0 Pro · 图像编辑", Capability: ImageGenerate, APIModelID: "bytedance/seedream-v5.0-pro/edit", InputModes: []string{"text", "image"}, OutputModes: []string{"aspectRatio", "resolution", "outputFormat", "promptOptimizationMode"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedSeedreamEditReferenceBudget(), Parameters: wavespeedSeedreamParameters(), ReferenceFields: wavespeedImageEditReferenceFields},
 		{ID: "wavespeed/bytedance/seedance-2.0", Provider: "wavespeed", Name: "Seedance 2.0 · 文生/参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.0/text-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio", "enableWebSearch"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedSeedanceReferenceBudget(), Parameters: wavespeedTextVideoParameters(), ReferenceFields: wavespeedTextVideoReferenceFields},
 		{ID: "wavespeed/bytedance/seedance-2.5", Provider: "wavespeed", Name: "Seedance 2.5 · 文生/参考视频", Capability: VideoGenerate, APIModelID: "bytedance/seedance-2.5/text-to-video", InputModes: []string{"text", "image", "video", "audio"}, OutputModes: []string{"durationSeconds", "resolution", "aspectRatio", "generateAudio", "enableWebSearch"}, Available: true, Configurable: true, ReferenceBudgets: wavespeedSeedanceReferenceBudget(), Parameters: wavespeedTextVideoParameters(), ReferenceFields: wavespeedTextVideoReferenceFields},
 		{ID: "wavespeed/bytedance/seed-audio-1.0", Provider: "wavespeed", Name: "Seed Audio 1.0", Capability: SpeechGenerate, APIModelID: "bytedance/seed-audio-1.0", InputModes: []string{"text"}, OutputModes: []string{"format", "sampleRate", "speed", "volume", "pitch"}, Available: true, Configurable: true},
