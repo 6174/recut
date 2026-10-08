@@ -1,5 +1,6 @@
 /*
- * [INPUT]: 依赖 recut-worlds-client（WorldEntity/WorldEvidence 类型）与 canvas/entity-attrs 辅助
+ * [INPUT]: 依赖 recut-worlds-client（WorldEntity/WorldEvidence/EntityAttrMediaValue 类型）、
+ *   canvas/entity-attrs 辅助与 canvas/canvas-asset-status（媒体值缺 kind 时回查素材真源，避免把音频当图片）
  * [OUTPUT]: 对外提供 remoteProxySource（远程 URL 同源代理）、evidenceSource（旧证据 → 可渲染 URL，
  * references 为 legacy 只读投影仍可渲染）、entityImageUrls（旧证据图片 URL，B.6 封面规则）、
  * entityMediaUrls（media 属性 assetId → URL 列表，可按 kind 过滤）、entityCoverMedia（头图解析：显式一等字段
@@ -8,9 +9,20 @@
  * [POS]: worlds/[worldID]/canvas 的画布图片辅助（canvas-pomelo.tsx 组装 attrs，EntityCardBlockV 渲染）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import type { WorldEntity, WorldEvidence } from "@/lib/recut-worlds-client";
+import type { EntityAttrMediaValue, WorldEntity, WorldEvidence } from "@/lib/recut-worlds-client";
 import { remoteProxySource, resolveMediaSrc } from "@/lib/world-media";
 import { attrMediaValueOf, entityMediaAttrs } from "./entity-attrs";
+import { canvasAssetOf } from "./canvas-asset-status";
+
+// 媒体值的 kind 可能缺失（EntityAttrMediaValue.kind 是可选的），旧数据里常只有 {assetId,name}。
+// 缺失时回查全局素材登记再判定，避免把音频/视频素材当图片交给渲染器（vello 解码失败 → 图片请求风暴）。
+function resolvedMediaKind(value: EntityAttrMediaValue): "image" | "video" | "audio" {
+  if (value.kind === "image" || value.kind === "video" || value.kind === "audio") return value.kind;
+  const assetKind = value.assetId ? canvasAssetOf(value.assetId)?.kind : undefined;
+  if (assetKind === "image" || assetKind === "video" || assetKind === "audio") return assetKind;
+  // 素材也不可知：兼容旧数据，按图片处理
+  return "image";
+}
 
 // url 行经同代理端点回源（RemoteFileCache 校验公网地址并缓存，内容寻址幂等）
 export { remoteProxySource };
@@ -43,7 +55,7 @@ export function entityMediaUrls(apiBase: string, entity: WorldEntity, kind?: "im
   return entityMediaAttrs(entity)
     .map((attr) => attrMediaValueOf(entity, attr.key))
     .filter((value): value is NonNullable<typeof value> => value !== null)
-    .filter((value) => !kind || (value.kind ?? "image") === kind)
+    .filter((value) => !kind || resolvedMediaKind(value) === kind)
     .map((value) => resolveMediaSrc(apiBase, value))
     .filter((url) => url !== "");
 }
@@ -69,7 +81,7 @@ export function entityCoverMedia(apiBase: string, entity: WorldEntity): CoverMed
     .map((attr) => attrMediaValueOf(entity, attr.key))
     .filter((value): value is NonNullable<typeof value> => value !== null);
   if (explicit) values.unshift(explicit);
-  const pick = (kind: "image" | "video") => values.find((value) => (value.kind ?? "image") === kind);
+  const pick = (kind: "image" | "video") => values.find((value) => resolvedMediaKind(value) === kind);
   const chosen = pick("image") ?? pick("video");
   if (!chosen) {
     // legacy 兜底：旧证据图片（references 只读投影随时可能被移除）
@@ -80,7 +92,7 @@ export function entityCoverMedia(apiBase: string, entity: WorldEntity): CoverMed
   if (!url) return null;
   return {
     url,
-    kind: (chosen.kind ?? "image") === "video" ? "video" : "image",
+    kind: resolvedMediaKind(chosen) === "video" ? "video" : "image",
     ...(chosen.assetId ? { assetId: chosen.assetId } : {}),
   };
 }

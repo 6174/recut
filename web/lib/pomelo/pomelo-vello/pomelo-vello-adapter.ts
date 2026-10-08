@@ -201,6 +201,12 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   private dirty = true;
   /** 缩放变化待重绘 zoom 常量 block（合并到帧内一次，见 setTransform）。 */
   private zoomBlocksDirty = false;
+  /**
+   * 适配器已销毁。用于中止「已开始但仍在途」的 onInit：StrictMode 双挂载 / HMR 下
+   * destroy 会先于 onInit 的 await 返回，若不检查就会在已被移除的 canvas 上继续建
+   * WebGPU runtime + ticker（僵尸渲染器，双 device / 双字体，弱机上表现为卡死与重绘丢内容）。
+   */
+  private adapterDestroyed = false;
 
   constructor(options: VelloRendererAdapterOptions = {}) {
     super();
@@ -218,6 +224,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
 
   async onInit(renderer: Parameters<PomeloRendererAdapter["onInit"]>[0]): Promise<void> {
     super.onInit(renderer);
+    if (this.adapterDestroyed) return;
     const container = this.editor.getContainerDom();
     const canvas = document.createElement("canvas");
     canvas.style.display = "block";
@@ -245,12 +252,25 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       ? "transparent"
       : this.options.background ?? resolveBackgroundColor(container);
     const availability = await VelloGpuRasterizer.availability();
+    // destroy 可能发生在 availability() 的 await 期间（StrictMode）：此时不要建 GPU runtime。
+    if (this.adapterDestroyed) {
+      this.canvas?.remove();
+      this.canvas = null;
+      return;
+    }
     if (!availability.ok) {
       throw new RendererUnsupportedError(undefined, availability.reason);
     }
     let rasterizer: TileRasterizer<unknown, unknown>;
     try {
       const gpu = await VelloGpuRasterizer.create(canvas, dpr, cssColorToRgba(background));
+      // create() 也是 await：期间被 destroy 同样要立即收尾，避免僵尸 runtime 与 ticker。
+      if (this.adapterDestroyed) {
+        gpu.destroy();
+        this.canvas?.remove();
+        this.canvas = null;
+        return;
+      }
       rasterizer = gpu as unknown as TileRasterizer<unknown, unknown>;
       // 先挂上光栅器：字体异步就绪的回调要能立刻触发重绘，不等 onInit 收尾。
       this.rasterizer = rasterizer;
@@ -295,6 +315,7 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   }
 
   private async registerFonts(gpu: VelloGpuRasterizer): Promise<void> {
+    if (this.adapterDestroyed) return;
     beginFontLoad();
     let latin: Awaited<ReturnType<typeof loadFontBytes>> = null;
     let cjk: Awaited<ReturnType<typeof loadFontBytes>> = null;
@@ -323,6 +344,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
       failFontLoad();
       return;
     }
+    // 字体在途期间可能已被 destroy：不要再对已销毁的 runtime 注册/整场重绘。
+    if (this.adapterDestroyed) return;
     finishFontLoad((latin?.fromCache ?? true) && (cjk?.fromCache ?? true));
     // 字体表已变化：让 WASM 侧 chunk Scene 缓存失效，并推进 contentGeneration 触发整场重建
     // （direct 模式下底图按 generation 复用，不推进会一直贴「无字形」的旧底图）。
@@ -775,6 +798,8 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
   }
 
   destroy(): void {
+    // 先置销毁标记：让仍在途的 onInit / registerFonts 在下一个检查点自行收尾，不再建 runtime。
+    this.adapterDestroyed = true;
     if (this.navTimer) clearTimeout(this.navTimer);
     this.navTimer = null;
     if (this.imageRetryTimer) clearTimeout(this.imageRetryTimer);
@@ -786,6 +811,10 @@ export class VelloRendererAdapter extends PomeloRendererAdapter {
     this.rasterizer?.destroy();
     this.rasterizer = null;
     this.controller = null;
+    // canvas 由本适配器在 onInit 里 append，也必须由本适配器移除；否则 StrictMode 双挂载 / HMR
+    // 会在同一容器里堆积多个 canvas（僵尸画面覆盖 / 布局溢出），表现为缩放后内容消失。
+    this.canvas?.remove();
+    this.canvas = null;
   }
 }
 

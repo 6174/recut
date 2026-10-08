@@ -1018,6 +1018,9 @@ export function CanvasPomeloHost() {
       viewportUnsubRef.current?.dispose();
       viewportUnsubRef.current = null;
       stopCanvasAssetStatus();
+      // 先销毁 vello 适配器：置销毁标记让仍在途的 onInit 自行收尾，并移除它 append 的 canvas。
+      // 否则 StrictMode 双挂载 / HMR 会在同一容器堆积僵尸 runtime + canvas（缩放后内容消失）。
+      (editor.renderAdapter as VelloRendererAdapter).destroy();
       editor.destroy();
       editorRef.current = null;
       pluginRef.current = null;
