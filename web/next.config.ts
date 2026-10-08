@@ -9,6 +9,9 @@ import type { NextConfig } from "next";
 const staticExport = process.env.RECUT_STATIC_EXPORT === "1";
 
 const nextConfig: NextConfig = {
+  // App Router 下 StrictMode 默认开启，dev 会双次渲染 + effect 双挂载，
+  // 造成开发态性能损耗且与生产行为不一致；此处显式关闭，生产行为不受影响。
+  reactStrictMode: false,
   // Cloudflare 只托管不可变的 UI；浏览器仍通过 loopback HTTP 调用用户自己的
   // Recut service。开发/本地生产保持 standalone，发布时显式切换静态导出。
   output: staticExport ? "export" : "standalone",
