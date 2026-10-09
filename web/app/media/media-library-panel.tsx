@@ -234,7 +234,6 @@ function MediaLibraryContent({ initialAssetID, onOpenProviderSettings, onProject
         onRename={renameAsset}
       />
       <div className="sticky bottom-0 z-20 mt-auto pt-8">
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-t from-background to-transparent" />
         <div className="pointer-events-auto relative mx-auto w-full max-w-3xl pb-1">
           <MediaCreateComposer
             apiBase={apiBase}
