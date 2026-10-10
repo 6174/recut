@@ -46,6 +46,7 @@ import {
   creationWorldContextPayload,
   hasWorkFocusSelection,
   mediaContextPayload,
+  skillContextPayload,
   workFocusContextPayload,
   workSurfaceContextPayload,
   type AgentEvent,
@@ -196,7 +197,15 @@ function ProjectAgentPanelContent({ apiBase, draft, projectID, servicePhase, wor
     setContent(draft.text);
     setAttachments([]);
     setWorldReferences([]);
-    setPickedContexts([]);
+    // 草稿可随正文附带技能上下文（如空画布的场景卡）：种进 pickedContexts，用户仍可增删，绝不自动发送。
+    setPickedContexts(
+      (draft.skills ?? []).map((skill) => ({
+        key: `skill:${skill.appId}:${skill.skillId}`,
+        sourceType: "skill",
+        title: skill.name,
+        context: skillContextPayload(skill.appId, skill.skillId),
+      })),
+    );
     setError("");
   }, [draft]);
   // 切换工作对象（路由/目标变化）后回到「不附带」：新工作面与它的 Focus 都需要用户重新确认。

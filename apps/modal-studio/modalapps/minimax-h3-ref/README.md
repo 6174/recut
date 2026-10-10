@@ -113,16 +113,36 @@ modal run apps/modal-studio/modalapps/minimax-h3-ref/bench.py --runs 1 --duratio
 | 生成本身（5s / 1344×768 / 9 网格点 = 8 次去噪） | **148.3s**（denoise 118.6s ≈ 14.8s/it，decode 7.4s，峰值 **49.8 GB**） |
 | 预热档（1344×768 / 4s / 9 次去噪） | denoise 73.6s，decode 6.3s，合计 91.98s，峰值 **47.96 GB** |
 | **移除 GPU 快照后重跑** | **326s**（其中生成 148.2s）→ 快照移除省 **~548s（−63%）**，生成结果不变 |
+| **人脸阶段**（156 个裁剪，GPU） | **11.4s**；同负载 CPU 218s（≈19×，GPU 很划算） |
+| 全链路（L1 参考组 + L4 修复，不含冷启动） | ≈160s |
 
-**已真机验证的能力**：① Ref2VA 用**复用的** `ref2va-transformer`（8 步）起服务并出片；② **参考组增强（L1）在真实人脸上生效**——YuNet 检出参考图人脸 → 裁出放大拼成 404 KB 的参考组 → 追加为 `<Picture 2>`（`meta.referenceSheet.applied=true`）；③ 修复模型缺失时按设计**优雅降级**（`meta.faceRefine.applied=false` + reason，生成照常交付）；④ `fa` 在 SM12.x 自动回退**精确** `torch_sdpa`（日志可见）；⑤ 同 seed 两次输出大小一致（807,494 B）。
+**已真机验证的能力**：
+
+- Ref2VA 用**复用的** `ref2va-transformer`（8 步）起服务并出片；
+- **L1 参考组增强**在真实人脸上生效：YuNet 检出参考图人脸 → 裁出放大拼成 512×512 参考组 → 追加为 `<Picture 2>`；
+- **L4 人脸修复真正跑通**：CodeFormer ONNX（FaceFusion 导出，按 commit pin）加载并**自适应识别真实 I/O** —— `image_input='input'`、`fidelity_input='weight'`(**float64**)、`outputs=['output','logits','features']`；逐帧检测 → 跟踪 → 裁剪 → 修复 → 羽化缝合；**帧数保持 124 → 124**、**音轨原样保留**（1 条音频流）、**原始产物保留**（`rawKey`）；
+- **背景不变**：缝合掩膜只覆盖人脸（见下），修复后背景与原始一致；
+- 修复模型缺失时**优雅降级**（`applied=false` + reason，生成照常交付）。
+
+**调参结论（本地 CPU 扫参 + 真机确认）**：
+
+| 结论 | 依据 |
+|---|---|
+| 保真度默认 **0.6** 可用；0.8 偏硬、0.35–0.5 更保守 | 同一帧扫 f=0.35/0.5/0.6/0.8：0.8 皮肤斑驳、色偏明显 |
+| **必须做 colour match**（已默认开启） | 缝合前按掩膜内均值/标准差把修复结果对齐回原图，否则边界色差与块状痕迹明显 |
+| 缝合掩膜**只能覆盖人脸**（按 `1/crop_factor` 的椭圆） | 覆盖整个外扩裁剪框 = 把背景交给模型重画 → 背景出块状伪影 |
+
+**已知取舍（本轮未改）**：
+
+- 重编码用 `libx264 crf 16`，产物比原始大约 **7×**（0.8 MB → 5.9 MB / 5s）。要更小可把 crf 调到 18–20（画质换体积）。
+- 轻量 IoU 跟踪在人头转动时会断成多条轨迹（实测 9–10 条），因此 `meta.faceRefine.faces` **是轨迹数不是人数**——不影响修复结果，但读者别误读。
 
 > **GPU 快照：调试期已关闭**（`enable_memory_snapshot` / `enable_gpu_snapshot` 均不启用，`@modal.enter()` 不带 `snap=True`）。理由就是上表：快照要为首次调用多付 ~9 分钟，而增益不明显。**需要时加回三处**：`@app.cls(..., enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})`、`@modal.enter(snap=True)`、以及 `WARMUP = True`（预热本来就是为把形状冻进快照而设，无快照时它只是让每次冷启动多付 ~90s）。
 
-> **尚未验证 / 默认未生效的部分**（诚实标注）：
-> ① **修复模型地址默认是空的**——`modal_app.FACE_RESTORE_URLS` 默认 `""`（不臆造 URL），需用环境变量 `RECUT_H3_CODEFORMER_URL` / `RECUT_H3_GFPGAN_URL` 指向一个**已验证 I/O** 的 ONNX 导出（检测模型 YuNet 有默认地址且已下载）。**未配置前 `faceRefine` 只会降级为「不修复」——本包目前只跑通了 L1（参考组增强），L4（真实修复）还没真正跑过。**
-> ② 人脸 ONNX 的 **I/O 约定**（`load_restorer` 假定 NCHW float32 [0,1] + 可选 `w` 保真度）需按实际导出核对；
-> ③ 修复阶段的真实耗时/显存（未配模型，无法测）；
-> ④ 参考组增强对画质的**实际增益**（需同 prompt/seed 的 A/B）。
+> **仍未做 / 需要注意的**：
+> ① 修复模型默认已指向 FaceFusion 的 `codeformer.onnx`（按 commit pin）；换用其它导出时**不必改代码**（`load_restorer` 会自适应读输入名/尺寸/标量类型），但请确认它是 face-in/face-out；
+> ② 参考组增强对画质的**实际增益**还没做 A/B（只确认了它生效、没量化它值多少）；
+> ③ 修复强度/羽化的**默认值来自单个样本**的扫参，换内容可能还要微调（可用表单里的 `faceFidelity` / `faceCropFactor` 调）。
 >
 > **注意力后端**：本包默认精确 `fa`（人脸优先），由 `modal_app.ATTENTION_BACKEND` 控制（环境变量 `RECUT_H3_REF_ATTENTION` 可覆盖）。它是**部署期**的 server-wide 选择（改后需重新 deploy），目前**不是**表单/UI 可配项（把它提为预设包声明 + UI 开关见 RFC §D10，属 M2）。
 

@@ -122,6 +122,11 @@ export type PickedContext = {
   context: MessageContext;
 };
 
+// AgentPanelDraft 是页面/路由推给 Agent 面板的一份草稿：正文 + 可选的随草稿附带的技能上下文。
+// skills 在草稿生效时被种进 pickedContexts（用户仍可增删），草稿从不自动发送。
+export type AgentPanelDraftSkill = { appId: string; skillId: string; name: string };
+export type AgentPanelDraft = { id: string; text: string; skills?: AgentPanelDraftSkill[] };
+
 export function mediaContextPayload(assetId: string): MessageContext {
   return { type: "media", source: "user", payload: { assetId } };
 }
@@ -301,7 +306,7 @@ export type Detail = Session & {
   events: AgentEvent[];
   lastEventId: number;
 };
-export type Props = { apiBase: string; servicePhase: "checking" | "online" | "offline"; projectID: string | null; draft?: { id: string; text: string } | null; workSurface?: WorkSurfaceContext | null; workFocus?: WorkFocusContext | null };
+export type Props = { apiBase: string; servicePhase: "checking" | "online" | "offline"; projectID: string | null; draft?: AgentPanelDraft | null; workSurface?: WorkSurfaceContext | null; workFocus?: WorkFocusContext | null };
 
 type SessionDebugReportInput = {
   apiBase: string;

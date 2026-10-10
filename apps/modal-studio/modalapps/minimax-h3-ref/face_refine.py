@@ -29,6 +29,8 @@ DEFAULT_CROP_FACTOR = 2.5
 LONGSHOT_CROP_FACTOR = 3.5
 DEFAULT_CANVAS = 768
 LONGSHOT_CANVAS = 512
+# 缝合椭圆相对人脸框的放大倍数（1.0 = 正好贴住人脸框，留一点边以覆盖下巴/额头）。
+DEFAULT_MASK_FACTOR = 1.5
 # 保真度标量输入的候选名（不同 ONNX 导出命名不一；另按 "...weight" 后缀兜底匹配）。
 FIDELITY_INPUT_NAMES = frozenset({"w", "weight", "fidelity", "fidelity_weight", "cf_weight",
                                   "codeformer_weight", "alpha", "strength"})
@@ -50,6 +52,8 @@ class RefineParams:
     person_fallback: bool = False
     longshot: bool = True            # 允许按源脸高自动切远景档
     feather: float = 0.15
+    mask_factor: float = DEFAULT_MASK_FACTOR  # 缝合椭圆相对人脸框的放大倍数
+    color_match: bool = True         # 缝合前把修复结果的颜色统计对齐到原图（消除边界色差）
     sheet_prompt: bool = True        # 参考组增强后是否在提示词尾部补一句说明
 
     @staticmethod
@@ -128,6 +132,45 @@ def _axis_ramp(length: int, feather: float) -> np.ndarray:
     ramp[:band] = edge
     ramp[-band:] = edge[::-1]
     return ramp
+
+
+def paste_mask(width: int, height: int, context_factor: float, mask_factor: float = DEFAULT_MASK_FACTOR,
+               feather: float = 0.15) -> np.ndarray:
+    """缝合权重：**只覆盖人脸**，而不是整个外扩裁剪框。
+
+    裁剪框按 `context_factor` 外扩（给修复模型上下文），所以人脸在裁剪里大约只占 `1/context_factor`；
+    缝回时只把中心那块椭圆（按 `mask_factor` 略微放大）写回、其余原样保留——否则等于把整个裁剪框
+    （含背景）交给修复模型重画，背景会被带出块状伪影与色偏（实测踩过）。
+    """
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    face_w = width / max(1.0, float(context_factor))
+    face_h = height / max(1.0, float(context_factor))
+    semi_x = max(1.0, face_w * float(mask_factor) / 2.0)
+    semi_y = max(1.0, face_h * float(mask_factor) / 2.0)
+    radius = np.sqrt(((xx - width / 2.0) / semi_x) ** 2 + ((yy - height / 2.0) / semi_y) ** 2)
+    band = max(0.05, float(feather))
+    return np.clip((1.0 + band - radius) / band, 0.0, 1.0).astype(np.float32)
+
+
+def match_color(source: np.ndarray, target: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """把 `target` 的色调统计对齐到 `source`（掩膜内逐通道均值/标准差线性匹配）。
+
+    修复模型会在裁剪框内重建亮度与色偏，直接缝回会留下边界色差与块状痕迹（实测 f=0.8 时最明显，
+    皮肤偏红、帽檐出现斑驳）。按掩膜内的均值/标准差做一次线性对齐即可显著缓解——这正是社区
+    detailer 工作流里的 colour_match。
+    """
+    out = target.astype(np.float32)
+    src = source.astype(np.float32)
+    selected = mask > 0.5
+    if not selected.any():
+        return target
+    for channel in range(min(3, out.shape[2])):
+        chosen = src[..., channel][selected]
+        current = out[..., channel][selected]
+        std = float(current.std())
+        if std > 1e-3:
+            out[..., channel] = (out[..., channel] - current.mean()) * (float(chosen.std()) / std) + chosen.mean()
+    return np.clip(out, 0.0, 255.0).astype(np.uint8)
 
 
 def group_tracks(faces_per_frame: list, iou_thresh: float = 0.3, max_gap: int = 12) -> list:
@@ -380,6 +423,8 @@ def build_reference_sheet(images: list, detector: Optional[FaceDetector], log=pr
 def _decode(data: bytes):
     """解码为帧列表 + 原音频包 + 音频流模板（+ 保持打开的输入容器）；调用方负责在重编码后关闭容器。
 
+    视频帧走**容器管理的解码**（`decode(video=0)`）并单独开一遍容器：手动 `packet.decode()` 不会 flush
+    解码器里为 B 帧重排缓冲的帧，实测会丢 2 帧（124 → 122 帧）。音频只需原样 copy 包，与视频分开取。
     保留容器不关：`add_stream_from_template` 需要输入音频流的编解码参数仍然有效，提前 close 会使其失效。
     """
     import av
@@ -388,15 +433,10 @@ def _decode(data: bytes):
     video = container.streams.video[0]
     fps = float(video.average_rate or 24)
     audio = container.streams.audio[0] if container.streams.audio else None
-    video_packets, audio_packets = [], []
-    for packet in container.demux():
-        if packet.size == 0:
-            continue
-        if packet.stream.type == "video":
-            video_packets.append(packet)
-        elif audio is not None and packet.stream.index == audio.index:
-            audio_packets.append(packet)
-    frames = [frame.to_ndarray(format="rgb24") for packet in video_packets for frame in packet.decode()]
+    audio_packets = [packet for packet in container.demux(audio) if packet.size] if audio is not None else []
+    source = av.open(io.BytesIO(data))
+    frames = [frame.to_ndarray(format="rgb24") for frame in source.decode(video=0)]
+    source.close()
     size = (frames[0].shape[1], frames[0].shape[0]) if frames else (0, 0)
     return frames, fps, size, audio_packets, audio, container
 
@@ -469,7 +509,8 @@ def refine_video_bytes(data: bytes, params: RefineParams, model_dir: str = "", d
                 faces_per_frame.append([])
         plan = plan_refine(faces_per_frame, params, log=log)
         report.update({"faces": len(plan["tracks"]), "minFacePx": plan["minFacePx"], "profile": plan["profile"],
-                       "canvas": plan["canvas"], "cropFactor": plan["cropFactor"], "fidelity": plan["fidelity"]})
+                       "canvas": plan["canvas"], "cropFactor": plan["cropFactor"], "fidelity": plan["fidelity"],
+                       "maskFactor": params.mask_factor})
         if not plan["tasks"]:
             report["reason"] = "no faces"
             return data, report
@@ -485,9 +526,11 @@ def refine_video_bytes(data: bytes, params: RefineParams, model_dir: str = "", d
             if fixed is None or fixed.shape[0] < 2:
                 continue
             fixed = cv2.resize(fixed, (w, h), interpolation=cv2.INTER_LANCZOS4)
-            alpha = feather_alpha(w, h, params.feather)
-            region = restored[task["frame"]][y:y + h, x:x + w].astype(np.float32)
-            blended = region * (1.0 - alpha[..., None]) + fixed.astype(np.float32) * alpha[..., None]
+            alpha = paste_mask(w, h, plan["cropFactor"], params.mask_factor, params.feather)
+            region = restored[task["frame"]][y:y + h, x:x + w]
+            if params.color_match:
+                fixed = match_color(region, fixed, alpha)
+            blended = region.astype(np.float32) * (1.0 - alpha[..., None]) + fixed.astype(np.float32) * alpha[..., None]
             restored[task["frame"]][y:y + h, x:x + w] = np.clip(blended, 0, 255).astype(np.uint8)
         output = _encode(restored, fps, size, audio_packets, audio_template, log=log)
         report["applied"] = True
@@ -537,6 +580,26 @@ def _selftest() -> int:
         _assert(float(mask[0, 0]) < 0.2 and float(mask[32, 32]) > 0.9)
 
     check("feather_weights 边缘过渡/中心满值", feather)
+
+    def paste():
+        mask = paste_mask(250, 250, 2.5, 1.5, 0.15)
+        _assert(mask.shape == (250, 250), mask.shape)
+        _assert(float(mask[125, 125]) > 0.9, float(mask[125, 125]))   # 中心＝人脸，满权重
+        _assert(float(mask[0, 0]) == 0.0, float(mask[0, 0]))          # 四角＝背景，不动
+        _assert(float(mask[10, 125]) == 0.0, float(mask[10, 125]))    # 上缘也不动
+
+    check("paste_mask 只覆盖中心人脸（背景不动）", paste)
+
+    def matching():
+        rng = np.random.default_rng(0)
+        source = np.clip(rng.normal(120, 20, (32, 32, 3)), 0, 255).astype(np.uint8)
+        target = np.clip(rng.normal(200, 35, (32, 32, 3)), 0, 255).astype(np.uint8)
+        mask = np.ones((32, 32), dtype=np.float32)
+        out = match_color(source, target, mask)
+        _assert(out.shape == target.shape, out.shape)
+        _assert(abs(float(out.mean()) - float(source.mean())) < 6, (float(out.mean()), float(source.mean())))
+
+    check("match_color 对齐到原图统计", matching)
 
     def profiles():
         params = RefineParams()

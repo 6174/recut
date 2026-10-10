@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 Zustand 与 Agent 面板的 Work Surface/Focus 类型
- * [OUTPUT]: 对外提供全局 Agent 面板上下文：路由签发的稳定 Work Surface、App 上报的瞬态 Focus、素材 project scope 与绝不自动提交的草稿；路由切换时清理 Focus
+ * [OUTPUT]: 对外提供全局 Agent 面板上下文：路由签发的稳定 Work Surface、App 上报的瞬态 Focus、素材 project scope 与绝不自动提交的草稿（草稿可随正文附带技能上下文，由面板种进 pickedContexts）；路由切换时清理 Focus
  * [POS]: web/lib 的全局工作面真相；路由切换不重建会话，但绝不让 iframe 选区泄漏到另一个目标
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -9,15 +9,15 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 
-import type { WorkFocusContext, WorkSurfaceContext } from "@/components/agent-panel-types";
+import type { AgentPanelDraft, WorkFocusContext, WorkSurfaceContext } from "@/components/agent-panel-types";
 
 type AgentPanelContext = {
   projectID: string | null;
-  draft: { id: string; text: string } | null;
+  draft: AgentPanelDraft | null;
   workSurface: WorkSurfaceContext | null;
   workFocus: WorkFocusContext | null;
   setProjectID: (projectID: string | null) => void;
-  setDraft: (draft: { id: string; text: string } | null) => void;
+  setDraft: (draft: AgentPanelDraft | null) => void;
   setWorkSurface: (workSurface: WorkSurfaceContext | null) => void;
   setWorkFocus: (workFocus: WorkFocusContext | null) => void;
   clearWorkSurface: () => void;

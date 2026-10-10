@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 pomelo-core（PomeloEditor / PomeloEditorState.fromJSON）、pomelo-vello（VelloRendererAdapter）、
- * world-canvas 的 vello blocks / ViewportPlugin、canvas-store 与 lucide-react
+ * world-canvas 的 vello blocks / ViewportPlugin、canvas-store、agent-panel-context（空世界场景卡下发草稿 + 技能）与 lucide-react
  * [OUTPUT]: 对外提供 CanvasPomeloHost：真实世界画布的 pomelo 底座——
  * canvas-store（world_entities/world_relations/world_canvas 唯一语义真相）→ pomelo 文档按 block id diff
  * 增量同步（T1-c：新增 addRecord / 删除 removeRecord / 属性变化 updateRecord，不再全量重建）；
@@ -11,7 +11,7 @@
  * 自由元素映射：note→NoteBlockV、text/shape→FreeElementBlockV（文本框 kind=text / attr text 无背景 + 圆角描边；
  * 就地编辑中给该记录置 editing 隐藏画布文字，避免与无背景的 DOM 就地编辑器重影）、绑定两实体的自由箭头→复用
  * RelationArrowBlockV 投影（未绑定箭头暂不渲染）；画面 delta 同步经 moveElement + persistGeometry
- * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界与空容器引导（T9）/ toast / 文件拖放（B.12）；
+ * 另含 RealMediaBlockV（T8 媒体元素）/ 空世界场景卡引导（点卡把开场提示词 + 平台技能填进左侧 Agent 对话，绝不自动发送）与空容器引导（T9）/ toast / 文件拖放（B.12）；
  * 生成提案态（proposal）：媒体元素与 attr 媒体卡从全局 asset 读 proposal，映射为 proposalStatus/
  * proposalPrompt/proposalRefs 等 attrs，供 block 渲染「待确认」态；proposed 但无配方按「计划」映射为
  * planStatus/planPrompt，block 渲染「计划中」；
@@ -58,6 +58,7 @@ import { isPlanAsset, readProposal, proposalFromAsset } from "./canvas-proposal"
 import { canvasAssetOf, canvasAssetStateOf, ensureCanvasAssetStatus, ingestCanvasAsset, rearmCanvasAssetStatus, stopCanvasAssetStatus, useCanvasAssetStatusStore } from "./canvas-asset-status";
 import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SIZE, NOTE_SIZE, persistedAspect, readLastKind, WORLD_ELEMENT_ID, elementPosition, useWorldCanvasStore, type Point } from "./canvas-store";
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
+import { useAgentPanelContext } from "@/lib/agent-panel-context";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
 import { entityAttrMediaRef, entityKindLabel, isRetiredEntityKind, type EntityAttrMediaValue } from "@/lib/recut-worlds-client";
@@ -768,9 +769,82 @@ function AttrCreatorPanel() {
   );
 }
 
-// ---------- 空世界引导（T9/B.5）：三步说明 + 一键出第一张人物卡；首 3 次进入显示 ----------
+// ---------- 空世界引导：从「选一个场景」开始，点卡片把开场提示词 + 技能填进左侧 Agent 对话（绝不自动发送） ----------
 
-const ONBOARDING_KEY = "wc:onboardingVisits";
+// 平台级技能的归属 appId（与后端 platformSkillAppID 一致），技能正文在 service/skills/<skillId>。
+const PLATFORM_SKILL_APP_ID = "recut.platform";
+
+// 场景卡 = 一句开场提示词 + 一个平台技能（点了「手动创建」无技能）。
+// 技能随草稿挂到本次 Turn 上（type:"skill" 上下文），提示词只负责说清意图，用户仍可改写后再发送。
+const CANVAS_ONBOARDING_SCENARIOS: Array<{
+  key: string;
+  icon: string;
+  label: string;
+  desc: string;
+  prompt: string;
+  skill?: { appId: string; skillId: string; name: string };
+}> = [
+  {
+    key: "character",
+    icon: "👤",
+    label: "角色设定",
+    desc: "人设 · 外貌 · 声线",
+    prompt: [
+      "为这个世界创建一个角色设定。",
+      "",
+      "请先调用 recut.worlds.get 读取已有设定，再问我 3–5 个关键问题（人设、外貌标志、声音），确认后落成角色实体，并生成一张角色参考图。",
+    ].join("\n"),
+    skill: { appId: PLATFORM_SKILL_APP_ID, skillId: "recut-worlds", name: "recut-worlds" },
+  },
+  {
+    key: "location",
+    icon: "🏙",
+    label: "场景设定",
+    desc: "用途 · 氛围 · 参考图",
+    prompt: [
+      "为这个世界创建一个场景设定。",
+      "",
+      "请先调用 recut.worlds.get 读取已有设定，再和我确认这个场景的用途与氛围，然后落成场景实体并生成场景参考图。",
+    ].join("\n"),
+    skill: { appId: PLATFORM_SKILL_APP_ID, skillId: "recut-worlds", name: "recut-worlds" },
+  },
+  {
+    key: "prop",
+    icon: "🎒",
+    label: "道具设定",
+    desc: "外观 · 用途 · 参考图",
+    prompt: [
+      "为这个世界创建一个道具设定。",
+      "",
+      "请先调用 recut.worlds.get 读取已有设定，再和我确认它的外观与用途，落成道具实体并生成道具参考图。",
+    ].join("\n"),
+    skill: { appId: PLATFORM_SKILL_APP_ID, skillId: "recut-worlds", name: "recut-worlds" },
+  },
+  {
+    key: "script",
+    icon: "🎬",
+    label: "故事与脚本",
+    desc: "故事线 · 分镜 · 视频脚本",
+    prompt: [
+      "帮我把一个想法排成故事和视频脚本。",
+      "",
+      "请先调用 recut.worlds.get 读取世界现状与已有角色 / 场景，和我确认主题、时长与目标平台后，排出故事线、分镜与视频脚本，并按「作品 → 视频脚本」落进世界。",
+    ].join("\n"),
+    skill: { appId: PLATFORM_SKILL_APP_ID, skillId: "recut-director", name: "recut-director" },
+  },
+  {
+    key: "reference",
+    icon: "🔍",
+    label: "拆解参考",
+    desc: "读懂一支参考片",
+    prompt: [
+      "我想拆解一支参考素材，把它的打法写回这个世界。",
+      "",
+      "请引导我导入参考视频 / 图片，读懂它的钩子、格式、节奏与可复用的结构，并整理成这个世界可用的设定。",
+    ].join("\n"),
+    skill: { appId: PLATFORM_SKILL_APP_ID, skillId: "recut-reference", name: "recut-reference" },
+  },
+];
 
 function EmptyWorldGuide() {
   const context = useWorldCanvasStore((state) => state.context);
@@ -778,36 +852,52 @@ function EmptyWorldGuide() {
   const elementCount = useWorldCanvasStore((state) => state.elements.length);
   const readOnly = useWorldCanvasStore((state) => state.readOnly);
   const setCreating = useWorldCanvasStore((state) => state.setCreating);
-  const [dismissed, setDismissed] = useState(true);
-  useEffect(() => {
-    // 首访引导：进画布累计 <3 次时显示（localStorage 计数，可跳过；帮助面板可找回）
-    try {
-      const visits = Number(localStorage.getItem(ONBOARDING_KEY) ?? "0") + 1;
-      localStorage.setItem(ONBOARDING_KEY, String(visits));
-      setDismissed(visits > 3);
-    } catch {
-      setDismissed(true);
-    }
-  }, []);
+  const toast = useWorldCanvasStore((state) => state.toast);
+  const worldId = useWorldCanvasStore((state) => state.worldId);
+  const setDraft = useAgentPanelContext((state) => state.setDraft);
+  // 空画布时始终展示（不再按访问次数隐藏）：唯一的「手动创建」入口就藏在这里，隐藏后画布只剩网格。
+  const [dismissed, setDismissed] = useState(false);
   if (context || entityCount > 0 || elementCount > 1 || readOnly || dismissed) return null;
+  const start = (scenario: (typeof CANVAS_ONBOARDING_SCENARIOS)[number]) => {
+    setDraft({
+      id: `world-canvas-${worldId}-${scenario.key}-${Date.now()}`,
+      text: scenario.prompt,
+      ...(scenario.skill ? { skills: [scenario.skill] } : {}),
+    });
+    toast(`「${scenario.label}」已填入左侧对话，确认后发送`, "success");
+  };
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
-      <div className="pointer-events-auto flex w-80 flex-col items-center gap-3 rounded-xl border bg-card/90 p-6 text-center shadow-xl">
-        <p className="text-base font-semibold">开始搭建这个世界</p>
-        <ul className="space-y-1.5 text-left text-xs text-muted-foreground">
-          <li>① ＋ 或双击空白 → 放下人物 / 地点 / 物件</li>
-          <li>② 悬停卡片拖「＋」手柄 → 连出关系</li>
-          <li>③ 拖入图片 → 添加为「媒体属性」（卡面图源随之更新）</li>
-        </ul>
-        <button
-          className="rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-          onClick={() => setCreating(true)}
-          type="button"
-        >
-          创建第一个设定
-        </button>
-        <button className="text-[10px] text-muted-foreground hover:underline" onClick={() => setDismissed(true)} type="button">
-          跳过
+    <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center px-6">
+      <div className="flex flex-col items-center gap-4">
+        <div className="text-center">
+          <p className="text-base font-semibold">开始搭建这个世界</p>
+          <p className="mt-1 max-w-md text-xs text-muted-foreground">选一个场景，Agent 会把提示词填进左侧对话，确认后发送；也可以双击画布手动创建。</p>
+        </div>
+        <div className="flex max-w-2xl flex-wrap items-stretch justify-center gap-2">
+          <button
+            className="pointer-events-auto flex w-28 flex-col items-center gap-1.5 rounded-xl border border-dashed border-border bg-card/60 px-3 py-4 text-center transition-colors hover:bg-muted"
+            onClick={() => setCreating(true)}
+            type="button"
+          >
+            <span aria-hidden className="grid size-8 place-items-center rounded-md border border-border bg-background text-base">＋</span>
+            <span className="text-xs font-medium">手动创建</span>
+            <span className="text-[10px] leading-4 text-muted-foreground">落一张空白设定卡</span>
+          </button>
+          {CANVAS_ONBOARDING_SCENARIOS.map((scenario) => (
+            <button
+              className="pointer-events-auto flex w-28 flex-col items-center gap-1.5 rounded-xl border border-border bg-card/80 px-3 py-4 text-center transition-colors hover:border-primary/50 hover:bg-accent"
+              key={scenario.key}
+              onClick={() => start(scenario)}
+              type="button"
+            >
+              <span aria-hidden className="grid size-8 place-items-center rounded-md border border-border bg-background text-base">{scenario.icon}</span>
+              <span className="text-xs font-medium">{scenario.label}</span>
+              <span className="text-[10px] leading-4 text-muted-foreground">{scenario.desc}</span>
+            </button>
+          ))}
+        </div>
+        <button className="pointer-events-auto text-[10px] text-muted-foreground hover:underline" onClick={() => setDismissed(true)} type="button">
+          先逛逛
         </button>
       </div>
     </div>
