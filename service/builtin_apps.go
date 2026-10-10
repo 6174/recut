@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖编译内嵌的 service/builtin_apps 目录（单一清单 apps.json + 各 App 归档）、Catalog 的运行时 apps 目录与标准 tar/gzip 文件能力
- * [OUTPUT]: 对外提供内置 App 清单及启动时原子同步；当前将 Remotion Studio、声音工坊与 ComfyUI 工作台安装到 apps 目录（剪辑器已改为平台原生 App）
+ * [OUTPUT]: 对外提供内置 App 清单及启动时原子同步；当前将 Remotion Studio、声音工坊、ComfyUI 与 Modal 工作台安装到 apps 目录（剪辑器已改为平台原生 App）
  * [POS]: service 的首启体验边界；内置 App 集合与打包规则只维护在 service/builtin_apps/apps.json，本文件只做目录扫描与同步，不硬编码任何 App
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */

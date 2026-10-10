@@ -1,10 +1,10 @@
 /**
  * [INPUT]: 依赖 modal.catalog/overview 的预设包/函数清单/formSchema/output/gpuTiers/就绪度（就绪度可缺省＝尚未探测）、shadcn Select/Label/Input/Textarea/Card/Badge/Button、recut.media.pick 全局素材选择器、recut.media.preview 全屏预览、部署/下载/运行回调、AgentDefaultsDialog 与 useRunStore
- * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint；标记 `randomizable` 的数字字段如随机种子带「随机」按钮，一键填入区间内随机整数）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选；缩略图按真实类型渲染（图＝缩略图并可点开全屏预览，视频＝静音首帧，音频＝图标占位）；预览图经 injectedReference 一键回填，注入 nonce 记在**模块作用域**、每次注入只生效一次——避免 RunTab 因就绪度门/Tab 切换卸载重建时把旧草稿重放到表单、点击运行后参数被悄悄改回）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪（未部署 / 权重缺失 / **离线合并等产物缺失**）则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**就绪度按「逐产物」判定**（requires 声明每个函数所需产物、assets 是探测结果）——缺离线合并产物时基础权重卷仍是就绪的，只看 volumeReady 会误报「就绪」并放行一个注定在云端 crash-loop 的提交；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
+ * [OUTPUT]: 顶部预设包切换器 + 函数切换器 + 三态常驻环境块（**就绪度未知＝尚未探测**→低存在感「待检查」提示，不误报未部署；未就绪→部署/下载权重；就绪→「重新部署」单一手动更新入口，deploy 自带 bootstrap，stale=目录 hash 变更时高亮提示）+ GPU 档位选择（用户选过就记住，没选过回落到预设包默认；候选不在当前 options 内即忽略，保证永不空白）+ **按 formSchema 逐字段渲染的输入**（textarea 带 placeholder、字段带 hint；标记 `randomizable` 的数字字段如随机种子带「随机」按钮，一键填入区间内随机整数）+ **按 formSchema 逐字段渲染的参考素材输入**（首帧/尾帧/参考图/参考视频/参考音频各自独立，按字段 kind 过滤素材、multiple 决定单选或多选（宿主按 multiple 返回单个对象或数组，这里统一折成数组——否则单选字段会因 selected.map 不是函数而静默丢弃选择）；「添加参考」入口按真实类型标注与取图标（参考图/参考视频/参考音频）；缩略图按真实类型渲染（图＝缩略图并可点开全屏预览，视频＝静音首帧，音频＝图标占位）；预览图经 injectedReference 一键回填，注入 nonce 记在**模块作用域**、每次注入只生效一次——避免 RunTab 因就绪度门/Tab 切换卸载重建时把旧草稿重放到表单、点击运行后参数被悄悄改回）+ 表单提交（**提交前经 onEnsureReady 动态校验该预设包的就绪度**，已确定未就绪（未部署 / 权重缺失 / **离线合并等产物缺失**）则提示先准备或重新部署、不提交；未知则照常提交，由云端给出真实失败原因；**提交期间运行按钮显示在途状态**（spinner + 「运行中…」——就绪度校验要拉 modal CLI，只置灰等于「点了没反应」），失败/引导提示以告警卡置于动作行**上方**而非按钮下方的弱灰小字）；提交带 origin:"manual" 按字段分组 references={field:[assetId]}；**就绪度按「逐产物」判定**（requires 声明每个函数所需产物、assets 是探测结果）——缺离线合并产物时基础权重卷仍是就绪的，只看 volumeReady 会误报「就绪」并放行一个注定在云端 crash-loop 的提交；**表单按预设包分片由 useRunStore 持有并持久化**（切预设包即恢复该包上次的表单与档位）+ 提交行的「AI 默认参数」入口（AgentDefaultsDialog：配置该函数 AI/Agent 调用时的默认参数）
  * [POS]: Left「功能」Tab；部署、权重与运行都在此收敛，记录 Tab 只负责历史
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
-import { AlertTriangle, AudioLines, Check, Dices, Download, ImagePlus, Rocket, SlidersHorizontal, Wand2, X } from "lucide-react";
+import { AlertTriangle, AudioLines, Check, Dices, Download, ImagePlus, Loader2, Rocket, SlidersHorizontal, Video, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { interpolate, t, type Locale } from "../i18n";
 import { recut } from "../recut-sdk";
@@ -246,8 +246,11 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
   const pickFieldReferences = async (field: FormField) => {
     try {
       const multiple = field.multiple !== false;
-      const selected = (await recut.media.pick([field.kind ?? "image"], { multiple, selectedIDs: (references[field.key] ?? []).map((item) => item.id) })) as MediaAsset[] | null;
-      if (!selected) return;
+      // 宿主按 multiple 决定返回「单个选择对象」还是「数组」；这里统一折成数组再落库，
+      // 否则单选字段（如「待修复的视频」）会因 selected.map 不是函数而抛错、选择被静默丢弃。
+      const picked = (await recut.media.pick([field.kind ?? "image"], { multiple, selectedIDs: (references[field.key] ?? []).map((item) => item.id) })) as MediaAsset | MediaAsset[] | null;
+      if (!picked) return;
+      const selected = Array.isArray(picked) ? picked : [picked];
       setFieldReferences(field.key, selected.map((asset) => ({ id: asset.id, name: asset.name, kind: asset.kind ?? field.kind ?? "image" })));
       setHint("");
     } catch (error) {
@@ -386,7 +389,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {/* 部署与权重合并：未部署→一次「准备（部署 + 权重）」；已部署仅缺权重→「下载权重（续传）」。来源固定 Hugging Face。 */}
                 <Button size="sm" disabled={working} onClick={() => void run(() => (deployed ? onInstall(modalapp.id, DEFAULT_SOURCE) : onDeploy(modalapp.id)))}>
-                  {deployed ? <Download className="size-3.5" /> : <Rocket className="size-3.5" />}
+                  {working ? <Loader2 className="size-3.5 animate-spin" /> : deployed ? <Download className="size-3.5" /> : <Rocket className="size-3.5" />}
                   {deployed ? t(locale, "run.install") : t(locale, "run.prepare")}
                 </Button>
               </div>
@@ -409,7 +412,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
           {/* 常驻手动更新入口：一个动作即可——deploy 自带 bootstrap，权重会一并刷新（bootstrap 自身跳过已下载）。 */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button size="sm" variant={modalapp.stale ? "default" : "outline"} disabled={working} onClick={() => void run(() => onDeploy(modalapp.id))}>
-              <Rocket className="size-3.5" />{t(locale, "run.redeploy")}
+              {working ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}{t(locale, "run.redeploy")}
             </Button>
           </div>
         </Card>
@@ -483,6 +486,11 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         {mediaFields(fn).map((field) => {
           const fieldRefs = references[field.key] ?? [];
           const multiple = field.multiple !== false;
+          // 「添加参考」入口按字段声明的真实类型标注与取图标：参考图 / 参考视频 / 参考音频，
+          // 不让「待修复的视频」这类字段顶着「添加参考图」的文案。
+          const fieldKind = field.kind ?? "image";
+          const AddIcon = fieldKind === "video" ? Video : fieldKind === "audio" ? AudioLines : ImagePlus;
+          const addLabel = t(locale, fieldKind === "video" ? "run.add-reference-video" : fieldKind === "audio" ? "run.add-reference-audio" : "run.add-reference");
           return (
             <Field key={field.key} label={labelText(field.label, locale, field.key)} hint={multiple ? t(locale, "run.references-hint") : undefined}>
               <div className="flex flex-wrap items-center gap-2">
@@ -521,7 +529,7 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
                 })}
                 {multiple || fieldRefs.length === 0 ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => void pickFieldReferences(field)}>
-                    <ImagePlus className="size-3.5" />{t(locale, "run.add-reference")}
+                    <AddIcon className="size-3.5" />{addLabel}
                   </Button>
                 ) : null}
               </div>
@@ -549,11 +557,23 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
         ) : null}
       </div>
 
+      {/* 提示放在动作行**上方**：提交失败（参考素材不足 / 未就绪 / 运行报错）原本只落在这行下方的
+          11px 弱灰文字里，容易落在视口外而被当成「点了没反应」。这里用与右侧通知一致的告警卡就地呈现，
+          同时保持低调（warning 淡底、无实心色块）。 */}
+      {hint ? (
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/[0.06] p-2.5 text-[11px] leading-4">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+          <span className="min-w-0 flex-1 text-muted-foreground">{hint}</span>
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-2 pt-1">
         {/* 运行按钮不再以就绪度为门槛：状态未知时它必须可点（点击即做一次动态校验），
-            已确定未就绪时点击则给出「先准备/重新部署」的引导。 */}
+            已确定未就绪时点击则给出「先准备/重新部署」的引导。提交期间按钮必须显示在途状态
+            （校验就绪度要拉 modal CLI，是秒级操作），只置灰等于「点了没反应」。 */}
         <Button disabled={submitting} onClick={() => void submit()}>
-          <Wand2 className="size-3.5" />{t(locale, "run.submit")}
+          {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}
+          {t(locale, submitting ? "run.submitting" : "run.submit")}
         </Button>
         <Button variant="ghost" onClick={() => setDefaultsOpen(true)}>
           <SlidersHorizontal className="size-3.5" />{t(locale, "run.defaults")}
@@ -568,7 +588,6 @@ export function RunTab({ modalapps, locale, defaultGpuTier, injectedReference, o
           <Badge variant="outline" className="ml-auto border-warning/40 text-warning">{deployed ? t(locale, "run.no-weights") : t(locale, "run.not-deployed")}</Badge>
         )}
       </div>
-      {hint ? <p className="text-[11px] leading-4 text-muted-foreground">{hint}</p> : null}
 
       {defaultsOpen ? (
         <AgentDefaultsDialog modalapp={modalapp} fn={fn} locale={locale} onClose={() => setDefaultsOpen(false)} onSaved={onSavedDefaults} />

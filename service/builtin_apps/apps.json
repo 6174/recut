@@ -54,5 +54,24 @@
       "ui/components.json"
     ],
     "prep": ["python3", "apps/comfyui-studio/python/publish_registry.py"]
+  },
+  {
+    "package": "modal-studio",
+    "source": "apps/modal-studio",
+    "appId": "recut.modal-studio",
+    "include": ["."],
+    "exclude": [
+      "rfc",
+      "__pycache__",
+      "**/__pycache__",
+      "ui/node_modules",
+      "ui/src",
+      "ui/package-lock.json",
+      "ui/package.json",
+      "ui/tsconfig.json",
+      "ui/vite.config.ts",
+      "ui/components.json"
+    ],
+    "prep": ["python3", "apps/modal-studio/python/publish_registry.py"]
   }
 ]

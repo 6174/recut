@@ -10,10 +10,13 @@ package media
 
 import "sort"
 
-// LocalModelInfo 是本地生成 App（ComfyUI Studio）注册表里的一个模型就绪投影，
+// LocalModelInfo 是本地生成 App（ComfyUI Studio / Modal Studio）注册表里的一个模型就绪投影，
 // 由 daemon 注入的 localModelProvider 提供，用于把本地模型并入平台能力模型聚合。
+// Provider 声明该模型归属的 provider（contribution 的 id）；聚合按它精确归属，
+// 否则多个本地 App 声明同名模型（如都叫 qwen-image）时会互相串组。
 type LocalModelInfo struct {
 	Model      string  `json:"model"`
+	Provider   string  `json:"provider"`
 	Capability string  `json:"capability"`
 	Runtime    string  `json:"runtime"`
 	Label      string  `json:"label,omitempty"`
@@ -78,7 +81,7 @@ func (m *MediaService) CapabilityModelGroups(capability MediaCapability) ([]Capa
 			modelSet[model.ID] = true
 		}
 		for _, info := range localModels {
-			if info.Capability != string(capability) {
+			if info.Capability != string(capability) || info.Provider != provider.ID {
 				continue
 			}
 			if modelSet[provider.ID+"/"+info.Model] {

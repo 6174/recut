@@ -1,7 +1,7 @@
 /*
- * [INPUT]: 依赖 LoadCatalog、modal-studio 的 contributes.media 声明（provider modal-cloud + 由 modalapps
- *          expose 生成的模型）与 media 包的 RegisterAppProviders/CapabilityModelGroups
- * [OUTPUT]: 验证 modal-studio 作为标准 App 安装后，其 contributes.media 被映射为平台模型
+ * [INPUT]: 依赖 BuiltinAppManager/LoadCatalog、modal-studio 的 contributes.media 声明（provider modal-cloud +
+ *          由 modalapps expose 生成的模型）与 media 包的 RegisterAppProviders/CapabilityModelGroups
+ * [OUTPUT]: 验证 modal-studio 作为内置 App 安装后，其 contributes.media 被映射为平台模型
  *          modal-cloud/<expose.model>（每个 expose 条目一个平台模型，图片与视频都注册）并注册通用执行桥；
  *          App 模型参数声明（含 aspectRatio）进入平台目录且标记 PassthroughParams
  * [POS]: service 的「App 贡献本地 media provider」回归测试（modal-studio 版）；不访问真实用户目录或网络
@@ -10,7 +10,6 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -18,12 +17,8 @@ import (
 )
 
 func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
-	appRoot, err := filepath.Abs(filepath.Join("..", "apps", "modal-studio"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	appsDir := t.TempDir()
-	if err := os.Symlink(appRoot, filepath.Join(appsDir, "modal-studio")); err != nil {
+	appsDir := filepath.Join(t.TempDir(), "apps")
+	if err := NewBuiltinAppManager(appsDir).Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	// RegisterAppProviders mutates the global catalog; restore it for other tests.
@@ -35,7 +30,7 @@ func TestModalStudioContributesLocalMediaProvider(t *testing.T) {
 	}
 	app, ok := catalog.Get("recut.modal-studio")
 	if !ok {
-		t.Fatal("modal-studio was not discovered in the catalog")
+		t.Fatal("modal-studio was not installed as a built-in App")
 	}
 	if app.Manifest.Contributes == nil || app.Manifest.Contributes.Media == nil {
 		t.Fatal("modal-studio must declare contributes.media")

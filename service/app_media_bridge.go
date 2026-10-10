@@ -468,7 +468,10 @@ func appLocalModels(host *AppHost, apps []App) []media.LocalModelInfo {
 			if err != nil {
 				continue
 			}
-			infos = append(infos, localModelsFromCatalog(raw)...)
+			for _, info := range localModelsFromCatalog(raw) {
+				info.Provider = provider.ID
+				infos = append(infos, info)
+			}
 		}
 	}
 	return infos

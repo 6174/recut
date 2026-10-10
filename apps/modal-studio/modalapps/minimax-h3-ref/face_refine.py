@@ -59,6 +59,24 @@ def onnx_scalar_dtype(type_name) -> type:
             "tensor(float16)": np.float16}.get(str(type_name or "").lower(), np.float32)
 
 
+# 修复模型的**取值契约**：FaceFusion 系导出（CodeFormer / GFPGAN）吃 RGB、值域 **[-1, 1]**——
+# 官方预处理 `(x/255 - 0.5) / 0.5`、后处理 `(clip(x, -1, 1) + 1) / 2`（facefusion 3.0.0 的
+# face_enhancer.py）。喂错值域（比如按 [0,1] 喂、再按 [0,1] 裁）会把模型推出训练分布：输出一片
+# 灰糊/麻点，缝回脸中心后整张脸就“毁了”（实测踩过，见 README）。下面两个纯函数把这个契约固定下来，
+# 并由 --selftest 守住——换别的导出（值域不同）时必须先核对，不能沿用。
+def to_model_input(image_rgb: np.ndarray) -> np.ndarray:
+    """HxWx3 uint8 RGB → 1x3xHxW float32，值域 [-1, 1]。"""
+    return ((image_rgb.astype(np.float32) / 255.0 - 0.5) / 0.5).transpose(2, 0, 1)[None]
+
+
+def from_model_output(output: np.ndarray) -> np.ndarray:
+    """修复输出（[3,H,W] 或 [H,W,3]，值域 [-1, 1]）→ HxWx3 uint8 RGB（[0, 255]）。"""
+    output = np.asarray(output, dtype=np.float32)
+    if output.shape[0] == 3:      # [3,H,W] → [H,W,3]
+        output = output.transpose(1, 2, 0)
+    return (np.clip((np.clip(output, -1.0, 1.0) + 1.0) / 2.0, 0.0, 1.0) * 255.0).astype(np.uint8)
+
+
 @dataclass(frozen=True)
 class RefineParams:
     model: str = "codeformer"        # codeformer | gfpgan | off
@@ -319,6 +337,9 @@ def load_restorer(model_dir: str, model: str, log=print) -> Optional[FaceRestore
     **自适应 I/O**：不同导出对输入/输出的命名与形状并不统一（FaceFusion 的 codeformer.onnx 用
     `input` + `weight`；另一些导出用 `w`/`fidelity`，或干脆没有保真度输入）。这里在加载时读一遍
     session 的输入清单再决定怎么喂，而不是写死名字——避免「填了 URL 却因为名字不匹配而静默坏掉」。
+
+    **不自适应值域**：像素输入/输出的值域（本包按 FaceFusion 系导出固定为 [-1, 1]，见 `to_model_input`）
+    不会自动探测——换别的导出前必须核对，否则会静默输出灰糊、把脸“修坏”（见 README）。
     """
     from pathlib import Path
 
@@ -372,15 +393,10 @@ def load_restorer(model_dir: str, model: str, log=print) -> Optional[FaceRestore
             import cv2
 
             resized = cv2.resize(crop, (self._size, self._size), interpolation=cv2.INTER_LINEAR)
-            tensor = (resized.astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
-            feeds = {self._image_input: tensor}
+            feeds = {self._image_input: to_model_input(resized)}
             if self._fidelity_input:
                 feeds[self._fidelity_input] = np.array([[float(fidelity)]], dtype=self._fidelity_dtype)
-            output = np.asarray(self._session.run(None, feeds)[0])[0]
-            if output.shape[0] == 3:      # [3,H,W] → [H,W,3]
-                output = output.transpose(1, 2, 0)
-            restored = np.clip(output, 0.0, 1.0) * 255.0
-            return restored.astype(np.uint8)
+            return from_model_output(self._session.run(None, feeds)[0][0])
 
     return _OnnxRestorer(str(path))
 
@@ -677,6 +693,24 @@ def _selftest() -> int:
         _assert(onnx_scalar_dtype("tensor(float16)") is np.float16),
         _assert(onnx_scalar_dtype(None) is np.float32),
     ))
+
+    def model_range():
+        # 值域契约：修复模型吃/吐 [-1, 1]（RGB）。喂成 [0,1] 会静默毁脸——这里把它钉死。
+        white = np.full((4, 4, 3), 255, dtype=np.uint8)
+        black = np.zeros((4, 4, 3), dtype=np.uint8)
+        mid = np.full((4, 4, 3), 128, dtype=np.uint8)
+        _assert(to_model_input(white).shape == (1, 3, 4, 4), to_model_input(white).shape)
+        _assert(float(to_model_input(white).min()) == 1.0 and float(to_model_input(white).max()) == 1.0)
+        _assert(float(to_model_input(black).min()) == -1.0 and float(to_model_input(black).max()) == -1.0)
+        _assert(abs(float(to_model_input(mid).mean())) < 0.01, float(to_model_input(mid).mean()))
+        # 输出 [-1,1] → [0,255]，且 [3,H,W] 要转成 [H,W,3]
+        _assert(from_model_output(np.zeros((3, 4, 4), np.float32)).shape == (4, 4, 3))
+        _assert(int(from_model_output(np.full((3, 4, 4), -1.0, np.float32))[0, 0, 0]) == 0)
+        _assert(int(from_model_output(np.full((3, 4, 4), 1.0, np.float32))[0, 0, 0]) == 255)
+        # 往返：uint8 → 模型 → uint8 基本无损（±1 来自 127.5 取整）
+        _assert(int(np.abs(from_model_output(to_model_input(white)[0]).astype(int) - white).max()) == 0)
+
+    check("修复模型值域契约 [-1,1]（喂错会毁脸）", model_range)
 
     def sheet_skips_without_faces():
         from PIL import Image

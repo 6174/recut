@@ -1,5 +1,5 @@
 /*
- * [INPUT]: 依赖 BuiltinAppManager、内嵌 Remotion Studio、剪辑器与声音工坊发布归档及临时 apps 目录
+ * [INPUT]: 依赖 BuiltinAppManager、内嵌内置 App（Remotion Studio、声音工坊、ComfyUI/Modal 工作台）发布归档及临时 apps 目录
  * [OUTPUT]: 验证首启安装、旧内置包原子覆盖和开发软链接优先级
  * [POS]: service 内置 App 分发的回归测试；不访问真实用户目录或网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
