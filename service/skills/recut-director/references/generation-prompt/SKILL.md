@@ -24,10 +24,10 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 
 ## 输入前置
 
-1. **STYLE LOCK 来源**：世界取 `world.identity.style` / world.md（`worlds.get.skillMd`）视觉语言 + `references[]` 的 `style-ref`/`color-card`；否则取立项模板 `styleTemplate.visualPrompt` / `LIGHT_INVARIANT` / 导演风格文件。先冻结，**压缩到 ≤2 行 / ≤80 字**，不每镜重写。
+1. **STYLE LOCK 来源**：世界取 `world.identity.style` / world.md（`worlds.get.skillMd`）视觉语言 + 实体 media 字段（`entities.get`）里的 `style-ref` / `color-card`；否则取立项模板 `styleTemplate.visualPrompt` / `LIGHT_INVARIANT` / 导演风格文件。先冻结，**压缩到 ≤2 行 / ≤80 字**，不每镜重写。
 2. **拍摄意图**：世界取 `script.detail` 里该视频段的拍摄设计（提示词几乎全取自这里）；逐镜画面细节也从这里取。
-3. **参考与角色**：世界先读 `references[]`——主角色 `character`（`character_reference`）、场景 `environment`、道具 `prop`、台词 `voice`（用了就必带、用该声线）；只有纯空场景可无参考。克隆/仿拍连真实锚点 `style-ref`/`motion-ref`。
-   > 读法：`worlds.get`（world.md + facts + `references[]`）→ 叙事/规格与**每段视频的拍摄设计都取 `script.detail`** 与 meta。**生成依赖只有：资产 + `script`（脚本里该段的拍摄设计）**；分镜表（storyboard）不进生成。
+3. **参考与角色**：世界先读实体 media 字段（`entities.get`）——主角色 `character`（`character_reference`）、场景 `environment`（`location_reference`）、道具 `prop`（`prop_reference`）、台词 `voice`（`voice_reference`，用了就必带、用该声线）；只有纯空场景可无参考。克隆/仿拍连真实锚点 `style-ref`/`motion-ref`。
+   > 读法：`worlds.get`（world.md + 实体 meta）→ `entities.get`（实体正文与 media 参考）→ 叙事/规格与**每段视频的拍摄设计都取 `script.detail`** 与 meta。**生成依赖只有：资产 + `script`（脚本里该段的拍摄设计）**；分镜表（storyboard）不进生成。
 4. **声音资产**：对白/旁白逐字、音色、环境/SFX。
 5. **画幅与时长**由宿主传参、不写正文；片段长度按内容定，正文标 `[起~止s]`。
 

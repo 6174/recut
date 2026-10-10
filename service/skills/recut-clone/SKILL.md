@@ -89,7 +89,7 @@ S4 交付    实际观看 → 报告
    - 意图（这一拍要让观众感到什么）；
    - 镜头（景别/机位/运动）与**起止状态**（下一段起＝上一段止，即连续性合同）；
    - 媒介（`generate` / `component` / `typography` / `hybrid` / `supplied`）；
-   - 参考锚点：**新主体/世界**取 World `references[]`（角色/场景/声线等）；**镜头语言**取参考本身（`style-ref` 调色质感、`motion-ref` 运镜与动作时序、`storyboard` 构图分镜）。两者并列，缺一不可（见 §6）；
+   - 参考锚点：**新主体/世界**取 World 实体 media 字段（`entities.get`：`character_reference` / `location_reference` / `prop_reference` / `voice_reference`）；**镜头语言**取参考本身（`style-ref` 调色质感、`motion-ref` 运镜与动作时序、`storyboard` 构图分镜）。两者并列，缺一不可（见 §6）；
    - `anchor`（`speech@` / `clock@`）与 directing brief（写意图与表演，不堆参数）；
    - 需要**一次多镜连续生成**时，明确把几拍合进一个 request，并说明拆分依据。
 
@@ -136,7 +136,7 @@ S4 交付    实际观看 → 报告
 - **参考提交口径（区分能力）**：
   - 图片：走 `imageAssetIds`（image 能力只读该字段）。
   - 视频：走 `references:[{id,kind,role,label}]`（含 `role:voice`）+ 需要模型发声时 `audioAssetIds`；`generateAudio` 必须与「本段是否说话」一致。
-  - 锚定表从 `recut.worlds.get.references[]` 的 role 构建：`character` / `environment` / `voice` / `prop` / `style-ref` / `sfx` / `music`。
+  - 锚定表从 `recut.worlds.entities.get` 实体 media 字段的 role 构建：`character` / `environment` / `voice` / `prop` / `style-ref` / `sfx` / `music`。
 - **角色声线**：World 有声线参考时，角色台词/独白**必须用该声线**（参考音 → 声音角色 → 合成），不静默用默认 TTS。
 - **图形**：`recut.motion-graphic.create` → 等 `verified` 才落轨。
 

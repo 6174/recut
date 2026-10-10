@@ -23,7 +23,7 @@
 | `prop`（**道具**） | 描述 / 外观与标志 / **道具卡 `prop_reference`（media/image）** |
 | `script`（视频脚本） | 一句话概括 / 目标时长 / 画幅 / 目标平台 / 整片分镜（可选，仅预览） |
 
-locked 字段只放**真 meta 与一句话摘要**；正文细节写 `detail`。**每个锚点实体的核心参考写进它自己的语义卡字段**：`character_reference`（role `character`）/ `location_reference`（role `environment`）/ `prop_reference`（role `prop`），`voice_reference` 是角色的**声线参考**（role `voice`）——`references[]` 直接按字段声明 role（`roleInferred=false`），其余 media 字段才靠推断。
+locked 字段只放**真 meta 与一句话摘要**；正文细节写 `detail`。**每个锚点实体的核心参考写进它自己的语义卡字段**：`character_reference`（role `character`）/ `location_reference`（role `environment`）/ `prop_reference`（role `prop`），`voice_reference` 是角色的**声线参考**（role `voice`）——这三个语义卡字段直接声明生成 role（`character_reference`→`character`、`location_reference`→`environment`、`prop_reference`→`prop`），生图时按字段取该 media 值直接传入；其余 media 字段才靠 label 推断。
 
 ## 世界级属性（不是实体）
 

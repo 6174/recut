@@ -1,6 +1,7 @@
 [
   "minimax-h3",
   "minimax-h3-one",
+  "minimax-h3-ref",
   "minimax-h3-turbo",
   "qwen-image-2.1",
   "sd-turbo"

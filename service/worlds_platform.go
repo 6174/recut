@@ -962,18 +962,14 @@ type WorldBrief struct {
 	Missing     []WorldBriefMissing   `json:"missing"`
 }
 
-// WorldContext is the merged recut.worlds.get payload: the world overview with
-// its current entity graph, unified with the brief's production context
-// (facts / constraints / references / missing at the selected revision). Since
-// worlds.get is the single world-read entry, one call now yields identity,
-// world.md, the entity graph, typed facts, constraints, anchorable references
-// and readiness gaps together.
+// WorldContext is the recut.worlds.get payload: the world overview with its
+// current entity graph (entities as identity meta, relations split into semantic
+// edges and the structural tree) plus the onboarding readiness gaps and the
+// stable local paths. world.md is inlined as WorldDetail.SkillMd. Body, attrs and
+// media are deliberately excluded — the payload stays a small read index, and one
+// entity's detail is fetched on demand via recut.worlds.entities.get.
 type WorldContext struct {
 	WorldDetail
-	Facts       WorldBriefFacts       `json:"facts"`
-	Constraints WorldConstraints      `json:"constraints"`
-	Evidence    []WorldEvidence       `json:"evidence"`
-	References  []WorldBriefReference `json:"references"`
 	// Readiness carries level/score/scenarioId + the same actionable gaps the
 	// onboarding UI shows (merged; the standalone readiness tool was removed).
 	Readiness WorldReadiness `json:"readiness"`
@@ -990,15 +986,13 @@ type WorldPaths struct {
 	FilesRoot string `json:"filesRoot,omitempty"`
 }
 
-// GetWorldContext merges GetWorldGraph (current graph), Brief (revision
-// context) and Readiness (onboarding gaps) for the merged recut.worlds.get
-// tool. scenarioID is optional; empty uses the blueprint recommended by type.
+// GetWorldContext merges GetWorldGraph (current graph), Readiness (onboarding
+// gaps) and Paths for recut.worlds.get. scenarioID is optional; empty uses the
+// blueprint recommended by type. The brief's facts/references/constraints were
+// retired from this payload — the world's content lives in world.md, and entity
+// detail is read on demand via entities.get.
 func (w *WorldStore) GetWorldContext(input BriefInput, scenarioID string) (WorldContext, error) {
 	graph, err := w.GetWorldGraph(input.WorldID)
-	if err != nil {
-		return WorldContext{}, err
-	}
-	brief, err := w.Brief(input)
 	if err != nil {
 		return WorldContext{}, err
 	}
@@ -1015,10 +1009,6 @@ func (w *WorldStore) GetWorldContext(input BriefInput, scenarioID string) (World
 	}
 	return WorldContext{
 		WorldDetail: graph,
-		Facts:       brief.Facts,
-		Constraints: brief.Constraints,
-		Evidence:    brief.Evidence,
-		References:  brief.References,
 		Readiness:   readiness,
 		Paths:       paths,
 	}, nil

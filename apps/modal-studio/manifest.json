@@ -259,6 +259,232 @@
               }
             },
             {
+              "id": "minimax-h3-ref",
+              "name": "MiniMax-H3 参考生视频·人脸保持档",
+              "capability": "video.generate",
+              "runtime": "modal",
+              "sizeGb": 0,
+              "inputModes": [
+                "text",
+                "image",
+                "video",
+                "audio"
+              ],
+              "parameters": [
+                {
+                  "name": "prompt",
+                  "type": "string"
+                },
+                {
+                  "name": "aspectRatio",
+                  "type": "string",
+                  "enum": [
+                    "21:9",
+                    "16:9",
+                    "4:3",
+                    "1:1",
+                    "3:4",
+                    "9:16"
+                  ],
+                  "default": "16:9"
+                },
+                {
+                  "name": "resolution",
+                  "type": "string",
+                  "enum": [
+                    "1536",
+                    "1024",
+                    "768"
+                  ],
+                  "default": "1536"
+                },
+                {
+                  "name": "durationSec",
+                  "type": "number",
+                  "default": 5,
+                  "min": 4,
+                  "max": 15
+                },
+                {
+                  "name": "steps",
+                  "type": "number",
+                  "default": 9,
+                  "min": 5,
+                  "max": 12
+                },
+                {
+                  "name": "seed",
+                  "type": "number",
+                  "default": -1
+                },
+                {
+                  "name": "referenceSheet",
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "off"
+                  ],
+                  "default": "auto"
+                },
+                {
+                  "name": "faceRefine",
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "off",
+                    "codeformer",
+                    "gfpgan"
+                  ],
+                  "default": "auto"
+                },
+                {
+                  "name": "faceFidelity",
+                  "type": "number",
+                  "default": 0.6,
+                  "min": 0.0,
+                  "max": 1.0
+                },
+                {
+                  "name": "faceCropFactor",
+                  "type": "number",
+                  "default": 2.5,
+                  "min": 1.5,
+                  "max": 4.0
+                },
+                {
+                  "name": "faceCanvasSize",
+                  "type": "string",
+                  "enum": [
+                    "512",
+                    "768"
+                  ],
+                  "default": "768"
+                },
+                {
+                  "name": "facePersonFallback",
+                  "type": "boolean",
+                  "default": false
+                },
+                {
+                  "name": "keepRaw",
+                  "type": "boolean",
+                  "default": true
+                }
+              ],
+              "referenceFields": [
+                {
+                  "field": "referenceImages",
+                  "role": "image",
+                  "multiple": true
+                },
+                {
+                  "field": "referenceVideos",
+                  "role": "video",
+                  "multiple": true
+                },
+                {
+                  "field": "referenceAudios",
+                  "role": "audio",
+                  "multiple": true
+                }
+              ],
+              "weights": {
+                "huggingFace": "MiniMaxAI/MiniMax-H3",
+                "modelScope": "",
+                "revision": "main"
+              },
+              "referenceBudgets": [
+                {
+                  "maxImages": 9,
+                  "maxVideos": 3,
+                  "maxAudios": 3
+                }
+              ],
+              "localized": {
+                "zh": {
+                  "name": "MiniMax-H3 参考生视频·人脸保持档"
+                },
+                "en": {
+                  "name": "MiniMax-H3 Reference-to-Video (face-preserving)"
+                }
+              }
+            },
+            {
+              "id": "minimax-h3-face-refine",
+              "name": "MiniMax-H3 参考生视频·人脸保持档",
+              "capability": "video.generate",
+              "runtime": "modal",
+              "sizeGb": 0,
+              "inputModes": [
+                "text",
+                "video"
+              ],
+              "parameters": [
+                {
+                  "name": "faceRefine",
+                  "type": "string",
+                  "enum": [
+                    "codeformer",
+                    "gfpgan"
+                  ],
+                  "default": "codeformer"
+                },
+                {
+                  "name": "faceFidelity",
+                  "type": "number",
+                  "default": 0.6,
+                  "min": 0.0,
+                  "max": 1.0
+                },
+                {
+                  "name": "faceCropFactor",
+                  "type": "number",
+                  "default": 2.5,
+                  "min": 1.5,
+                  "max": 4.0
+                },
+                {
+                  "name": "faceCanvasSize",
+                  "type": "string",
+                  "enum": [
+                    "512",
+                    "768"
+                  ],
+                  "default": "768"
+                },
+                {
+                  "name": "facePersonFallback",
+                  "type": "boolean",
+                  "default": false
+                }
+              ],
+              "referenceFields": [
+                {
+                  "field": "referenceVideos",
+                  "role": "video",
+                  "multiple": false
+                }
+              ],
+              "weights": {
+                "huggingFace": "MiniMaxAI/MiniMax-H3",
+                "modelScope": "",
+                "revision": "main"
+              },
+              "referenceBudgets": [
+                {
+                  "maxVideos": 1
+                }
+              ],
+              "localized": {
+                "zh": {
+                  "name": "MiniMax-H3 参考生视频·人脸保持档"
+                },
+                "en": {
+                  "name": "MiniMax-H3 Reference-to-Video (face-preserving)"
+                }
+              }
+            },
+            {
               "id": "minimax-h3-turbo",
               "name": "MiniMax-H3 极速版（Turbo 文/首尾帧；参考走 base）",
               "capability": "video.generate",

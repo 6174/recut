@@ -114,11 +114,13 @@ modal.modalapp.remove { id }              # 删除用户预设包（内置不可
 | `minimax-h3` | video.generate | 文生视频 / 首尾帧生视频（带原生音频） | `MiniMaxAI/MiniMax-H3`（FL2VA，约 134GB，HF gated） | H200×4 / H100×4 / B200×4 / B200×8 |
 | `minimax-h3-one` | video.generate | 与上同（base 50 步） | 同上权重（共用 `recut-minimax-h3-models` 卷） | RTX PRO 6000 / H100 / H200 / B200 / B300（**单卡 + GPU 快照**） |
 | `minimax-h3-turbo` | video.generate | 文生视频 / 首尾帧生视频（larryvrh **Turbo 9 步**）+ 参考生视频（lightx2v **Turbo 8 步**），带原生音频；两份 LoRA 均由 bootstrap 离线合并 | 同上权重（共用卷）+ 两份 Turbo LoRA | RTX PRO 6000 / H200 / B200 / B300（**单卡 + GPU 快照 + 形状预热**） |
+| `minimax-h3-ref` | video.generate | **参考生视频·人脸保持档**（Ref2VA 8 步 + 参考组增强 L1 + 生成后人脸修复 L4；另有 `face-refine` 视频→视频修复函数） | 复用上面两份（权重卷 + turbo 的 `ref2va-transformer`，**不下载**）+ 人脸小模型（YuNet / CodeFormer ONNX） | RTX PRO 6000 / H200 / B200（单卡 + GPU 快照；**默认精确注意力**，人脸优先） |
 | `qwen-image-2.1` | image.generate | 文生图 / 图像编辑（最多 10 张参考图） | `Qwen/Qwen-Image-2.1`（约 33GB，原生 2K） | A100 80GB（默认）/ H100 / H200 / L40S |
 | `sd-turbo` | image.generate | 文生图 / 图生图 | `stabilityai/sd-turbo`（约 3GB） | T4 / A10G |
 
 > `minimax-h3` 用 SGLang 多卡服务：容器内按探测到的 GPU 选择官方已验证 recipe；需先 `modal.secret.set { name: "recut-hf-token", values: { HF_TOKEN } }` 并在 Hugging Face 申请 `MiniMaxAI/MiniMax-H3` 访问授权。详见 `modalapps/minimax-h3/README.md`。
 > `minimax-h3-one`（单卡 + GPU 快照，base 50 步）与 `minimax-h3-turbo`（单卡 + GPU 快照，Turbo 9 步：LoRA 在 bootstrap 里离线合并进权重）**共用同一 `recut-minimax-h3-models` 权重卷**，权重只下一次；两者都把 SGLang 常驻服务冻进 GPU memory snapshot，冷启动秒级。分别见各自 README。
+> `minimax-h3-ref` 是**只做参考生视频的主场景「人脸保持档」**：复用 `recut-minimax-h3-models` 与 `recut-minimax-h3-turbo-merged`（**请先对 `minimax-h3-turbo` 跑一次 `modal.install`**，它下 Ref2VA 权重并离线合并 lightx2v ref2v LoRA），本包只新增人脸检测/修复小模型卷；注意力默认精确（`fa`）；生成后做参考组增强与人脸修复，并保留原始产物以便「只重跑修复」。见 `modalapps/minimax-h3-ref/README.md`。
 
 ## 扩展一个新预设包
 

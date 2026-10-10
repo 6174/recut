@@ -1284,7 +1284,8 @@ func TestEntityCoverIsFirstClassField(t *testing.T) {
 		t.Fatalf("cover after replace = %#v, want assetId %s", replaced.Cover, second)
 	}
 
-	// The world graph projects the cover for list/card surfaces.
+	// The world graph is a read index: the card carries identity meta only, so
+	// the cover lives on the entity detail (entities.get), not the graph.
 	detail, err := worlds.GetWorldGraph(worldID)
 	if err != nil {
 		t.Fatal(err)
@@ -1293,8 +1294,8 @@ func TestEntityCoverIsFirstClassField(t *testing.T) {
 	for _, card := range detail.Entities {
 		if card.ID == entity.ID {
 			cardFound = true
-			if card.Cover == nil || card.Cover.AssetID != second {
-				t.Fatalf("graph card cover = %#v, want assetId %s", card.Cover, second)
+			if card.Name != entity.Name || card.TypeID != EntityTypeCharacter {
+				t.Fatalf("graph card meta = %#v", card)
 			}
 		}
 	}

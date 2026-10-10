@@ -93,11 +93,13 @@ So editing manifests/docs/mocks no longer false-flags "redeploy required", and a
 | `minimax-h3` | video.generate | text-to-video / first-last-frame (native audio) | `MiniMaxAI/MiniMax-H3` (FL2VA, ~134GB, HF-gated) | H200×4 / H100×4 / B200×4 / B200×8 |
 | `minimax-h3-one` | video.generate | same (base 50-step) | same weights (shares the `recut-minimax-h3-models` volume) | RTX PRO 6000 / H100 / H200 / B200 / B300 (**single-GPU + GPU snapshot**) |
 | `minimax-h3-turbo` | video.generate | text-to-video / first-last-frame (larryvrh **Turbo 9-step**) + reference-to-video (lightx2v **Turbo 8-step**), native audio; both LoRAs offline-merged in bootstrap | same weights (shared volume) + two Turbo LoRAs | RTX PRO 6000 / H200 / B200 / B300 (**single-GPU + GPU snapshot + shape warmup**) |
+| `minimax-h3-ref` | video.generate | **reference-to-video, face-preserving** (Ref2VA 8-step + reference-sheet anchoring L1 + post face refine L4; plus a `face-refine` video→video function) | reuses both above (weights volume + turbo's `ref2va-transformer`, **no download**) + small face models (YuNet / CodeFormer ONNX) | RTX PRO 6000 / H200 / B200 (**single-GPU + GPU snapshot; exact attention by default**, face-first) |
 | `qwen-image-2.1` | image.generate | text-to-image / image edit (up to 10 references) | `Qwen/Qwen-Image-2.1` (~33GB, native 2K) | A100 80GB (default) / H100 / H200 / L40S |
 | `sd-turbo` | image.generate | text-to-image / image-to-image | `stabilityai/sd-turbo` (~3GB) | T4 / A10G |
 
 > `minimax-h3` serves H3 with multi-GPU SGLang: the container picks the official verified recipe from the detected GPU. You must first run `modal.secret.set { name: "recut-hf-token", values: { HF_TOKEN } }` and get access approval for `MiniMaxAI/MiniMax-H3` on Hugging Face. See `modalapps/minimax-h3/README.md`.
 > `minimax-h3-one` (single-GPU + GPU snapshot, base 50-step) and `minimax-h3-turbo` (single-GPU + GPU snapshot, Turbo 9-step few-step LoRA) **share the same `recut-minimax-h3-models` volume**, so weights are downloaded only once; both freeze the resident SGLang service into a GPU memory snapshot for second-level cold starts. See each README.
+> `minimax-h3-ref` is the **reference-to-video "face-preserving" pack** for the main scenario: it reuses `recut-minimax-h3-models` and `recut-minimax-h3-turbo-merged` (**run `modal.install` for `minimax-h3-turbo` first** — it downloads the Ref2VA partition and offline-merges the lightx2v ref2v LoRA), adding only a small face-model volume. Exact attention (`fa`) by default; it does reference-sheet anchoring and a post face-refine pass, keeping the raw output for a repair-only re-run. See `modalapps/minimax-h3-ref/README.md`.
 
 ## Extending
 

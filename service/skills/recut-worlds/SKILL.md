@@ -125,7 +125,7 @@ type EdgeProps = {
 
 | 意图 | 工具 | 说明 |
 |---|---|---|
-| 发现 / 读取世界 | `recut.worlds.list` / `recut.worlds.get` | `get` 是**单一入口**：概览 + world.md（`skillMd`）+ 实体图 + `facts` + `constraints` + `references[]` + `readiness.missing`；不传 `selection` 即整库 |
+| 发现 / 读取世界 | `recut.worlds.list` / `recut.worlds.get` | `get` 是**轻量读取索引**（恒定落在工具输出预算内）：概览 + world.md（`skillMd`）+ 实体图（`entities` 只给身份 meta `id/typeId/name/intro`；`relations` 语义边 `{from,to,role,toRole?}`；`tree` 结构链 `has_*` 按父 + role 归组）+ `readiness.missing`。**正文 / 属性 / 媒体不在这里**——按需 `entities.get` |
 | 读取内容 | `recut.worlds.entities.list` / `entities.get` / `entityTypes.list` | 只读；`entities.list` 支持 `typeId` / `parentId` / `text` / `includeProvisional` |
 | 读画布 | `recut.worlds.doc`（某层）/ `docs`（层索引） | `contextId=""` 为根画布 |
 | 写内容 | `recut.worlds.entity` | op：`create`（可带 `contextId` 落投影卡）/ `update` / `archive` / `restore` / `confirm` |
@@ -159,7 +159,7 @@ type EdgeProps = {
 
 输入：世界里已有角色 / 场景 / 道具。目标：产出一个 `work` 及其脚本与视频节点。
 
-1. **读世界**：基础操作 A——`world.get` 取已有资产、`references[]`、风格。
+1. **读世界**：基础操作 A——`world.get` 取实体清单与 world.md（世界风格 / 资源口径）；需要某个锚点的参考图再 `entities.get`。
 2. **建作品**：基础操作 B——`work` 建在根画布，`work.detail` 写**完整内容（一次写全）**。
 3. **写脚本**：一个作品可多集，**一集一个 `script`**（`script.detail` = 本集脚本；模板见 `content-templates.md`）。
 4. **拆段为视频节点**：把脚本里每个「一次生成的视频段」写成一段拍摄设计（空间 / 调度 / 摄影 / 灯光 / 声音 / 旁白·台词，一次生成 ≤ 单次上限），作为画布上的**视频节点**提交生成——不建场 / 镜实体。`script.detail` 就是这段设计的料场。
@@ -174,7 +174,7 @@ type EdgeProps = {
 
 ### 基础操作 A｜读世界（生成 / 编辑前必做）
 
-1. **`recut.worlds.get({ worldId })`（单一入口，缺省整库）**：一次拿到身份、world.md、实体图、`facts`、`constraints`、`references[]` 与 `readiness.missing`。**不要习惯性传 `selection`**——会丢掉主角色与风格锚点。
+1. **`recut.worlds.get({ worldId })`（单一入口）**：一次拿到身份、world.md（`skillMd`）、实体图（实体 meta + 语义关系 + 结构链）与 `readiness.missing`。**正文、属性与媒体不在这个调用里**——需要某实体的 detail / attrs / 参考图时用 `entities.get`（单个实体全文，含 `character_reference` / `location_reference` / `prop_reference` / `voice_reference` 等 media 字段）。
 2. **按需深读**：单实体用 `entities.get`；大世界用 `entities.list` 分页；`graphTruncated=true` 时补读。
 
 ### 基础操作 B｜建 / 改作品与内容
@@ -205,9 +205,9 @@ type EdgeProps = {
 
 **调 generate → 拿 assetId → 落位**；视频由平台落为待用户确认态，用户在画布确认后才生成。
 
-**参考自查（生图 / 生视频 / 配音通用；Rules 为硬约束）**：提交前先取参考，不许「纯文本直出」——先读 `references[]`，画面出现主角色带 `role="character"`（`character_reference`）、关键道具带 `prop`（`prop_reference`）、场景 / 风格 / 色卡按 `environment` / `style-ref` / `color-card`（场景取 `location_reference`）、角色说话带声线 `voice`（`voice_reference`）；视频用 `references:[{id,kind,role,label}]`（含 audio role）+ 需要发声时 `audioAssetIds`；只有**明确无角色**的纯空场景可省参考。
+**参考自查（生图 / 生视频 / 配音通用；Rules 为硬约束）**：提交前先取参考，不许「纯文本直出」——先读 world.md 的「资源口径」，再用 `entities.get` 取本次画面 / 声音涉及的实体 media 参考：画面出现主角色带 `role="character"`（该实体 `character_reference`）、关键道具带 `prop`（`prop_reference`）、场景 / 风格 / 色卡按 `environment` / `style-ref` / `color-card`（场景取 `location_reference`）、角色说话带声线 `voice`（`voice_reference`）；视频用 `references:[{id,kind,role,label}]`（含 audio role）+ 需要发声时 `audioAssetIds`；只有**明确无角色**的纯空场景可省参考。
 
-**主流程**：读 world → 用 `recut-director（references/generation-prompt）` 写提示词 → 导出 `references`（`id`=assetId，顺序即 `referenceIds`）→ 执行（`video.generate` / `image.generate` / `speech.generate`）→ 落位。
+**主流程**：读 world.md + `entities.get` 取锚点参考 → 用 `recut-director（references/generation-prompt）` 写提示词 → 导出 `references`（`id`=assetId，顺序即 `referenceIds`）→ 执行（`video.generate` / `image.generate` / `speech.generate`）→ 落位。
 
 **落位（生成中节点 + 属性边）**：`assetId` 在排队 / 生成中已稳定可引用，**不要等生成完成**。用 `recut.worlds.doc.update` 在同一层放两笔：
 

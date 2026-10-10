@@ -51,7 +51,7 @@
 1. **G3 花钱门**：呈报 Plan + 预算；获批后连续执行到落轨（视频确认是第二个人工门，不承诺无中断）。
 2. 生成（政策见 `SKILL.md` §6）：
    - 逐段/场景提交；一段连续动作优先一次多镜生成；
-   - 参考按能力提交：图片 `imageAssetIds`；视频 `references`（含 `role:voice`）+ 必要时 `audioAssetIds`；新主体/世界锚定取自 `recut.worlds.get.references[]`；
+   - 参考按能力提交：图片 `imageAssetIds`；视频 `references`（含 `role:voice`）+ 必要时 `audioAssetIds`；新主体/世界锚定取自 `recut.worlds.entities.get` 的实体 media 字段；
    - **镜头语言锚点**：参考的帧/接触表/片段按 role 传入（`style-ref` 调色质感 / `motion-ref` 运镜时序·走 `videoAssetIds` / `storyboard` 构图），与角色/场景锚点并列——不传就生成不出相似镜头感；
    - **分镜图直接驱动（默认）**：分镜表/分镜图**整张作 `role="storyboard"` 参考直提交**，不逐格重生成；参考名额有限，仅在升级条件（模型吃 storyboard 参考弱/需精确首尾帧/代表镜 proof 不过，见 `SKILL.md` §6）下才 `gridSlice` 切格细化关键帧；
    - 信息/数据/排版走 `recut.motion-graphic.create`（等 `verified`）；

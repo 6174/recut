@@ -22,7 +22,7 @@ description: 决定「这部片子怎么排产」——备齐锚点、把戏拆�
 ## 一、先备锚点（缺一不排产）
 
 生成要有锚点：主角色参考图、场景图、道具图（关键道具）、风格锚点、声线参考（**不含分镜表——storyboard 不是生成参考**）。
-- 世界已有 → 直接引用（`recut.worlds.get` 的 `references[]`，按 role：`character` / `environment` / `prop` / `style-ref` / `voice`）。
+- 世界已有 → 直接引用（`recut.worlds.entities.get` 的实体 media 字段，按 role：`character` / `environment` / `prop` / `style-ref` / `voice`）。
 - 世界没有 → **先做**（见 `references/assets`），不要"纯文本直出"。
 
 > 判断依据：**这是"世界生图/生视频不带参考图"这条最严重误用的根因**——不是 Agent 不听话，是链里根本没有"先备锚点"这一步。

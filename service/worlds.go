@@ -142,13 +142,14 @@ type WorldDetail struct {
 	SkillMd              string            `json:"skillMd"`
 	Revision             WorldRevisionView `json:"revision"`
 	AvailableEntityKinds []string          `json:"availableEntityKinds"`
-	// Entities / Relations 是 World 的实体图：World 本身就是 entities + relations，
-	// 读取一个 World 必须能看到这个图，而不是只看计数。为控制上下文长度这里用紧凑
-	// 投影（实体带 media 锚点，不含正文）；超出上限置 GraphTruncated，改走
-	// entities.list（分页）/ entities.get（单个全文）/ brief（按 selection 取事实）。
-	Entities       []WorldEntityCard     `json:"entities"`
-	Relations      []WorldEntityRelation `json:"relations"`
-	GraphTruncated bool                  `json:"graphTruncated,omitempty"`
+	// Entities / Relations / Tree 是 World 的实体图。world.get 只是"读取索引"：
+	// 实体仅身份 meta（id/typeId/name/intro），关系拆成语义边（Relations）与结构
+	// 链（Tree，has_*），一律不含正文/属性/媒体。正文与媒体改走 entities.get（单个
+	// 全文）；超出上限置 GraphTruncated。
+	Entities       []WorldEntityCard    `json:"entities"`
+	Relations      []WorldGraphRelation `json:"relations"`
+	Tree           []WorldGraphTreeEdge `json:"tree,omitempty"`
+	GraphTruncated bool                 `json:"graphTruncated,omitempty"`
 }
 
 // WorldOriginMeta records where a World came from and how its lifecycle is
@@ -244,35 +245,42 @@ type WorldEntityCover struct {
 	Kind    string `json:"kind,omitempty"`
 }
 
-// WorldEntityCard is the compact entity node world.get returns as part of the
-// world graph: identity plus its media anchors (assetId/kind/label) so an Agent
-// knows who exists and which reference images are available without extra calls.
-// Full attrs/body stay behind entities.get / brief.
+// WorldEntityCard is the compact identity node world.get returns as part of the
+// world graph: id / typeId / name / intro only. Body, attrs and media anchors are
+// deliberately NOT in world.get — the tool must stay a small, always-on-budget
+// read index. Fetch one entity's detail (body / attrs / media references) with
+// recut.worlds.entities.get.
 type WorldEntityCard struct {
-	ID            string             `json:"id"`
-	TypeID        string             `json:"typeId"`
-	Name          string             `json:"name"`
-	Intro         string             `json:"intro"`
-	ParentID      string             `json:"parentId,omitempty"`
-	Cover         *WorldEntityCover  `json:"cover,omitempty"`
-	IsProvisional bool               `json:"isProvisional,omitempty"`
-	Media         []WorldEntityMedia `json:"media,omitempty"`
-	UpdatedAt     string             `json:"updatedAt"`
+	ID     string `json:"id"`
+	TypeID string `json:"typeId"`
+	Name   string `json:"name"`
+	Intro  string `json:"intro"`
 }
 
-// WorldEntityMedia is one media attr projection on a WorldEntityCard.
-type WorldEntityMedia struct {
-	AssetID string `json:"assetId,omitempty"`
-	URL     string `json:"url,omitempty"`
-	Kind    string `json:"kind,omitempty"`
-	Label   string `json:"label,omitempty"`
+// WorldGraphRelation is one semantic relation edge in the world.get graph: the
+// two ends plus the role tokens. The relation's own id is omitted from the read
+// projection (writes take it from entities.get); structural has_* edges are
+// grouped into WorldGraphTreeEdge instead.
+type WorldGraphRelation struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Role   string `json:"role"`
+	ToRole string `json:"toRole,omitempty"`
+}
+
+// WorldGraphTreeEdge groups the structural chain (has_*) by parent + role so the
+// parent id is emitted once instead of once per edge — the production tree stays
+// readable without repeating from-ids or per-row key names.
+type WorldGraphTreeEdge struct {
+	From string   `json:"from"`
+	Role string   `json:"role"`
+	To   []string `json:"to"`
 }
 
 // world.get 的图投影上限：超出即截断并置 GraphTruncated，引导 Agent 分页/按需读取。
 const (
 	worldGraphEntityMax   = 200
 	worldGraphRelationMax = 400
-	worldEntityMediaMax   = 8
 )
 
 type WorldEntityRelation struct {
@@ -642,76 +650,81 @@ func (w *WorldStore) getWorldDetail(db *sql.DB, worldID string, includeGraph boo
 	detail.Revision = WorldRevisionView{ID: revisionID, CanonicalHash: canonicalHash, CreatedAt: revisionCreatedAt}
 	detail.AvailableEntityKinds = availableEntityKinds(detail.Type)
 	if includeGraph {
-		entities, relations, truncated, graphErr := w.worldGraph(db, worldID)
+		entities, relations, tree, truncated, graphErr := w.worldGraph(db, worldID)
 		if graphErr != nil {
 			return WorldDetail{}, graphErr
 		}
 		detail.Entities = entities
 		detail.Relations = relations
+		detail.Tree = tree
 		detail.GraphTruncated = truncated
 	}
 	return detail, nil
 }
 
-// worldGraph reads a World's entity graph in bounded, decision-sized form:
-// entities (identity + media anchors, no body) and relations (id, ends, and
-// both endpoint roles fromRole/toRole). It caps rows to keep recut.worlds.get
-// within the tool output budget; callers see GraphTruncated and page with
-// entities.list / entities.get instead.
-func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, []WorldEntityRelation, bool, error) {
-	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary, cover_json, attrs_json, parent_id, is_provisional, updated_at from world_entities where world_id = ? and archived_at is null order by coalesce(nullif(type_id, ''), kind), updated_at desc limit ?", worldID, worldGraphEntityMax+1)
+// worldGraph reads a World's entity graph in bounded, index-sized form: entities
+// (identity meta only — id/typeId/name/intro) and relations split into semantic
+// edges (Relations) and the structural has_* chain (Tree, grouped by parent so
+// the parent id repeats once). Body/attrs/media are never included. Rows are
+// capped to keep recut.worlds.get within the tool output budget; callers see
+// GraphTruncated and page with entities.list / entities.get.
+func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, []WorldGraphRelation, []WorldGraphTreeEdge, bool, error) {
+	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary from world_entities where world_id = ? and archived_at is null and is_provisional = 0 order by coalesce(nullif(type_id, ''), kind), updated_at desc limit ?", worldID, worldGraphEntityMax+1)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
 	defer rows.Close()
 	entities := make([]WorldEntityCard, 0)
 	for rows.Next() {
 		var card WorldEntityCard
-		var coverJSON, attrsJSON string
-		var parentID sql.NullString
-		var provisional int
-		if err := rows.Scan(&card.ID, &card.TypeID, &card.Name, &card.Intro, &coverJSON, &attrsJSON, &parentID, &provisional, &card.UpdatedAt); err != nil {
-			return nil, nil, false, err
+		if err := rows.Scan(&card.ID, &card.TypeID, &card.Name, &card.Intro); err != nil {
+			return nil, nil, nil, false, err
 		}
-		card.ParentID = nullStringValue(parentID)
-		card.Cover = decodeEntityCover(coverJSON)
-		card.IsProvisional = provisional != 0
-		card.Media = entityMediaAnchors(attrsJSON)
 		entities = append(entities, card)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
 	truncated := len(entities) > worldGraphEntityMax
 	if truncated {
 		entities = entities[:worldGraphEntityMax]
 	}
 
-	relationRows, err := db.Query("select id, relation_type, to_role, from_entity_id, to_entity_id, scope_entity_id, is_provisional from world_relations where world_id = ? order by created_at limit ?", worldID, worldGraphRelationMax+1)
+	relationRows, err := db.Query("select relation_type, to_role, from_entity_id, to_entity_id from world_relations where world_id = ? and is_provisional = 0 order by created_at limit ?", worldID, worldGraphRelationMax+1)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
 	defer relationRows.Close()
-	relations := make([]WorldEntityRelation, 0)
+	relations := make([]WorldGraphRelation, 0)
+	type treeKey struct{ from, role string }
+	treeIndex := map[treeKey]int{}
+	tree := make([]WorldGraphTreeEdge, 0)
+	read := 0
 	for relationRows.Next() {
-		var relation WorldEntityRelation
-		var scopeEntityID sql.NullString
-		var provisional int
-		if err := relationRows.Scan(&relation.ID, &relation.FromRole, &relation.ToRole, &relation.FromEntityID, &relation.ToEntityID, &scopeEntityID, &provisional); err != nil {
-			return nil, nil, false, err
+		var role, toRole, fromID, toID string
+		if err := relationRows.Scan(&role, &toRole, &fromID, &toID); err != nil {
+			return nil, nil, nil, false, err
 		}
-		relation.ScopeEntityID = nullStringValue(scopeEntityID)
-		relation.IsProvisional = provisional != 0
-		relations = append(relations, relation)
+		read++
+		if strings.HasPrefix(role, "has_") {
+			key := treeKey{from: fromID, role: role}
+			if at, ok := treeIndex[key]; ok {
+				tree[at].To = append(tree[at].To, toID)
+			} else {
+				treeIndex[key] = len(tree)
+				tree = append(tree, WorldGraphTreeEdge{From: fromID, Role: role, To: []string{toID}})
+			}
+			continue
+		}
+		relations = append(relations, WorldGraphRelation{From: fromID, To: toID, Role: role, ToRole: toRole})
 	}
 	if err := relationRows.Err(); err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
-	if len(relations) > worldGraphRelationMax {
+	if read > worldGraphRelationMax {
 		truncated = true
-		relations = relations[:worldGraphRelationMax]
 	}
-	return entities, relations, truncated, nil
+	return entities, relations, tree, truncated, nil
 }
 
 // decodeEntityCover parses a stored cover_json into the first-class cover
@@ -765,41 +778,6 @@ func coverFromCanonical(raw any) *WorldEntityCover {
 		return nil
 	}
 	return &cover
-}
-
-// entityMediaAnchors projects an entity's attrs_json into compact media anchors.
-func entityMediaAnchors(attrsJSON string) []WorldEntityMedia {
-	if strings.TrimSpace(attrsJSON) == "" {
-		return nil
-	}
-	var attrs []EntityAttr
-	if err := json.Unmarshal([]byte(attrsJSON), &attrs); err != nil {
-		return nil
-	}
-	media := make([]WorldEntityMedia, 0)
-	for _, attr := range attrs {
-		if attr.Type != "media" || len(media) >= worldEntityMediaMax {
-			continue
-		}
-		payload, ok := attr.Value.(map[string]any)
-		if !ok {
-			continue
-		}
-		assetID, _ := payload["assetId"].(string)
-		url, _ := payload["url"].(string)
-		if strings.TrimSpace(assetID) == "" && strings.TrimSpace(url) == "" {
-			continue
-		}
-		kind, _ := payload["kind"].(string)
-		if kind == "" && len(attr.Options) > 0 {
-			kind = attr.Options[0]
-		}
-		media = append(media, WorldEntityMedia{AssetID: assetID, URL: url, Kind: kind, Label: attr.Label})
-	}
-	if len(media) == 0 {
-		return nil
-	}
-	return media
 }
 
 // availableEntityKinds returns the preset type ids a World type surfaces first

@@ -378,10 +378,8 @@ func TestWorldsMCPGetReturnsEntityGraphAndSkill(t *testing.T) {
 	if !strings.Contains(fetched.SkillMd, "英雄走在夜巷") {
 		t.Fatalf("world.get must return world.md: %q", fetched.SkillMd)
 	}
-	// 合并后同一入口还要带生产上下文（facts / references）。
-	if len(fetched.Facts.Characters) != 1 || fetched.Facts.Characters[0]["name"] != "Hero" {
-		t.Fatalf("world.get must return facts: %#v", fetched.Facts)
-	}
+	// world.get 是轻量读索引：实体只给身份 meta（id/typeId/name/intro），
+	// 不再内联 facts/references，正文/媒体走 entities.get。
 	kinds := map[string]bool{}
 	for _, entity := range fetched.Entities {
 		kinds[entity.TypeID] = true
@@ -389,10 +387,10 @@ func TestWorldsMCPGetReturnsEntityGraphAndSkill(t *testing.T) {
 	if len(fetched.Entities) != 2 || !kinds["character"] || !kinds["location"] {
 		t.Fatalf("world.get entities = %#v", fetched.Entities)
 	}
-	if len(fetched.Relations) != 1 || fetched.Relations[0].FromRole != "located_in" {
+	if len(fetched.Relations) != 1 || fetched.Relations[0].Role != "located_in" {
 		t.Fatalf("world.get relations = %#v", fetched.Relations)
 	}
-	if fetched.Relations[0].FromEntityID != hero.ID || fetched.Relations[0].ToEntityID != alley.ID {
+	if fetched.Relations[0].From != hero.ID || fetched.Relations[0].To != alley.ID {
 		t.Fatalf("relation ends wrong: %#v", fetched.Relations[0])
 	}
 }

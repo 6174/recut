@@ -13,7 +13,8 @@ recut.worlds.get({ worldId, scenarioId? })
 
 - 一次拿到 `readiness`：`level`（skeleton / draft / ready）、`score`、`scenarioId` 与按优先级排序的
   `readiness.missing`（每项含 `kind`、`title`、`reason`、`suggestion`）；同一次调用还带回 world.md
-  （`skillMd`）、实体图、事实与 `references[]`，不必再单独读世界。
+  （`skillMd`）与实体图（实体 meta + 语义关系 + 结构链）；**实体正文 / 属性 / 媒体参考不在这个调用里**，
+  按需 `recut.worlds.entities.get` 取单个实体全文。
 - `scenarioId` 缺省按世界类型推荐：`fiction_world→novel-adaptation`、`creator_brand→ip-account`、
   `character_ip→style-system`、`brand→brand-guide`、`custom→blank`。用户给了素材线索时可选更贴合的
   蓝图（小说文本→novel-adaptation；账号链接→ip-account；风格图集→style-system）。
@@ -38,7 +39,7 @@ recut.worlds.get({ worldId, scenarioId? })
   `location`（场景）含 description；关键 `prop`（道具）含 description/appearance）。**正文（`detail`）是内容本体，attr 只放真 meta**——别把正文写进 attr。
 - **核心参考卡字段**：角色图写 `character_reference`（角色卡，role=character）、场景图写 `location_reference`
   （场景卡，role=environment）、道具图写 `prop_reference`（道具卡，role=prop）——它们是各自的**核心参考锚点**，
-  `references[]` 按字段声明 role。封面用实体一等字段 `cover`（非 attr）；普通装饰 attr **不要把参考图写进去**。
+  字段本身直接声明生成 role（`character_reference`→`character`、`location_reference`→`environment`、`prop_reference`→`prop`）。封面用实体一等字段 `cover`（非 attr）；普通装饰 attr **不要把参考图写进去**。
 - 原文与产出可追溯：角色卡字段尽量保留原文依据；用户追问时能指出出处。
 - 世界定位（identity）：从用户目的与素材归纳一句话定位，放入提案请用户确认。
 
