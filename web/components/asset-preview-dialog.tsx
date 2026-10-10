@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, ChevronUp, Copy, Download, ExternalLink, FileText, Link2, LoaderCircle, Maximize2, Minimize2, Music2, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Video, X, ZoomIn } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronUp, Copy, Download, ExternalLink, FileText, Link2, LoaderCircle, Maximize2, Minimize2, Music2, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Video, X, ZoomIn } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AudioWaveformPlayer } from "@/components/audio-waveform-player";
@@ -219,11 +219,14 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
   const [expanded, setExpanded] = useState(false);
   const [asideWidth, setAsideWidth] = useState(360);
   const [activeAsset, setActiveAsset] = useState<PreviewAsset>(initialAsset);
+  // 参考素材可点开：弹框用「就地换素材 + 返回栈」的浏览模型（见 openReference/goBack）。
+  // 用返回栈而非嵌套弹框，正是为了断开 A→B→A 这类循环——历史可回退，永远不会困在原地。
+  const [navStack, setNavStack] = useState<PreviewAsset[]>([]);
   const [remixing, setRemixing] = useState(false);
   const [remixError, setRemixError] = useState("");
   const { assetByID, assets: liveAssets, upsertAsset } = useMediaAssetEvents();
   const configuration = useMediaConfigurationStore();
-  useEffect(() => { setActiveAsset(initialAsset); }, [initialAsset.id]);
+  useEffect(() => { setActiveAsset(initialAsset); setNavStack([]); }, [initialAsset.id]);
   useEffect(() => { void configuration.load(apiBase); }, [apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
   const liveAsset = assetByID[activeAsset.id] as unknown as PreviewAsset | undefined;
   const asset = liveAsset ?? activeAsset;
@@ -305,6 +308,23 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
     window.setTimeout(() => setCopied(false), 1600);
   }
   const onImageClick = (src: string) => setLightbox(src);
+  // 点参考素材 → 就地把它切成当前素材（同一弹框、同一套预览＋属性能力），当前素材压栈供返回。
+  // 自引用（Remix 后 referenceIds 可能含自身）直接忽略，避免原地「跳到自己」；A↔B 互引也不死循环，返回栈即可退出。
+  const openReference = (reference: PreviewAsset) => {
+    if (reference.id === asset.id) return;
+    setCopied(false);
+    setRemixError("");
+    setNavStack((stack) => [...stack, asset]);
+    setActiveAsset(reference);
+  };
+  const goBack = () => {
+    const previous = navStack[navStack.length - 1];
+    if (!previous) return;
+    setCopied(false);
+    setRemixError("");
+    setNavStack((stack) => stack.slice(0, -1));
+    setActiveAsset(previous);
+  };
   // 预览与属性面板之间的拖拽分隔条：往左拖加宽属性面板，夹在 280px 与窗口 72% 之间。
   function startResize(event: React.MouseEvent) {
     event.preventDefault();
@@ -329,9 +349,14 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
     <div aria-modal="true" className={`fixed inset-0 z-[90] grid place-items-center bg-foreground/30 backdrop-blur-[1px] ${expanded ? "p-0" : "p-8"}`} onMouseDown={onClose} role="dialog">
       <section className={`flex flex-col overflow-hidden border bg-card shadow-2xl ${expanded ? "h-screen w-screen max-w-none rounded-none" : "h-[86vh] w-full max-w-5xl rounded-sm"}`} onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b px-5 py-3">
-          <div>
-            <p className="text-sm font-medium">{asset.name || "未命名素材"}</p>
-            <p className="mt-1 font-mono text-[10px] text-muted-foreground">{(asset.kind || "media").toUpperCase()} · {origin.toUpperCase()} · {status.toUpperCase()}</p>
+          <div className="flex min-w-0 items-center gap-2">
+            {navStack.length > 0 && (
+              <button aria-label="返回上一个素材" className="grid size-8 shrink-0 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={goBack} title={`返回 ${navStack[navStack.length - 1].name || "上一个素材"}`} type="button"><ChevronLeft className="size-4" /></button>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{asset.name || "未命名素材"}</p>
+              <p className="mt-1 font-mono text-[10px] text-muted-foreground">{(asset.kind || "media").toUpperCase()} · {origin.toUpperCase()} · {status.toUpperCase()}</p>
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button aria-label={expanded ? "退出全屏" : "全屏展开"} className="grid size-8 place-items-center rounded-xs text-muted-foreground hover:bg-muted" onClick={() => setExpanded((value) => !value)} title={expanded ? "退出全屏" : "全屏展开"} type="button">{expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}</button>
@@ -388,7 +413,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
                     {sourceTaskHref && <div><dt className="text-muted-foreground">生成任务</dt><dd className="mt-1 break-words"><a className="inline-flex items-center gap-1 text-primary hover:underline" href={sourceTaskHref} rel="noopener noreferrer" target="_blank">{sourceApp?.manifest.name ?? "在应用中打开任务"}<ExternalLink className="size-3" /></a><span className="mt-1 block break-all font-mono text-[10px] text-muted-foreground">{sourceTaskID}</span></dd></div>}
                     {providerTaskUrl && <div><dt className="text-muted-foreground">{submitted ? "已提交 · 上游任务" : "上游任务"}</dt><dd className="mt-1 break-words"><a className="inline-flex items-center gap-1 text-primary hover:underline" href={providerTaskUrl} rel="noopener noreferrer" target="_blank">{providerLabel ? `在 ${providerLabel} 查看` : "查看上游任务"}<ExternalLink className="size-3" /></a>{providerTaskID && <span className="mt-1 block break-all font-mono text-[10px] text-muted-foreground">{providerTaskID}</span>}</dd></div>}
                     {metadata.prompt !== undefined && <PromptSection prompt={String(metadata.prompt ?? "")} />}
-                    {references.length > 0 && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-3 gap-2">{references.map((ref) => <ReferencePreview key={ref.id} apiBase={apiBase} reference={ref} />)}</dd></div>}
+                    {references.some((ref) => ref.id !== asset.id) && <div><dt className="text-muted-foreground">参考素材</dt><dd className="mt-2 grid grid-cols-3 gap-2">{references.filter((ref) => ref.id !== asset.id).map((ref) => <ReferencePreview key={ref.id} apiBase={apiBase} reference={ref} onOpen={() => openReference(ref)} />)}</dd></div>}
                   </>
                 )}
               </dl>
@@ -397,7 +422,7 @@ export function AssetPreviewDialog({ apiBase, asset: initialAsset, assets = [], 
                 <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">{plan ? "把这条计划（说明 + 属性 + 引用）交给 AI 去生成。" : "复制受控资源引用和素材信息，直接粘贴到 Agent 对话即可。"}</p>
               </div>
             </PanelSection>
-            {!isComponent && <MaterialEditor apiBase={apiBase} asset={asset} />}
+            {!isComponent && <MaterialEditor apiBase={apiBase} asset={asset} key={asset.id} />}
           </aside>
         </div>
       </section>
@@ -1198,10 +1223,10 @@ function RetryGenerationButton({ apiBase, asset }: { apiBase: string; asset: Pre
   return <div className="grid gap-1.5"><button className="mx-auto flex h-8 items-center gap-1.5 rounded-xs border px-3 text-xs hover:bg-muted disabled:opacity-60" disabled={pending} onClick={() => void run(action)} type="button">{pending ? <LoaderCircle className="size-3.5 animate-spin text-primary" /> : uncertain || remoteRecoverable ? <RefreshCw className="size-3.5" /> : <RotateCcw className="size-3.5" />}{pending ? busyLabel : idleLabel}</button>{uncertain && recoverFailed && <button className="mx-auto text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-60" disabled={pending} onClick={() => void run("retry")} type="button">找不到远端任务，重新生成</button>}{error && <p className="text-xs text-destructive">{error}</p>}</div>;
 }
 
-function ReferencePreview({ apiBase, reference }: { apiBase: string; reference: PreviewAsset }) {
+function ReferencePreview({ apiBase, reference, onOpen }: { apiBase: string; reference: PreviewAsset; onOpen: () => void }) {
   const ready = (reference.status || "completed") === "completed";
   const source = mediaContentURL(apiBase, reference.id);
-  return <div className="min-w-0">{reference.kind === "image" && ready ? <img alt={reference.name} className="aspect-square w-full rounded-xs border object-cover" src={source} /> : reference.kind === "video" && ready ? <VideoFrame alt={reference.name || "参考视频"} className="aspect-square w-full rounded-xs border" src={source} /> : <div className="grid aspect-square place-items-center rounded-xs border bg-muted text-muted-foreground"><Music2 className="size-4" /></div>}<p className="mt-1 truncate text-[10px]" title={reference.name}>{reference.name}</p><GenerationDuration className="block truncate font-mono text-[9px] text-muted-foreground" item={reference} /></div>;
+  return <div className="group/ref min-w-0"><button className="relative block w-full cursor-zoom-in text-left" onClick={onOpen} title={`${reference.name ?? reference.id} · 打开`} type="button">{reference.kind === "image" && ready ? <img alt={reference.name} className="aspect-square w-full rounded-xs border object-cover" src={source} /> : reference.kind === "video" && ready ? <VideoFrame alt={reference.name || "参考视频"} className="aspect-square w-full rounded-xs border" src={source} /> : <div className="grid aspect-square place-items-center rounded-xs border bg-muted text-muted-foreground"><Music2 className="size-4" /></div>}<span className="pointer-events-none absolute inset-0 grid place-items-center rounded-xs bg-black/0 opacity-0 transition group-hover/ref:bg-black/10 group-hover/ref:opacity-100"><ZoomIn className="size-4 text-white drop-shadow" /></span></button><p className="mt-1 truncate text-[10px]" title={reference.name}>{reference.name}</p><GenerationDuration className="block truncate font-mono text-[9px] text-muted-foreground" item={reference} /></div>;
 }
 
 export function mediaContentURL(apiBase: string, assetID: string) {

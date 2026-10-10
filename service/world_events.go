@@ -35,7 +35,6 @@ var worldMutatingTools = map[string]bool{
 	"recut.worlds.entityType":        true,
 	"recut.worlds.revert":            true,
 	"recut.worlds.import":            true,
-	"recut.worlds.production.create": true,
 }
 
 // publishWorldChanged 在 MCP 写成功后发出一条世界变更通知。worldId 缺失（如新建

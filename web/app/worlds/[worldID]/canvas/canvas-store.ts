@@ -543,7 +543,20 @@ function offsetGeometry(geometry: WorldCanvasElement["geometry"] | undefined, dx
   return next;
 }
 
-// 粘贴整体偏移：给了锚点（右键「粘贴到此处」）时把片段包围盒左上角对到锚点；否则固定 +32。
+// 粘贴兜底锚点：没有鼠标锚点时取当前视口中心（世界坐标）——保证粘贴内容落在可见区域。
+// 跨画布层粘贴若沿用源位置（原 +32 偏移）会跑到视野外，用户看不到；无编辑器（未挂载）时返回 null 由调用方回落。
+function viewportCenterAnchor(editor: PomeloEditor | null): Point | null {
+  if (!editor) return null;
+  const view = editor.renderAdapter.getView();
+  if (!view) return null;
+  const rect = view.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  const t = editor.renderAdapter.transform;
+  return { x: (rect.width / 2 - t.x) / t.scale, y: (rect.height / 2 - t.y) / t.scale };
+}
+
+// 粘贴整体偏移：给了锚点（右键「粘贴到此处」/键盘粘贴的光标或视口中心）时把片段包围盒左上角对到锚点；
+// 无锚点且无编辑器时固定 +32。
 function pasteOffset(elements: WorldCanvasElement[], anchor?: Point): { dx: number; dy: number } {
   if (!anchor) return { dx: PASTE_OFFSET, dy: PASTE_OFFSET };
   let minX = Infinity;
@@ -1476,7 +1489,8 @@ type WorldCanvasState = {
   // 剪贴板（Cmd/Ctrl+C/X/V 与右键菜单）：复制为克隆副本；同 world 剪切粘贴为真移动（保留 id 与外部关系），
   // 跨 world 剪切粘贴克隆新 id 并删除源实体；当前 world 根节点（shape:world）恒被过滤。
   // 同 world 跨画布层剪切粘贴 = 一等移动（迁投影 + 重挂实体 + 重建关系，RFC 2026-10-06）。
-  // anchor 给定时片段左上角对到该世界坐标（右键「粘贴到此处」），否则 +32。
+  // anchor 给定时片段左上角对到该世界坐标（右键「粘贴到此处」/键盘粘贴的光标）；未给时回落视口中心，
+  // 保证粘贴内容落在当前可见区域（跨画布层不再沿用源位置跑到视野外），无编辑器（未挂载）时才用固定 +32。
   copySelection: () => void;
   cutSelection: () => Promise<void>;
   pasteClipboard: (anchor?: Point) => Promise<void>;
@@ -3255,7 +3269,8 @@ export const useWorldCanvasStore = create<WorldCanvasState>((set, get) => ({
     const targetContextId = state.elementsContextId;
     const targetParentId = state.context?.entityId ?? "";
     const targetContextTitle = state.context?.title ?? "全局画布";
-    const { dx, dy } = pasteOffset(fragment.elements, anchor);
+    // 锚点优先级：调用方显式锚点（右键「粘贴到此处」/键盘光标）→ 视口中心 → 固定 +32。
+    const { dx, dy } = pasteOffset(fragment.elements, anchor ?? viewportCenterAnchor(state.editor) ?? undefined);
     const client = createRecutWorldsClient(state.apiBase);
     const runWithRevision = async <T,>(action: (revisionId: string) => Promise<T>): Promise<T> => {
       try {

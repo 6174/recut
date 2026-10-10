@@ -21,7 +21,8 @@
  * 空白/世界节点右键 = 画布级菜单（粘贴到此处/全选/适应视图，带世界坐标，RFC 2026-10-06）；
  * Delete/Backspace 删除关系/草稿、实体走删除确认（B.6）；Cmd/Ctrl+Z = 语义撤销、Cmd/Ctrl+Shift+Z = 语义重做
  * （store.undoLastChange/redoLastChange，画布真相在 store/服务端）；Cmd/Ctrl+C/X/V = 复制/剪切/粘贴
- * （store.copySelection/cutSelection/pasteClipboard，实体与画布元素，world 根节点由 store 过滤）；
+ * （store.copySelection/cutSelection/pasteClipboard，实体与画布元素，world 根节点由 store 过滤；粘贴锚定当前
+ * 光标、光标不在画布内时回落视口中心——跨画布层粘贴内容也落在可见区域）；
  * 选区 overlay（关系线三控制点由 arrow-geometry.linkHandlePoints 给出：start/end 落在箭头与节点边缘
  * 的交点、mid 在可视段中点，避免默认锚点（节点中心）把控制点画到元素卡片上）+ 选中节点时其关联
  * 连线换高亮色重画（一眼看清连到哪些节点）+ 「+」手柄 +
@@ -183,6 +184,24 @@ export class CanvasBindsPlugin extends PomeloPlugin {
     const toScreen = (world: Point): Point => {
       const t = adapter.transform;
       return { x: world.x * t.scale + t.x, y: world.y * t.scale + t.y };
+    };
+
+    // 最近指针屏幕坐标（窗口级，含画布外）：粘贴时据此把内容落到光标处。
+    // 返回 null（光标不在画布内 / 尚未移动过）时由 store 回落视口中心——
+    // 跨画布层粘贴保证内容落在当前可见区域，不再沿用源位置跑到视野外。
+    let pointerClient: { x: number; y: number } | null = null;
+    const trackPointer = (event: PointerEvent) => {
+      pointerClient = { x: event.clientX, y: event.clientY };
+    };
+    window.addEventListener("pointermove", trackPointer, { passive: true });
+    window.addEventListener("pointerdown", trackPointer, { passive: true });
+    const pasteAnchorWorld = (): Point | null => {
+      if (!pointerClient) return null;
+      const rect = view.getBoundingClientRect();
+      const inside =
+        pointerClient.x >= rect.left && pointerClient.x <= rect.right &&
+        pointerClient.y >= rect.top && pointerClient.y <= rect.bottom;
+      return inside ? toWorld({ clientX: pointerClient.x, clientY: pointerClient.y } as unknown as PointerEvent) : null;
     };
 
     // ---- 「+」手柄与引导层：实体卡左右缘中点各挂一个 + 手柄 ----
@@ -1299,7 +1318,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
         }
         if (shortcut === "v" && !store.readOnly) {
           event.preventDefault();
-          void store.pasteClipboard();
+          // 锚定到当前光标（不在画布内则由 store 回落视口中心），跨画布层粘贴也能落在可见区域
+          void store.pasteClipboard(pasteAnchorWorld() ?? undefined);
           return;
         }
       }
@@ -1364,6 +1384,8 @@ export class CanvasBindsPlugin extends PomeloPlugin {
       view.removeEventListener("contextmenu", onContextMenu);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("pointermove", trackPointer);
+      window.removeEventListener("pointerdown", trackPointer);
       unsubTransform.dispose();
       this.#overlay?.destroy();
       this.#overlay = null;

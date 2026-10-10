@@ -4,7 +4,7 @@
  * createEntity/addNote/addFreeElement/addMediaElement/addGroup/setCreating/setAiDialogOpen/load 动作）、
  * recut-worlds-client、readLastKind/readRecentCustomTypes、canvas-create-panel（共用创建面板外壳）
  * [OUTPUT]: 对外提供 CreateMenu（B.7 创建菜单）：构建**三个粗分组**（设定（含容器子类型 / 最近使用 /
- * 预设 / 生产结构（场次·镜头）/ 自定义类型）→ 画布元素 → 操作）与 [＋ 新建设定类型…] 对话框，
+ * 预设 / 自定义类型）→ 画布元素 → 操作）与 [＋ 新建设定类型…] 对话框，
  * 面板本身由 CreatePanel 渲染（顶部搜索 + 左侧分组卡片网格（badge 角标分类）+ 右侧详情预览 + 「创建」）；
  * 锚点 = creatingAt（双击空白 / Header ＋ 按钮正下方）或视口中心
  * [POS]: worlds/[worldID]/canvas 的创建系统菜单层；选类型即在锚点处落正式卡片并进入命名态
@@ -15,7 +15,7 @@
 import { useState } from "react";
 import type { PomeloRendererAdapter } from "@/lib/pomelo/pomelo-core/pomelo-renderer";
 import type { WorldEntityType } from "@/lib/recut-worlds-client";
-import { createRecutWorldsClient, entityKindLabels, isProductionEntityKind, isRetiredEntityKind, PRODUCTION_ENTITY_KINDS, productionKindIcons, productionKindLabels } from "@/lib/recut-worlds-client";
+import { createRecutWorldsClient, entityKindLabels, isRetiredEntityKind } from "@/lib/recut-worlds-client";
 import { CreatePanel, type CreateGroup, type CreateItem } from "./canvas-create-panel";
 import { readRecentCustomTypes, useWorldCanvasStore } from "./canvas-store";
 
@@ -78,13 +78,12 @@ export function CreateMenu() {
   const recentTypes = customTypes.filter((type) => recentIds.includes(type.id));
   const otherCustomTypes = customTypes.filter((type) => !recentIds.includes(type.id));
   // 预设组只列**默认集**：退役预设（object/story/style/rule/reference）可能仍在类型目录里
-  // （旧世界有对应实体时类型行会保留），但不再作为"新建"提供；生产类型（场次/镜头）另走容器子类型组。
+  // （旧世界有对应实体时类型行会保留），但不再作为"新建"提供。
   const presetTypes = entityTypes.filter(
-    (type) => type.scope !== "custom" && !isRetiredEntityKind(type.id) && !isProductionEntityKind(type.id),
+    (type) => type.scope !== "custom" && !isRetiredEntityKind(type.id),
   );
 
-  // §7.2：容器内可新建什么，由**当前容器类型的 childTypes** 声明（advisory）。
-  // scene/shot 不是预设（用到即建，目录里可能还没有行），所以直接按声明的 id 提供入口——
+  // 容器内可新建什么，由**当前容器类型的 childTypes** 声明（advisory，作品→视频脚本）。
   // 建出来的节点由 createEntity 自动挂 parentId = 当前容器，归属 + 落卡一并完成。
   const contextEntity = context?.entityId ? entities.find((entity) => entity.id === context.entityId) : undefined;
   const contextType = contextEntity ? entityTypes.find((type) => type.id === contextEntity.typeId) : undefined;
@@ -93,8 +92,8 @@ export function CreateMenu() {
   );
   const childTypeItems: CreateItem[] = childTypeIds.map((id) => {
     const declared = entityTypes.find((type) => type.id === id);
-    const icon = declared?.icon || productionKindIcons[id] || "◍";
-    const name = declared?.name || productionKindLabels[id] || id;
+    const icon = declared?.icon || "◍";
+    const name = declared?.name || id;
     return {
       key: `child:${id}`,
       label: name,
@@ -110,31 +109,6 @@ export function CreateMenu() {
       run: () => create(id),
     };
   });
-
-  // 生产结构（§7.2）：场次/镜头是系统类型，用到即建（目录里可能还没有行），因此按声明 id 直接给入口；
-  // 容器内已通过 childTypes 提供时不再重复列出。
-  const productionItems: CreateItem[] = [...PRODUCTION_ENTITY_KINDS]
-    .filter((id) => !childTypeIds.includes(id))
-    .map((id) => {
-      const declared = entityTypes.find((type) => type.id === id);
-      const icon = declared?.icon || productionKindIcons[id] || "◍";
-      const name = declared?.name || productionKindLabels[id] || id;
-      return {
-        key: `production:${id}`,
-        label: name,
-        icon,
-        hint: "生产结构",
-        badge: "生产",
-        preview: {
-          icon,
-          title: name,
-          subtitle: "预设设定类型",
-          body: `在画布上落一张${name}卡，随后在右侧面板填写字段。场次/镜头通常归属「视频脚本」或「作品」。`,
-          facts: [{ label: "类型 ID", value: id }],
-        },
-        run: () => create(id),
-      };
-    });
 
   const close = () => {
     setCreating(false);
@@ -248,8 +222,8 @@ export function CreateMenu() {
     },
   ];
 
-  // 只分三组（不再按 预设/自定义/生产/最近 各起一节）：① 设定 = 所有可落卡的设定类型，
-  // 用 badge 角标区分 子类型/最近/预设/生产/自定义；② 画布元素；③ 操作。
+  // 只分三组（不再按 预设/自定义/最近 各起一节）：① 设定 = 所有可落卡的设定类型，
+  // 用 badge 角标区分 子类型/最近/预设/自定义；② 画布元素；③ 操作。
   const groups: CreateGroup[] = [
     {
       key: "setting",
@@ -258,7 +232,6 @@ export function CreateMenu() {
         ...childTypeItems,
         ...recentTypes.map((type) => typeItem(type, "最近")),
         ...presetTypes.map((type) => typeItem(type)),
-        ...productionItems,
         ...otherCustomTypes.map((type) => typeItem(type)),
       ],
     },

@@ -89,7 +89,7 @@ export type WorldEntityRelation = {
   fromEntityId: string;
   toEntityId: string;
   scopeEntityId?: string;
-  /** Production draft link (has_script/has_scene/has_shot): not in the Canon until apply. */
+  /** Draft structural link (has_script): not in the Canon until apply. */
   isProvisional?: boolean;
   /** Read projection from the touched entity's point of view: out | in | scope. */
   direction?: "out" | "in" | "scope";
@@ -334,18 +334,6 @@ export const RETIRED_ENTITY_KINDS: ReadonlySet<string> = new Set(["reference", "
 
 export function isRetiredEntityKind(typeId: string): boolean {
   return RETIRED_ENTITY_KINDS.has(typeId);
-}
-
-// 生产层类型的显示名（非默认预设：用到即建、不进"设定"组；但作为容器的容许子类型提供，见 §7.2）。
-export const productionKindLabels: Record<string, string> = { scene: "场次", shot: "镜头" };
-export const productionKindIcons: Record<string, string> = { scene: "🎞", shot: "🎥" };
-
-// 生产层类型（作品容器内的结构化对象）：它们**只作为容器的容许子类型**出现在新建入口，
-// 不进通用的"设定"组，也不受退役过滤影响（见生产层 RFC §7.2）。
-export const PRODUCTION_ENTITY_KINDS: ReadonlySet<string> = new Set(["scene", "shot"]);
-
-export function isProductionEntityKind(typeId: string): boolean {
-  return PRODUCTION_ENTITY_KINDS.has(typeId);
 }
 
 export type EntityTypeField = {

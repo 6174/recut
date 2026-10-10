@@ -38,7 +38,7 @@
 - **提交即落位**：一返回 `assetId` 就**立刻**把媒体元素放上**它所属的画布层**（待确认 / 生成中态），不停在等待。
 - **内容与状态都在资产**：画布不写 `props.proposal`。
 - `references` 是这次生成的**绑定记录**，也是模型提交顺序依据；role 必须与 kind 匹配，否则被拒。
-- `modelId` 留空则由用户在确认时选；不确定当前可用模型时先留空，不要编造。`aspectRatio` / `durationSec` 按世界或场次口径填。
+- `modelId` 留空则由用户在确认时选；不确定当前可用模型时先留空，不要编造。`aspectRatio` / `durationSec` 按世界或视频段口径填。
 - **改配方不用重提**：待确认资产还是 `proposed` 时，用 `recut.media.asset.update({ assetId, prompt?, references?, referenceIds?, modelId?, output?, aspectRatio?, durationSec?, note? })` **原地**改配方，同一条 `assetId`、画布元素无需重指；确认后配方冻结。
 - **正文标签必须绑定**：`prompt` 正文里出现的每个参考 token 都必须在 `references[]` 有绑定，未绑定会在创建 / 更新时被拒（`unbound_prompt_reference`）。
 - 一次可提交多条（同一场戏分镜，`batchId` 归组），用户逐条确认或放弃。

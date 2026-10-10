@@ -38,7 +38,7 @@ description: 回答「这次创作走什么链、按什么顺序」的唯一导�
 |---|---|---|---|
 | `story` | `references/story/SKILL.md` | 讲什么、怎么编排；剧情类怎么编排生产 | 结构节拍表、因果链、六种生产合同 |
 | `assets` | `references/assets/SKILL.md` | 生成要用的参考锚点怎么备齐 | 角色卡/场景图/道具图/色卡/声线/分镜表锚点 |
-| `plan` | `references/plan/SKILL.md` | 这部片子怎么排产 | 场次→镜头 计划（用料/参数/成本） |
+| `plan` | `references/plan/SKILL.md` | 这部片子怎么排产 | 作品/脚本 → 视频段 计划（用料/参数/成本） |
 | `shot` | `references/shot/SKILL.md` | 一个镜头怎么拍、画面放什么、元素怎么动、说话留哪些 | 分镜表、首尾帧、调度/版式、动效与语音取舍清单 |
 | `editing` | `references/editing/SKILL.md` | 怎么剪到一起、字怎么上屏、开场怎么留人结尾怎么收 | 段落节拍与切点/转发表、字幕样式、钩子与留存脊 |
 | `platform` | `references/platform/SKILL.md` | 发给谁/什么规格/什么雷区；如何从已有视频反推 | 平台规格与审核清单、选段/迁移决策 |

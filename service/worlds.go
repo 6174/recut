@@ -1218,9 +1218,9 @@ func (w *WorldStore) UpsertEntity(input UpsertEntityInput) (WorldEntity, error) 
 // upsertEntityTx writes ONE entity inside a caller-owned transaction: type
 // seeding, parent check, attr merge, insert/update, and production-link
 // materialization. It commits nothing and never calls commitRevision — the
-// caller owns the revision boundary, so a batch (production.create) can write a
-// whole tree in one transaction that yields exactly one revision. `existing` is
-// the pre-read entity for updates (the zero value when creating).
+// caller owns the revision boundary, so a batch can write several entities in
+// one transaction that yields exactly one revision. `existing` is the pre-read
+// entity for updates (the zero value when creating).
 func (w *WorldStore) upsertEntityTx(tx *sql.Tx, input UpsertEntityInput, existing WorldEntity) (string, []EntityAttr, error) {
 	now := iso(time.Now().UTC())
 	// Entity type is an extensible type directory entry: preset ids are seeded
@@ -1293,9 +1293,9 @@ func (w *WorldStore) upsertEntityTx(tx *sql.Tx, input UpsertEntityInput, existin
 			entityID, input.WorldID, input.TypeID, input.TypeID, strings.TrimSpace(input.Name), strings.TrimSpace(input.Intro), input.Detail, coverJSON, string(attrsJSON), nullIfEmpty(input.ParentID), input.ContainerRole, provisional, now, now); err != nil {
 			return "", nil, err
 		}
-		// Production chain (作品→脚本→场次→镜头): a production entity created under
-		// another production entity records its structural link here, so the tree is
-		// link-backed from the start (生产层 RFC D8). Provisional mirrors the entity.
+		// Production structure (作品→视频脚本): a script created under a work records
+		// its structural link (has_script) here, so the tree is link-backed from the
+		// start. Provisional mirrors the entity.
 		if err := materializeProductionLinkTx(tx, input.WorldID, input.ParentID, entityID, input.TypeID, input.IsProvisional); err != nil {
 			return "", nil, err
 		}
@@ -1526,7 +1526,7 @@ func attrValueMap(attrs []EntityAttr) map[string]any {
 // patchEntityAttr returns a copy of attrs with one attr's value set, creating a
 // new attr when the key is not present yet (canvas-side creation path). The new
 // attr's type is inferred from the value: canvas-side keys are often on-demand
-// (shot products are ordinary media attrs, not locked schema slots), so a media
+// (media products are ordinary media attrs, not locked schema slots), so a media
 // object must not be stored as text.
 func patchEntityAttr(attrs []EntityAttr, key string, value any) []EntityAttr {
 	result := make([]EntityAttr, 0, len(attrs)+1)

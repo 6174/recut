@@ -60,7 +60,7 @@ import { type AttrCreator, type AttrMedia, type CanvasContext, DEFAULT_ENTITY_SI
 import { useWorldDemoStore as useWorldCanvasDemoStore } from "@/lib/pomelo/world-canvas/demo-store";
 import { getRealtimeChannel } from "@/lib/realtime-channel";
 import type { WorldCanvasElement, WorldEntity } from "@/lib/recut-worlds-client";
-import { entityAttrMediaRef, entityKindLabel, isProductionEntityKind, isRetiredEntityKind, productionKindIcons, productionKindLabels, type EntityAttrMediaValue } from "@/lib/recut-worlds-client";
+import { entityAttrMediaRef, entityKindLabel, isRetiredEntityKind, type EntityAttrMediaValue } from "@/lib/recut-worlds-client";
 import { CanvasNodeOverlays } from "./overlays/node-overlays";
 
 // ---------- canvas-store → pomelo document 映射（block id 约定） ----------
@@ -688,12 +688,12 @@ function AttrCreatorPanel() {
   }));
 
   const lastKind = readLastKind();
-  // §7.2：来源实体声明了 childTypes 时，手柄直接给「新建<子类型>」——建出的是**归属子节点**
-  // （parentId + 落卡），不补关系。子类型不是预设（用到即建），所以按声明 id 直接给入口。
+  // 来源实体声明了 childTypes 时，手柄直接给「新建<子类型>」——建出的是**归属子节点**
+  // （parentId + 落卡），不补关系（作品→视频脚本）。
   const childTypeItems: CreateItem[] = (sourceType?.childTypes ?? []).map((id) => {
     const declared = entityTypes.find((item) => item.id === id);
-    const icon = declared?.icon || productionKindIcons[id] || "◍";
-    const name = declared?.name || productionKindLabels[id] || id;
+    const icon = declared?.icon || "◍";
+    const name = declared?.name || id;
     return {
       key: `child:${id}`,
       label: name,
@@ -710,11 +710,10 @@ function AttrCreatorPanel() {
     };
   });
   // 实体组只列默认集类型：退役预设（object/story/style/rule/reference）可能仍在类型目录里
-  // （旧世界有对应实体时类型行会保留），生产类型（场次/镜头）只作为**容器子类型**出现——
-  // 两者都不作为通用"新建"提供；实体自身的 schema 查找不受影响。
+  // （旧世界有对应实体时类型行会保留），不再作为通用"新建"提供；实体自身的 schema 查找不受影响。
   const entityItems: CreateItem[] = [
     ...childTypeItems,
-    ...entityTypes.filter((item) => !isRetiredEntityKind(item.id) && !isProductionEntityKind(item.id)).map((item): CreateItem => ({
+    ...entityTypes.filter((item) => !isRetiredEntityKind(item.id)).map((item): CreateItem => ({
       key: `entity:${item.id}`,
       label: item.name || item.id,
       icon: item.icon || "◍",

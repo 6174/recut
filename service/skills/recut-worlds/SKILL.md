@@ -30,7 +30,7 @@ type World = {
 
 type Entity = {
   id: string
-  typeId: string          // 预设 work | script | character | location | prop（scene|shot 是容器内生产类型，用到即建），或自定义
+  typeId: string          // 预设 work | script | character | location | prop，或自定义
   name: string
   intro?: string          // 一句话简介
   detail?: string         // 正文（内容本体）
@@ -66,7 +66,7 @@ type CanvasDoc = {
 //   ''（世界根）
 //    └─ <entityId>          （其投影卡 shape:<entityId> 挂在父层画布上）
 //        └─ <entityId>      （递归：entity 元素可下钻到它自己的内层画布）
-// 例：世界根 '' 上挂「作品」投影卡；作品的内层画布（contextId=<workId>）上平铺 script / scene / shot；
+// 例：世界根 '' 上挂「作品」投影卡；作品的内层画布（contextId=<workId>）上平铺 script 与视频节点；
 //     角色 / 场景 / 道具等锚点直接挂世界根，是独立分支
 
 type Element = {
@@ -98,27 +98,26 @@ type EdgeProps = {
 | 类型 | 是什么 | 正文 `detail` 放什么 | attr 真 meta |
 |---|---|---|---|
 | `work` | **交付单位**（挂成片与总进度；可多脚本） | **作品完整内容，一次写全、不压缩** | 无（封面走 `cover`） |
-| `script` | **一集的完整脚本 + 可生成规格**（一集一个 script） | 本集结构（钩子→推进→落点）/ 旁白·台词逐字 / 场景初步规划 | 一句话概括 / 目标时长 / 画幅 / 目标平台 / 整片分镜（可选，仅预览） |
-| `scene` | **一次视频生成的单位** | **本场拍摄设计**：空间·美术 / 表演调度 / 摄影 / 灯光 / 声音 / 视效 + 旁白·台词 | `durationSec` / 场成片 `video` / 一句话概括 / 场次分镜（可选，仅预览） |
-| `shot` | **画面细节 / 预览**（不进生成依赖） | 单镜细节：空间 / 构图 / 机位 / 灯光 / 动作 / 表演 / 连续性 / 台词 | `no` / `shotSize` / `durationSec` / `camera` / `keyframe` |
+| `script` | **一集的完整脚本 + 可生成规格**（一集一个 script） | 本集结构（钩子→推进→落点）/ 旁白·台词逐字 / 场景初步规划（含每一段视频的拍摄设计） | 一句话概括 / 目标时长 / 画幅 / 目标平台 / 整片分镜（可选，仅预览） |
+| **视频节点** | **一次视频生成的单位**（画布上的媒体元素，不是实体） | 拍什么写进对应 `script.detail`；节点只引用生成出的 `assetId` | `kind:"media"` + `props.modality:"video"` / `assetStatus` |
 | `character` | **角色**（人物 / 动物 / 生物） | 角色身世 / 关系（长文） | 外貌与标志 / 性格 / 声音与说话方式 / **声线参考 `voice_reference`** / **角色卡 `character_reference`** / 不可变特征 |
 | `location` | **场景** | 场景细节（长文） | 描述 / 氛围 / **场景卡 `location_reference`** |
 | `prop` | **道具** | 道具细节（长文） | 描述 / 外观与标志 / **道具卡 `prop_reference`** |
 
-**生产层与结构（硬契约）：**
+**生产结构与视频节点（硬契约）：**
 
-- 层级：`work → script → scene → shot`。**场次 = 一次视频生成单位**（`durationSec` ≤ 模型单次上限，默认 ≈15s，超长拆场）；**镜头不进生成依赖**。
-- **树的真源 = 结构关系 `has_script` / `has_scene` / `has_shot`**（父→子），**不是 `parentId`**（后者只是通用归属文件夹）。`childTypes` 声明默认子类型。
-- **产物**：任一层按需的 media 属性（镜头挂关键帧 / 片段 / 配音，场次挂场成片，作品挂成片）。
+- 层级只有两层：`work → script`（一个作品可多个脚本）。**一次视频生成的单位是画布上的「视频节点」**（媒体元素），不再拆出场 / 镜实体；一段连续动作优先一次多镜连续生成。
+- **结构真源 = 结构关系 `has_script`**（父→子），**不是 `parentId`**（后者只是通用归属文件夹）。`childTypes` 声明默认子类型（`work.childTypes=["script"]`，script 是叶子）。
+- **产物**：按需的 media 属性走实体（作品挂成片、关键帧 / 配音挂相关锚点或脚本实体）；视频节点直接引用生成出的 `assetId`。
 
 **组织与层级（建实体前必读）：**
 
 1. **锚点实体**（`character` / `location` / `prop` / `work`）建在**世界根层**（`contextId: ""`），归属留空。
-2. **生产实体**（`script` / `scene` / `shot`）平铺在**作品层**（`contextId` 与 `parentId` 都给 `<workId>`），彼此同级，不再逐级下钻。
+2. **生产实体**（`script`）与**视频节点**建在**作品层**（`contextId` 与 `parentId` 都给 `<workId>`），彼此同级，不再逐级下钻。
 
-> **画布树不是文件夹**：一个作品的相关内容尽量放同一张画布（`work → script → scene → shot/场成片` 全铺在作品层），别逐层分层。见《五、规则｜画布组织》。
+> **画布树不是文件夹**：一个作品的相关内容尽量放同一张画布（`work → script / 视频节点` 全铺在作品层），别逐层分层。见《五、规则｜画布组织》。
 
-> 完整正文模板 → `references/content-templates.md`；四层契约 / 结构链 / `production.*` → `references/production-layer.md`；树形排版 / 加深例外 → `references/canvas-hierarchy.md`。
+> 完整正文模板 → `references/content-templates.md`；生产结构（`work → script`）与视频节点 → `references/production-layer.md`；树形排版 / 加深例外 → `references/canvas-hierarchy.md`。
 
 ## 三、工具列表（意图 → 工具）
 
@@ -129,8 +128,6 @@ type EdgeProps = {
 | 发现 / 读取世界 | `recut.worlds.list` / `recut.worlds.get` | `get` 是**单一入口**：概览 + world.md（`skillMd`）+ 实体图 + `facts` + `constraints` + `references[]` + `readiness.missing`；不传 `selection` 即整库 |
 | 读取内容 | `recut.worlds.entities.list` / `entities.get` / `entityTypes.list` | 只读；`entities.list` 支持 `typeId` / `parentId` / `text` / `includeProvisional` |
 | 读画布 | `recut.worlds.doc`（某层）/ `docs`（层索引） | `contextId=""` 为根画布 |
-| 读生产层 | `recut.worlds.production` | `work → script → scene → shot` 树 + 派生状态（planned/generating/ready/failed） |
-| 排产 | `recut.worlds.production.create` | 一次建出「场次→镜头」并写 `has_scene`/`has_shot`（正式实体、一条 revision）；**不生成素材** |
 | 写内容 | `recut.worlds.entity` | op：`create`（可带 `contextId` 落投影卡）/ `update` / `archive` / `restore` / `confirm` |
 | | `recut.worlds.relation` | op：`create` / `update` / `archive` / `restore`；`scopeEntityId` 非空为局部关系 |
 | | `recut.worlds.entityType` | 定义 / 覆盖类型 schema（不产 revision） |
@@ -160,14 +157,14 @@ type EdgeProps = {
 
 ### 典型操作 2｜基于已有资产建一个新作品
 
-输入：世界里已有角色 / 场景 / 道具。目标：产出一个 `work` 及其生产链。
+输入：世界里已有角色 / 场景 / 道具。目标：产出一个 `work` 及其脚本与视频节点。
 
 1. **读世界**：基础操作 A——`world.get` 取已有资产、`references[]`、风格。
 2. **建作品**：基础操作 B——`work` 建在根画布，`work.detail` 写**完整内容（一次写全）**。
 3. **写脚本**：一个作品可多集，**一集一个 `script`**（`script.detail` = 本集脚本；模板见 `content-templates.md`）。
-4. **排产**：`production.create` **一次建出 `scene → shot`** 并写 `has_scene` / `has_shot`；`scene.detail` 写本场拍摄设计（一次生成单位，`durationSec` ≤ 单次上限）。**只建结构、不生成素材。** 注意：它按 `作品→脚本→场次→镜头` 依次落 `parentId`（深层文件夹）；要**平铺在作品层**就改用 `entity` 逐层建（见 `canvas-hierarchy.md`）。
-5. **逐场生成并落位**：基础操作 C——`video.generate`（待用户确认）→ 场成片落 `scene.video`；关键帧 / 配音走 `image` / `speech.generate`。
-6. **排版**：生产树按 `has_*` 分层树摆（见 `canvas-hierarchy.md`），成片落对应层。
+4. **拆段为视频节点**：把脚本里每个「一次生成的视频段」写成一段拍摄设计（空间 / 调度 / 摄影 / 灯光 / 声音 / 旁白·台词，一次生成 ≤ 单次上限），作为画布上的**视频节点**提交生成——不建场 / 镜实体。`script.detail` 就是这段设计的料场。
+5. **逐段生成并落位**：基础操作 C——`video.generate`（待用户确认）→ `assetId` 落进视频节点；关键帧 / 配音走 `image` / `speech.generate`。
+6. **排版**：`work → script / 视频节点` 平铺在作品层（见 `canvas-hierarchy.md`）。
 
 **本操作规则（作品内容质量）**
 
@@ -188,7 +185,7 @@ type EdgeProps = {
 
 1. **选层**：作品落在**根画布**（`contextId: ""`）；仅当用户明确要求归到某容器内层才给容器 id。
 2. **建作品**：op=`create`，给 `typeId` + `name` + `intro` + `detail`。`typeId` 用相符预设；**没有合适的先用 `entityType` 定义，不要临时编 id**（未知 id 会静默建成空类型）。
-3. **子实体**：同一调用里**同时给** `parentId: <容器 id>` + `contextId: <容器 id>`；生产实体在作品下**同级平铺**，服务端自动补 `has_*` 链。
+3. **子实体**：同一调用里**同时给** `parentId: <容器 id>` + `contextId: <容器 id>`；生产实体（`script`）在作品下**同级平铺**，服务端自动补 `has_script` 链。
 4. **读回**：内层画布 `recut.worlds.doc {contextId: <作品 id>}`；子设定 `entities.get`（`children`）或 `entities.list {parentId}`。
 
 ```jsonc
@@ -197,8 +194,9 @@ type EdgeProps = {
 //   detail:"<作品正文>", contextId:"" }) → { id:"<workId>" }
 // ② 锚点（角色/场景/道具）在世界根层：只给 contextId:""
 // entity({ op:"create", typeId:"character", name:"阿蛋", contextId:"" })
-// ③ 生产实体（脚本/场次/镜头）平铺在作品内层：parentId 与 contextId 都给作品 id，彼此同级
+// ③ 生产实体（脚本）平铺在作品内层：parentId 与 contextId 都给作品 id
 // entity({ op:"create", typeId:"script", name:"口播版 45s", parentId:"<workId>", contextId:"<workId>" })
+// ④ 视频节点：在作品内层落一张媒体元素，生成后把 assetId 写进 props（不是实体）
 ```
 
 边界：归属只在创建时定（`update` 不接受 `parentId`）；`archive` 作品级联归档整棵子图、`restore` 按批次原位恢复；实体从不跨 World。属性显示与关联（实体卡略读、属性卡只连边）→ `references/content-model.md`。
@@ -235,8 +233,8 @@ type EdgeProps = {
 | 场景 / establishing 全景 | 场景（`environment`）+ 主角色（`character`，出现时必带）+ 风格（`style-ref`） |
 | 关键道具 / 道具特写 | 道具（`prop`）+ 场景（`environment`）+ 主角色（`character`，出现时）+ 风格（`style-ref`） |
 | 角色设定 / 表情版 | 该角色（`character`）+ 风格（`style-ref`） |
-| 预览关键帧（`shot`，测试） | 场景（`environment`）+ 主角色（`character`）+ 风格（`style-ref`） |
-| 场次视频（默认，资产驱动） | 主角色（`character`）+ 场景（`environment`）+ 道具（`prop`，出现时）+ 风格（`style-ref`）+ 声线（`voice`，说话时） |
+| 关键帧 / 预览（测试） | 场景（`environment`）+ 主角色（`character`）+ 风格（`style-ref`） |
+| 视频节点（默认，资产驱动） | 主角色（`character`）+ 场景（`environment`）+ 道具（`prop`，出现时）+ 风格（`style-ref`）+ 声线（`voice`，说话时） |
 | 音色 / 配音 | 声线（`voice`） |
 
 **视频默认待用户确认**：`recut.video.generate` 落为**全局素材库的待确认资产**（带完整配方，不花钱），画布只引用 `assetId`。**Agent 只做两步**：① 调 `recut.video.generate`；② 用 `doc.update` 把返回 `assetId` 写进媒体元素（`kind:"media"`, `props.modality:"video"`, `assetStatus:"generating"`），然后**停下**告诉用户「已提交 N 条视频，请在画布上确认生成」。确认后复用同一 `assetId`，画布无需重指。
@@ -247,7 +245,7 @@ type EdgeProps = {
 
 **内容**
 
-1. **正文写 `detail`，attr 只放真 meta**：作品故事 / 脚本细节 / 场次拍摄设计 / 单镜细节都是**正文**；把正文塞进 attr、让 `detail` 空着＝**内容丢失**。
+1. **正文写 `detail`，attr 只放真 meta**：作品故事 / 脚本细节（含每段视频的拍摄设计）都是**正文**；把正文塞进 attr、让 `detail` 空着＝**内容丢失**。
 2. **素材 = media 属性（唯一通道）**：只引用 `assetId`，不复制二进制。
 3. **语义真相只在实体 / 关系上**：画布元素只是投影，不写语义真相。
 4. **实体卡只略读**：长文与编辑控件走详情面板 / 属性卡。
@@ -260,7 +258,7 @@ type EdgeProps = {
 
 **画布组织**
 
-8. **画布树不是文件夹**：内层画布只在内容确实是独立子世界时才用；**相关联的内容尽量放同一张画布**——一个作品的 `work → script → scene → shot / 场成片` 全铺在作品层这张画布，而不是逐级分层。画布是给人「一眼看全」的，每多一层就多下钻一次。
+8. **画布树不是文件夹**：内层画布只在内容确实是独立子世界时才用；**相关联的内容尽量放同一张画布**——一个作品的 `work → script / 视频节点` 全铺在作品层这张画布，而不是逐级分层。画布是给人「一眼看全」的，每多一层就多下钻一次。
 
 **门禁**
 
@@ -277,8 +275,8 @@ type EdgeProps = {
 | 问题 | 读什么 |
 |---|---|
 | 封面 / 属性粒度 / 属性类型 / 预设 locked 字段 / 世界级属性 / media 属性 / 显示三层 / 提升语义 | `references/content-model.md` |
-| work / script / scene / shot 的完整正文模板与分集纪律 | `references/content-templates.md` |
-| 生产层四层完整契约、结构链、产物与 `production.*` | `references/production-layer.md` |
+| work / script 的完整正文模板与分集纪律 | `references/content-templates.md` |
+| 生产结构（work → script）、结构链 has_script、产物与视频节点 | `references/production-layer.md` |
 | 画布树形排版、加深例外、容器 / 递归边界 | `references/canvas-hierarchy.md` |
 | 媒体生成深规则（视频生命周期 / 改配方 / 绑定自检 / 资源口径） | `references/media-generation.md` |
 | 常见误用清单 | `references/pitfalls.md` |

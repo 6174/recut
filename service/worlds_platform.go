@@ -79,8 +79,8 @@ type WorldManifestRelation struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Scope    string `json:"scope,omitempty"`
-	// IsProvisional marks a production draft link (生产层 RFC D8); carried so
-	// export/fork round-trips keep the draft chain out of the Canon.
+	// IsProvisional marks a draft structural link (作品→脚本 has_script); carried
+	// so export/fork round-trips keep the draft chain out of the Canon.
 	IsProvisional bool `json:"isProvisional,omitempty"`
 }
 

@@ -67,41 +67,33 @@ var worldRelationTypes = map[string]WorldRelationSpec{
 	"references":   {LabelZh: "引用", Group: "story"},
 	"depends_on":   {LabelZh: "依赖", Group: "story"},
 	"part_of":      {LabelZh: "属于一部分", Group: "story"},
-	// 生产层结构链（生产层 RFC D8）：父→子。作品的 tree 由这条 link 单源表达，
-	// parentId 只是通用归属（文件夹），不参与建树；环由解析端处理。
+	// 作品 → 视频脚本结构链：作品包含一个或多个脚本。作品的 tree 由这条
+	// link 单源表达，parentId 只是通用归属（文件夹），不参与建树；环由解析端处理。
+	// 场次不再是一类实体：一次视频生成的单位就是画布上的**视频节点**（媒体元素）。
 	"has_script": {LabelZh: "包含脚本", Group: "production", ToLabelZh: "属于作品"},
-	"has_scene":  {LabelZh: "包含场次", Group: "production", ToLabelZh: "属于脚本"},
-	"has_shot":   {LabelZh: "包含镜头", Group: "production", ToLabelZh: "属于场次"},
 }
 
-// productionRelationRoles are the structural link roles of the production chain
-// (作品→视频脚本→场次→镜头), stored as normal entity→entity relations. They are
-// the single source of truth for the production tree; `parentId` is only a
-// generic location (folder), never gated by type.
-var productionRelationRoles = map[string]bool{"has_script": true, "has_scene": true, "has_shot": true}
+// productionNodeTypes are the entities that may own a structural script link
+// (作品 → 视频脚本). `work` is the delivery unit; `script` is its child (a work
+// may have several scripts); legacy `story` reads as a work too.
+var productionNodeTypes = map[string]bool{"work": true, "script": true, "story": true}
 
-// productionLinkRoleFor maps a production child type to the structural role a
-// parent→child link carries (script→has_script / scene→has_scene / shot→has_shot).
-// Non-production types return "".
+// productionLinkRoleFor maps an entity type to the structural role a
+// parent→child link carries. Only script carries a structural link
+// (has_script); everything else returns "".
 func productionLinkRoleFor(childTypeID string) string {
-	switch childTypeID {
-	case "script":
+	if childTypeID == "script" {
 		return "has_script"
-	case "scene":
-		return "has_scene"
-	case "shot":
-		return "has_shot"
 	}
 	return ""
 }
 
-// materializeProductionLinkTx records the structural link of the production
-// chain (作品→视频脚本→场次→镜头) when a production entity is created under
-// another production entity. That link — not `parentId` — is the single source
-// of truth for the production tree (生产层 RFC D8); `parentId` stays only a
-// generic location (folder). Idempotent via unique(world_id, from, to, type);
-// provisional mirrors the entity so a plan draft link stays out of the Canon
-// and produces no revision.
+// materializeProductionLinkTx records the structural link 作品→视频脚本 when a
+// script is created under a work (or another production container). That link —
+// not `parentId` — is the single source of truth for the work's script tree;
+// `parentId` stays only a generic location (folder). Idempotent via
+// unique(world_id, from, to, type); provisional mirrors the entity so a plan
+// draft link stays out of the Canon and produces no revision.
 func materializeProductionLinkTx(tx *sql.Tx, worldID, parentID, childEntityID, childTypeID string, provisional bool) error {
 	role := productionLinkRoleFor(childTypeID)
 	if role == "" || strings.TrimSpace(parentID) == "" || strings.TrimSpace(childEntityID) == "" {
@@ -159,7 +151,7 @@ type WorldEntityType struct {
 	BaseKind string            `json:"baseKind,omitempty"`
 	Fields   []EntityTypeField `json:"fields"`
 	// ChildTypes declares (advisory) which child types a node of this type may
-	// contain — the machine-readable production shape (作品→场次→镜头). Empty
+	// contain — the machine-readable production shape (作品→视频脚本). Empty
 	// means "no declaration"; containment truth stays `parentId`.
 	ChildTypes []string `json:"childTypes,omitempty"`
 	ExtendsID  string   `json:"extendsId,omitempty"`
@@ -235,8 +227,9 @@ var presetEntityTypeFields = map[string][]EntityTypeField{
 	},
 	// 视频脚本 = 可生成规格。**脚本全部内容细节写一等字段 `detail`（正文）**：
 	// 完整故事脚本、旁白/台词、场景的初步规划。**不要把这些写成 attr**——下面
-	// locked 字段只放真 meta（时长/画幅/平台）与一句话概括、可选整片分镜表；
-	// 把戏拆成场/镜属于生产层（`scene`/`shot`）。attr 当正文用、正文空着是错的。
+	// locked 字段只放真 meta（时长/画幅/平台）与一句话概括、可选整片分镜表。
+	// 一次视频生成的单位是画布上的**视频节点**（媒体元素），不再拆成场/镜实体；
+	// attr 当正文用、正文空着是错的。
 	"script": {
 		{Key: "logline", Label: "一句话概括", Type: "text", Locked: true},
 		{Key: "durationSec", Label: "目标时长（秒）", Type: "number", Locked: true},
@@ -261,74 +254,18 @@ var presetEntityTypeNames = map[string]string{
 // world that still holds entities of the type keeps the row readable.
 var retiredPresetEntityTypes = []string{"reference", "object", "story", "style", "rule"}
 
-// productionEntityTypeFields defines the structured objects of the PRODUCTION
-// layer (生产层 RFC §6): 场次(scene) → 镜头(shot) → 每镜产物. They are
-// deliberately NOT part of the default preset directory (D6): a fresh world's
-// create menu stays the minimal three. They are seeded on FIRST USE, so the
-// production structure hangs under a work without inflating the presets.
-//
-// 谁/在哪/拍什么 are world facts (entities); 场次/镜头 are the production
-// structure built on top of them. Their base_kind stays empty on purpose: the
-// CreationContext buckets are world anchors, and production objects must not
-// leak into `facts`.
-//
-// SEMANTICS (the reason these types exist, 2026-10-04). **正文 vs 属性** 是硬纪律：
-// 长文细节一律写实体 `detail`（正文），attr 只放真 meta（时长/画幅/类型/景别/机位号）：
-//   - **场次 scene = 一次视频生成的单位**（最合理的粒度）——**一次生成 ⇒ 总时长
-//     `durationSec` 必须 ≤ 模型单次上限（默认 ≈15s）；内容更长就拆成多个场次，不拉长
-//     单场**。**本场的拍摄设计（空间/美术/表演调度/摄影/灯光/声音/视效 + 旁白台词）全部
-//     写 `detail`**——**生成提示词几乎全取自这里**。attr 只留：总时长 `durationSec`、
-//     场次分镜表 `storyboard`（拆 shot 用）、场成片 `video`、一句话 `summary`。
-//     **不是每个 shot 一次视频生成**。
-//   - **镜头 shot = 单镜细节单位**。**镜头细节全部写 `detail`**（画面/景别/构图/运动/
-//     光线/动作，**生图提示词大多来自这里**）。attr 只留真 meta：镜号 `no`、景别角度
-//     焦段 `shotSize`、时长 `durationSec`、镜头运动 `camera`、关键帧 `keyframe`。
-var productionEntityTypeFields = map[string][]EntityTypeField{
-	"scene": {
-		{Key: "summary", Label: "一句话概括", Type: "text", Locked: true},
-		// 场次分镜（预览/排产；不是生成参考——生成由资产 + scene.detail 镜头序列驱动）。
-		{Key: "storyboard", Label: "场次分镜（预览，不作生成参考）", Type: "media", Options: []string{"image"}, Locked: true},
-		{Key: "durationSec", Label: "场次总时长（秒）", Type: "number", Locked: true},
-		// 场成片：本场视频生成的结果（一次生成 = 一场）。产物不预设生成方式
-		// （参考驱动 / 首尾帧 / 文生都行），生成方式记在产物资产 metadata.proposal；
-		// 需要额外产物（关键帧/配音）仍可按需追加媒体属性。
-		{Key: "video", Label: "场成片", Type: "media", Options: []string{"video"}, Locked: true},
-		// NOTE: 本场的完整内容/情绪/节拍/画面描述全部写在实体 `detail`（正文）——
-		// 不要再造 beats/emotion 之类的正文属性；attr 只放真 meta。
-	},
-	"shot": {
-		{Key: "no", Label: "镜号", Type: "text", Locked: true},
-		{Key: "shotSize", Label: "景别 / 角度 / 焦段", Type: "text", Locked: true},
-		{Key: "durationSec", Label: "时长（秒）", Type: "number", Locked: true},
-		{Key: "camera", Label: "镜头运动", Type: "text", Locked: true},
-		// 关键帧 / 预览图：该镜的预览画面（仅预览/测试，不进生成依赖）。
-		{Key: "keyframe", Label: "关键帧 / 预览图", Type: "media", Options: []string{"image"}, Locked: true},
-		// NOTE: 该镜的画面描述/台词/构图/光线等细节全部写在实体 `detail`（正文）——
-		// 生图提示词主要取自这里；不要再造 content/dialogue 之类的正文属性。
-		// 镜头不是视频生成单位——视频按场次生成，镜头是它的分镜拆解与画面参考。
-		// 产物不设固定槽位：关键帧/首尾帧/片段/配音按需加普通 media 属性，用 label 标角色；
-		// 生成方式记在产物资产自己的 metadata.proposal（model/modeType/params/references）。
-	},
-}
-
-// productionEntityTypeNames maps a production type id to its zh display name.
-var productionEntityTypeNames = map[string]string{"scene": "场次", "shot": "镜头"}
-
 // entityTypeChildTypes declares, per type, the child types a node may contain —
-// the machine-readable shape of the production hierarchy (生产层 RFC §5/§6):
-// 作品(work) → 视频脚本(script) → 场次(scene) → 镜头(shot). Agents read it
-// straight from entityTypes.list, so the tree shape never has to live only in
-// skill prose.
+// the machine-readable shape of the production hierarchy: 作品(work) →
+// 视频脚本(script). Agents read it straight from entityTypes.list, so the tree
+// shape never has to live only in skill prose.
 //
 // It is ADVISORY, not a gate: containment truth is still `parentId`, and any
 // entity may still be a container (递归世界画布 RFC「没有容器类型」). A script
-// may also hold a shot directly (one-scene pieces), so the list is permissive.
-// Kept as a code constant exactly like the controlled relation vocabulary.
+// is a leaf here; a video generation unit is a canvas video node, not a child
+// entity type. Kept as a code constant exactly like the controlled relation
+// vocabulary.
 var entityTypeChildTypes = map[string][]string{
-	"work":   {"script"},
-	"script": {"scene", "shot"},
-	"scene":  {"shot"},
-	"shot":   {},
+	"work": {"script"},
 }
 
 // childTypesFor returns a type's declared child types (advisory; empty = none
@@ -343,8 +280,8 @@ func childTypesFor(typeID string) []string {
 // mergePresetFields folds preset locked fields into an existing field list by
 // key: the pinned label/locked flag is refreshed and a missing preset field is
 // appended (custom fields are preserved). Returns the merged list and whether
-// anything changed. Shared by preset seeding and production-type upgrade so a
-// schema addition reaches existing worlds without touching user-added fields.
+// anything changed. Used by preset seeding so a schema addition reaches
+// existing worlds without touching user-added fields.
 func mergePresetFields(existing, preset []EntityTypeField) ([]EntityTypeField, bool) {
 	byKey := map[string]*EntityTypeField{}
 	for index := range existing {
@@ -474,48 +411,15 @@ func ensureEntityTypeInTx(tx *sql.Tx, worldID, typeID string) error {
 	if err := ensurePresetEntityTypesInTx(tx, worldID); err != nil {
 		return err
 	}
-	var id, existingScope, existingFieldsJSON string
-	err := tx.QueryRow("select id, coalesce(scope, ''), coalesce(fields_json, '') from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, typeID).Scan(&id, &existingScope, &existingFieldsJSON)
+	var id string
+	err := tx.QueryRow("select id from world_entity_types where world_id = ? and id = ? and archived_at is null", worldID, typeID).Scan(&id)
 	if err == nil {
-		// Production types are seeded on first use, so a schema addition (e.g.
-		// scene.storyboard / scene.video) must upgrade an existing builtin row
-		// exactly like a preset; user-added custom fields are preserved.
-		if preset, ok := productionEntityTypeFields[typeID]; ok && existingScope == "builtin" {
-			existing := []EntityTypeField{}
-			if existingFieldsJSON != "" {
-				_ = json.Unmarshal([]byte(existingFieldsJSON), &existing)
-			}
-			merged, changed := mergePresetFields(existing, preset)
-			if changed {
-				encoded, err := json.Marshal(merged)
-				if err != nil {
-					return err
-				}
-				if _, err := tx.Exec("update world_entity_types set fields_json = ?, updated_at = ? where world_id = ? and id = ?", string(encoded), isoTimeNow(), worldID, typeID); err != nil {
-					return err
-				}
-			}
-		}
 		return nil
 	}
 	if err != sql.ErrNoRows {
 		return err
 	}
 	now := isoTimeNow()
-	// Production objects (场次 / 镜头) are structured but not presets: seed their
-	// real field schema on first use so they never appear in a fresh world's
-	// create menu (D6), yet still carry 镜号/景别/首尾帧/片段/配音 fields.
-	if fields, ok := productionEntityTypeFields[typeID]; ok {
-		encoded, err := json.Marshal(fields)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec("insert into world_entity_types (id, world_id, scope, name, icon, color, base_kind, fields_json, builtin, created_at, updated_at) values (?, ?, 'builtin', ?, '', '', '', ?, 0, ?, ?)",
-			typeID, worldID, productionEntityTypeNames[typeID], string(encoded), now, now); err != nil {
-			return err
-		}
-		return nil
-	}
 	fields, _ := json.Marshal([]EntityTypeField{{Key: "description", Label: "描述", Type: "textarea"}})
 	if _, err := tx.Exec("insert into world_entity_types (id, world_id, scope, name, icon, color, base_kind, fields_json, created_at, updated_at) values (?, ?, 'custom', ?, '', '', '', ?, ?, ?)",
 		typeID, worldID, typeID, string(fields), now, now); err != nil {

@@ -25,9 +25,9 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 ## 输入前置
 
 1. **STYLE LOCK 来源**：世界取 `world.identity.style` / world.md（`worlds.get.skillMd`）视觉语言 + `references[]` 的 `style-ref`/`color-card`；否则取立项模板 `styleTemplate.visualPrompt` / `LIGHT_INVARIANT` / 导演风格文件。先冻结，**压缩到 ≤2 行 / ≤80 字**，不每镜重写。
-2. **镜头意图**：世界取生产层 `scene.detail`（本场拍摄设计，提示词几乎全取自这里）；`shot.detail` 只作画面细节/预览参考。
+2. **拍摄意图**：世界取 `script.detail` 里该视频段的拍摄设计（提示词几乎全取自这里）；逐镜画面细节也从这里取。
 3. **参考与角色**：世界先读 `references[]`——主角色 `character`（`character_reference`）、场景 `environment`、道具 `prop`、台词 `voice`（用了就必带、用该声线）；只有纯空场景可无参考。克隆/仿拍连真实锚点 `style-ref`/`motion-ref`。
-   > 读法：`worlds.get`（world.md + facts + `references[]`）→ `worlds.production`（作品 → 脚本 → 场次；**镜头只作预览/测试参考**）；叙事/规格取 `script.detail` 与 meta。**生成依赖只有：资产 + script + scene**；分镜表（storyboard）不进生成。
+   > 读法：`worlds.get`（world.md + facts + `references[]`）→ 叙事/规格与**每段视频的拍摄设计都取 `script.detail`** 与 meta。**生成依赖只有：资产 + `script`（脚本里该段的拍摄设计）**；分镜表（storyboard）不进生成。
 4. **声音资产**：对白/旁白逐字、音色、环境/SFX。
 5. **画幅与时长**由宿主传参、不写正文；片段长度按内容定，正文标 `[起~止s]`。
 
@@ -134,10 +134,10 @@ description: 回答「一条交给图片/视频生成模型的生产级提示词
 | 开场钩子（0–3s 三层）与留存、切点/转场/卡点、字幕 | `references/editing` | 怎么剪到一起、怎么留人 |
 | 声音分层（VO/BGM/SFX、避让、音色） | `references/sound` | 耳朵听到什么 |
 | 参考锚点怎么备齐（角色卡/场景图/声线） | `references/assets` | 生成前料齐不齐 |
-| 排产（场次→镜头、用料与成本） | `references/plan` | 怎么排产 |
+| 排产（拆视频段、用料与成本） | `references/plan` | 怎么排产 |
 | 平台规格 / 审核红线 / 长转短 | `references/platform` | 发给谁、什么规格、什么雷区 |
 | 失败诊断与门禁 | `references/qc` | 哪里坏了、能不能过 |
-| 世界读取与生成落位 | `recut-worlds` + `worlds.get` / `worlds.production` | World 里怎么取料、生成、落位 |
+| 世界读取与生成落位 | `recut-worlds` + `worlds.get` | World 里怎么取料、生成、落位 |
 | 端到端 Mode 工作流 | `references/modes/*/workflow.md` | 某内容类型已验证的整链 |
 
 ### 版本与来源
