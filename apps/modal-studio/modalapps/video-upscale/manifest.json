@@ -1,0 +1,294 @@
+{
+  "id": "video-upscale",
+  "name": {
+    "zh": "视频高清化（SeedVR2 质量档 / FlashVSR 快速档）",
+    "en": "Video upscale (SeedVR2 quality / FlashVSR fast)"
+  },
+  "capability": "video.generate",
+  "expose": [
+    {
+      "model": "video-upscale",
+      "name": {
+        "zh": "视频高清化·质量档（SeedVR2-7B）",
+        "en": "Video upscale, quality (SeedVR2-7B)"
+      },
+      "function": "upscale"
+    },
+    {
+      "model": "video-upscale-fast",
+      "name": {
+        "zh": "视频高清化·快速档（FlashVSR v1.1）",
+        "en": "Video upscale, fast (FlashVSR v1.1)"
+      },
+      "function": "upscale-fast"
+    }
+  ],
+  "engine": {
+    "appName": "recut-video-upscale",
+    "sourceDir": "modalapps/video-upscale",
+    "image": {
+      "base": "registry:nvidia/cuda:12.1.1-devel-ubuntu22.04",
+      "pythonVersion": "3.10",
+      "apt": ["git", "ffmpeg", "build-essential"],
+      "pip": [
+        "torch==2.4.0",
+        "torchvision==0.19.0",
+        "huggingface_hub",
+        "requests",
+        "einops",
+        "opencv-python-headless",
+        "av",
+        "numpy",
+        "pillow",
+        "safetensors",
+        "transformers"
+      ],
+      "buildCommands": [
+        "git clone --depth 1 https://github.com/ByteDance-Seed/SeedVR.git /opt/seedvr",
+        "pip install -r /opt/seedvr/requirements.txt",
+        "pip install flash_attn==2.5.9.post1 --no-build-isolation",
+        "pip install https://huggingface.co/ByteDance-Seed/SeedVR2-3B/resolve/main/apex-0.1-cp310-cp310-linux_x86_64.whl"
+      ]
+    },
+    "gpuTiers": {
+      "default": "H200",
+      "options": [
+        {
+          "id": "h200",
+          "gpu": "H200",
+          "label": {
+            "zh": "H200 ×1 · 141GB · SeedVR2-7B 质量档（默认，bf16 全驻留）",
+            "en": "H200 ×1 · 141GB · SeedVR2-7B quality (default, bf16 fully resident)"
+          }
+        },
+        {
+          "id": "b200",
+          "gpu": "B200",
+          "label": {
+            "zh": "B200 ×1 · 183GB · 7B 上大分辨率更从容",
+            "en": "B200 ×1 · 183GB · more headroom for large 7B outputs"
+          }
+        },
+        {
+          "id": "a100-80gb",
+          "gpu": "A100-80GB",
+          "label": {
+            "zh": "A100 80GB ×1 · FlashVSR 官方验证的稀疏注意力卡；7B 到约 720p 级",
+            "en": "A100 80GB ×1 · FlashVSR's validated sparse-attention card; 7B up to ~720p"
+          }
+        },
+        {
+          "id": "l40s",
+          "gpu": "L40S",
+          "label": {
+            "zh": "L40S ×1 · 48GB · 适合 FlashVSR 快速档（跑 7B 会明显变慢）",
+            "en": "L40S ×1 · 48GB · suited to FlashVSR fast (7B gets much slower)"
+          }
+        }
+      ]
+    },
+    "concurrency": {
+      "generate": 2,
+      "deploy": 1
+    },
+    "timeoutSec": 7200,
+    "idleTimeoutSec": 60,
+    "volumes": [
+      {
+        "name": "recut-video-upscale-models",
+        "mount": "/models",
+        "label": {
+          "zh": "模型权重（SeedVR2-7B + FlashVSR v1.1，约 45GB）",
+          "en": "Weights (SeedVR2-7B + FlashVSR v1.1, ~45GB)"
+        }
+      },
+      {
+        "name": "recut-video-upscale-out",
+        "mount": "/out",
+        "label": {
+          "zh": "产物中转",
+          "en": "Output staging"
+        }
+      }
+    ],
+    "secrets": [
+      {
+        "name": "recut-hf-token",
+        "required": false,
+        "label": {
+          "zh": "Hugging Face Token（权重需授权时需要）",
+          "en": "Hugging Face token (when weights are gated)"
+        },
+        "keys": [
+          "HF_TOKEN"
+        ]
+      }
+    ],
+    "artifacts": [
+      {
+        "key": "seedvr2",
+        "volume": "recut-video-upscale-models",
+        "marker": ".recut-seedvr2-complete"
+      },
+      {
+        "key": "flashvsr",
+        "volume": "recut-video-upscale-models",
+        "marker": ".recut-flashvsr-complete"
+      }
+    ],
+    "requires": {
+      "upscale": ["seedvr2"],
+      "upscale-fast": ["flashvsr"]
+    }
+  },
+  "weights": {
+    "bootstrapFunction": "bootstrap_weights",
+    "repoHuggingFace": "ByteDance-Seed/SeedVR2-7B",
+    "repoModelScope": "ByteDance-Seed/SeedVR2-7B",
+    "revision": "main",
+    "sizeGb": 45,
+    "files": ["*.json", "*.safetensors", "*.pth", "*.bin", "*.py", "*.md", "*.txt"]
+  },
+  "functions": [
+    {
+      "id": "upscale",
+      "name": {
+        "zh": "高清化·质量档（SeedVR2-7B 一步扩散）",
+        "en": "Upscale, quality (SeedVR2-7B one-step)"
+      },
+      "entrypoint": "upscale",
+      "minReferences": 1,
+      "invoke": {
+        "mode": "sdk",
+        "kind": "cls",
+        "cls": "SeedVR2Upscaler",
+        "method": "upscale"
+      },
+      "output": {
+        "kind": "video",
+        "mimeType": "video/mp4",
+        "ext": "mp4"
+      },
+      "formSchema": [
+        {
+          "key": "referenceVideos",
+          "type": "media",
+          "kind": "video",
+          "multiple": false,
+          "required": true,
+          "label": {
+            "zh": "待高清化的视频",
+            "en": "Video to upscale"
+          }
+        },
+        {
+          "key": "targetLongEdge",
+          "type": "select",
+          "options": ["source", "1280", "1920", "2560"],
+          "default": "1920",
+          "label": {
+            "zh": "输出最长边（px）",
+            "en": "Output longest edge (px)"
+          },
+          "hint": {
+            "zh": "1920 输出 1080p 级；source 表示不放大、只做修复。越大于源分辨率越慢、越吃显存；超过 1080p 建议用 H200/B200。",
+            "en": "1920 gives 1080p-class output; source means restore only, no enlargement. Above the source resolution it gets slower and heavier; use H200/B200 beyond 1080p."
+          }
+        },
+        {
+          "key": "seed",
+          "type": "number",
+          "default": -1,
+          "randomizable": true,
+          "label": {
+            "zh": "随机种子（-1 随机）",
+            "en": "Seed (-1 random)"
+          }
+        },
+        {
+          "key": "keepAudio",
+          "type": "boolean",
+          "default": true,
+          "label": {
+            "zh": "保留源音轨（原样 copy，不重编码）",
+            "en": "Keep source audio (copied, not re-encoded)"
+          }
+        }
+      ],
+      "defaultParams": {
+        "targetLongEdge": "1920",
+        "keepAudio": true
+      },
+      "referenceBudgets": [
+        {
+          "maxVideos": 1
+        }
+      ]
+    },
+    {
+      "id": "upscale-fast",
+      "name": {
+        "zh": "高清化·快速档（FlashVSR v1.1，流式 4×）",
+        "en": "Upscale, fast (FlashVSR v1.1, streaming 4x)"
+      },
+      "entrypoint": "upscale_fast",
+      "minReferences": 1,
+      "invoke": {
+        "mode": "sdk",
+        "kind": "cls",
+        "cls": "FlashVSRUpscaler",
+        "method": "upscale_fast"
+      },
+      "output": {
+        "kind": "video",
+        "mimeType": "video/mp4",
+        "ext": "mp4"
+      },
+      "formSchema": [
+        {
+          "key": "referenceVideos",
+          "type": "media",
+          "kind": "video",
+          "multiple": false,
+          "required": true,
+          "label": {
+            "zh": "待高清化的视频",
+            "en": "Video to upscale"
+          }
+        },
+        {
+          "key": "mode",
+          "type": "select",
+          "options": ["tiny", "full"],
+          "default": "tiny",
+          "label": {
+            "zh": "解码器档位",
+            "en": "Decoder mode"
+          },
+          "hint": {
+            "zh": "tiny 是官方小条件解码器（快、省显存）；full 画质更足但更慢更吃显存。",
+            "en": "tiny is the official tiny conditional decoder (faster, lighter); full is higher quality but slower and heavier."
+          }
+        },
+        {
+          "key": "keepAudio",
+          "type": "boolean",
+          "default": true,
+          "label": {
+            "zh": "保留源音轨（原样 copy，不重编码）",
+            "en": "Keep source audio (copied, not re-encoded)"
+          }
+        }
+      ],
+      "defaultParams": {
+        "mode": "tiny",
+        "keepAudio": true
+      },
+      "referenceBudgets": [
+        {
+          "maxVideos": 1
+        }
+      ]
+    }
+  ]
+}

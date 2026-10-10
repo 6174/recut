@@ -142,13 +142,12 @@ type WorldDetail struct {
 	SkillMd              string            `json:"skillMd"`
 	Revision             WorldRevisionView `json:"revision"`
 	AvailableEntityKinds []string          `json:"availableEntityKinds"`
-	// Entities / Relations / Tree 是 World 的实体图。world.get 只是"读取索引"：
-	// 实体仅身份 meta（id/typeId/name/intro），关系拆成语义边（Relations）与结构
-	// 链（Tree，has_*），一律不含正文/属性/媒体。正文与媒体改走 entities.get（单个
-	// 全文）；超出上限置 GraphTruncated。
+	// Entities / Relations 是 World 的实体图。world.get 只是"读取索引"：实体仅身份
+	// meta（id/typeId/name/intro），关系是紧凑的边列表（{from,to,role,toRole?}），
+	// 一律不含正文/属性/媒体。正文与媒体改走 entities.get（单个全文）；超出上限置
+	// GraphTruncated。
 	Entities       []WorldEntityCard    `json:"entities"`
 	Relations      []WorldGraphRelation `json:"relations"`
-	Tree           []WorldGraphTreeEdge `json:"tree,omitempty"`
 	GraphTruncated bool                 `json:"graphTruncated,omitempty"`
 }
 
@@ -257,24 +256,14 @@ type WorldEntityCard struct {
 	Intro  string `json:"intro"`
 }
 
-// WorldGraphRelation is one semantic relation edge in the world.get graph: the
-// two ends plus the role tokens. The relation's own id is omitted from the read
-// projection (writes take it from entities.get); structural has_* edges are
-// grouped into WorldGraphTreeEdge instead.
+// WorldGraphRelation is one relation edge in the world.get graph: the two ends
+// plus the role tokens (structural has_* and semantic alike). The relation's own
+// id is omitted from the read projection — writes take it from entities.get.
 type WorldGraphRelation struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
 	Role   string `json:"role"`
 	ToRole string `json:"toRole,omitempty"`
-}
-
-// WorldGraphTreeEdge groups the structural chain (has_*) by parent + role so the
-// parent id is emitted once instead of once per edge — the production tree stays
-// readable without repeating from-ids or per-row key names.
-type WorldGraphTreeEdge struct {
-	From string   `json:"from"`
-	Role string   `json:"role"`
-	To   []string `json:"to"`
 }
 
 // world.get 的图投影上限：超出即截断并置 GraphTruncated，引导 Agent 分页/按需读取。
@@ -650,40 +639,39 @@ func (w *WorldStore) getWorldDetail(db *sql.DB, worldID string, includeGraph boo
 	detail.Revision = WorldRevisionView{ID: revisionID, CanonicalHash: canonicalHash, CreatedAt: revisionCreatedAt}
 	detail.AvailableEntityKinds = availableEntityKinds(detail.Type)
 	if includeGraph {
-		entities, relations, tree, truncated, graphErr := w.worldGraph(db, worldID)
+		entities, relations, truncated, graphErr := w.worldGraph(db, worldID)
 		if graphErr != nil {
 			return WorldDetail{}, graphErr
 		}
 		detail.Entities = entities
 		detail.Relations = relations
-		detail.Tree = tree
 		detail.GraphTruncated = truncated
 	}
 	return detail, nil
 }
 
 // worldGraph reads a World's entity graph in bounded, index-sized form: entities
-// (identity meta only — id/typeId/name/intro) and relations split into semantic
-// edges (Relations) and the structural has_* chain (Tree, grouped by parent so
-// the parent id repeats once). Body/attrs/media are never included. Rows are
-// capped to keep recut.worlds.get within the tool output budget; callers see
-// GraphTruncated and page with entities.list / entities.get.
-func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, []WorldGraphRelation, []WorldGraphTreeEdge, bool, error) {
+// (identity meta only — id/typeId/name/intro) and relations (compact edges: the
+// two ends plus the role tokens, structural has_* and semantic alike). Body,
+// attrs and media are never included. Rows are capped to keep recut.worlds.get
+// within the tool output budget; callers see GraphTruncated and page with
+// entities.list / entities.get.
+func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, []WorldGraphRelation, bool, error) {
 	rows, err := db.Query("select id, coalesce(nullif(type_id, ''), kind), title, summary from world_entities where world_id = ? and archived_at is null and is_provisional = 0 order by coalesce(nullif(type_id, ''), kind), updated_at desc limit ?", worldID, worldGraphEntityMax+1)
 	if err != nil {
-		return nil, nil, nil, false, err
+		return nil, nil, false, err
 	}
 	defer rows.Close()
 	entities := make([]WorldEntityCard, 0)
 	for rows.Next() {
 		var card WorldEntityCard
 		if err := rows.Scan(&card.ID, &card.TypeID, &card.Name, &card.Intro); err != nil {
-			return nil, nil, nil, false, err
+			return nil, nil, false, err
 		}
 		entities = append(entities, card)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, nil, false, err
+		return nil, nil, false, err
 	}
 	truncated := len(entities) > worldGraphEntityMax
 	if truncated {
@@ -692,39 +680,25 @@ func (w *WorldStore) worldGraph(db *sql.DB, worldID string) ([]WorldEntityCard, 
 
 	relationRows, err := db.Query("select relation_type, to_role, from_entity_id, to_entity_id from world_relations where world_id = ? and is_provisional = 0 order by created_at limit ?", worldID, worldGraphRelationMax+1)
 	if err != nil {
-		return nil, nil, nil, false, err
+		return nil, nil, false, err
 	}
 	defer relationRows.Close()
 	relations := make([]WorldGraphRelation, 0)
-	type treeKey struct{ from, role string }
-	treeIndex := map[treeKey]int{}
-	tree := make([]WorldGraphTreeEdge, 0)
-	read := 0
 	for relationRows.Next() {
 		var role, toRole, fromID, toID string
 		if err := relationRows.Scan(&role, &toRole, &fromID, &toID); err != nil {
-			return nil, nil, nil, false, err
-		}
-		read++
-		if strings.HasPrefix(role, "has_") {
-			key := treeKey{from: fromID, role: role}
-			if at, ok := treeIndex[key]; ok {
-				tree[at].To = append(tree[at].To, toID)
-			} else {
-				treeIndex[key] = len(tree)
-				tree = append(tree, WorldGraphTreeEdge{From: fromID, Role: role, To: []string{toID}})
-			}
-			continue
+			return nil, nil, false, err
 		}
 		relations = append(relations, WorldGraphRelation{From: fromID, To: toID, Role: role, ToRole: toRole})
 	}
 	if err := relationRows.Err(); err != nil {
-		return nil, nil, nil, false, err
+		return nil, nil, false, err
 	}
-	if read > worldGraphRelationMax {
+	if len(relations) > worldGraphRelationMax {
 		truncated = true
+		relations = relations[:worldGraphRelationMax]
 	}
-	return entities, relations, tree, truncated, nil
+	return entities, relations, truncated, nil
 }
 
 // decodeEntityCover parses a stored cover_json into the first-class cover

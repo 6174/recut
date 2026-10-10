@@ -25,26 +25,20 @@ func TestWorldsMCPToolsAreAlwaysRegistered(t *testing.T) {
 		"recut.worlds.get",
 		"recut.worlds.entities.list",
 		"recut.worlds.entities.get",
-		"recut.worlds.entityTypes.list",
 		"recut.worlds.doc",
 		"recut.worlds.docs",
 		"recut.worlds.create",
 		"recut.worlds.update",
 		"recut.worlds.fork",
-		"recut.worlds.delete",
 		"recut.worlds.revisions.list",
 		"recut.worlds.revert",
 		"recut.worlds.export",
 		"recut.worlds.import",
-		"recut.worlds.proposals.list",
 		// 方案 A：内容写入收口在画布接口（无额外 canvas 层）。
 		"recut.worlds.entity",
 		"recut.worlds.relation",
 		"recut.worlds.entityType",
 		"recut.worlds.doc.update",
-		"recut.worlds.promote",
-		"recut.worlds.lock",
-		"recut.worlds.unlock",
 	} {
 		if !names[expected] {
 			t.Fatalf("global Worlds tool %q is missing", expected)
@@ -94,43 +88,6 @@ func TestWorldsMCPReadFlowAndStructuredContent(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("foreign/missing entity was not rejected")
-	}
-}
-
-func TestWorldsMCPDeleteRequiresNameConfirmation(t *testing.T) {
-	_, store, _ := newTestWorldStore(t)
-	bridge := NewAgentBridge(store)
-	media := NewMediaService(store)
-	result, err := handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
-		Method: "tools/call",
-		Params: json.RawMessage(`{"name":"recut.worlds.create","arguments":{"name":"Doomed","type":"custom"}}`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	world := result.(map[string]any)["structuredContent"].(WorldDetail)
-	if _, err := handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
-		Method: "tools/call",
-		Params: json.RawMessage(`{"name":"recut.worlds.delete","arguments":{"worldId":"` + world.ID + `","name":"Wrong"}}`),
-	}); err == nil {
-		t.Fatal("delete accepted a mismatched name")
-	}
-	result, err = handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
-		Method: "tools/call",
-		Params: json.RawMessage(`{"name":"recut.worlds.delete","arguments":{"worldId":"` + world.ID + `","name":"Doomed"}}`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	structured := result.(map[string]any)["structuredContent"].(map[string]any)
-	if deleted, _ := structured["deleted"].(bool); !deleted {
-		t.Fatalf("delete structuredContent = %#v", structured)
-	}
-	if _, err := handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
-		Method: "tools/call",
-		Params: json.RawMessage(`{"name":"recut.worlds.get","arguments":{"worldId":"` + world.ID + `"}}`),
-	}); err == nil {
-		t.Fatal("deleted world is still readable")
 	}
 }
 
@@ -392,6 +349,61 @@ func TestWorldsMCPGetReturnsEntityGraphAndSkill(t *testing.T) {
 	}
 	if fetched.Relations[0].From != hero.ID || fetched.Relations[0].To != alley.ID {
 		t.Fatalf("relation ends wrong: %#v", fetched.Relations[0])
+	}
+}
+
+// world.get 顺带给出画布树：每层 contextId + 容纳它的父层 parentContextId，让
+// Agent 不读 docs 也能看画布的嵌套结构。父层 = 放了该层实体卡 shape:<contextId>
+// 的那一层。
+func TestWorldsGetReturnsCanvasTree(t *testing.T) {
+	_, store, _ := newTestWorldStore(t)
+	bridge := NewAgentBridge(store)
+	media := NewMediaService(store)
+	call := func(name, args string) (any, error) {
+		return handleMCP(bridge, NewAppHost(nil, store), media, AgentSession{ID: "s1"}, mcpRequest{
+			Method: "tools/call",
+			Params: json.RawMessage(`{"name":"` + name + `","arguments":` + args + `}`),
+		})
+	}
+	created, err := call("recut.worlds.create", `{"name":"Canvas World","type":"character_ip"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	world := created.(map[string]any)["structuredContent"].(WorldDetail)
+
+	// work 落在根画布 ""；script 落在 work 层；character 落在 script 层。
+	workRes, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"create","typeId":"work","name":"W","contextId":""}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := workRes.(map[string]any)["structuredContent"].(WorldEntity)
+	scriptRes, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"create","typeId":"script","name":"S","parentId":"`+work.ID+`","contextId":"`+work.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := scriptRes.(map[string]any)["structuredContent"].(WorldEntity)
+	if _, err := call("recut.worlds.entity", `{"worldId":"`+world.ID+`","op":"create","typeId":"character","name":"C","contextId":"`+script.ID+`"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := call("recut.worlds.get", `{"worldId":"`+world.ID+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	context := res.(map[string]any)["structuredContent"].(WorldContext)
+	parents := map[string]string{}
+	for _, node := range context.Canvases {
+		parents[node.ContextID] = node.ParentContextID
+	}
+	if _, ok := parents[work.ID]; !ok {
+		t.Fatalf("work layer missing from canvas tree: %#v", context.Canvases)
+	}
+	if parents[script.ID] != work.ID {
+		t.Fatalf("script layer parent = %q, want %q (%#v)", parents[script.ID], work.ID, context.Canvases)
+	}
+	// 类型目录与关系词表并入 get（原 entityTypes.list 下线）。
+	if len(context.EntityTypes) == 0 || len(context.RelationTypes) == 0 {
+		t.Fatalf("world.get must fold entityTypes/relationTypes: %d / %d", len(context.EntityTypes), len(context.RelationTypes))
 	}
 }
 

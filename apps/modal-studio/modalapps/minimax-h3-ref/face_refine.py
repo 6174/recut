@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 from dataclasses import dataclass, replace
 from typing import Optional, Protocol
 
@@ -28,6 +29,16 @@ DEFAULT_CROP_FACTOR = 2.5
 LONGSHOT_CROP_FACTOR = 3.5
 DEFAULT_CANVAS = 768
 LONGSHOT_CANVAS = 512
+# 保真度标量输入的候选名（不同 ONNX 导出命名不一；另按 "...weight" 后缀兜底匹配）。
+FIDELITY_INPUT_NAMES = frozenset({"w", "weight", "fidelity", "fidelity_weight", "cf_weight",
+                                  "codeformer_weight", "alpha", "strength"})
+
+
+def onnx_scalar_dtype(type_name) -> type:
+    """ONNX 声明的元素类型 → numpy dtype。FaceFusion 的 codeformer 把保真度输入声明为 **double**，
+    喂 float32 会被 onnxruntime 以 INVALID_ARGUMENT 拒绝，所以按声明类型构造标量。"""
+    return {"tensor(double)": np.float64, "tensor(float)": np.float32,
+            "tensor(float16)": np.float16}.get(str(type_name or "").lower(), np.float32)
 
 
 @dataclass(frozen=True)
@@ -239,7 +250,12 @@ def load_detector(model_dir: str, log=print) -> Optional[FaceDetector]:
 
 
 def load_restorer(model_dir: str, model: str, log=print) -> Optional[FaceRestorer]:
-    """加载 ONNX 人脸修复器（CodeFormer/GFPGAN）。模型缺失/依赖缺失返回 None（调用方降级为不修复）。"""
+    """加载 ONNX 人脸修复器（CodeFormer/GFPGAN）。模型缺失/依赖缺失返回 None（调用方降级为不修复）。
+
+    **自适应 I/O**：不同导出对输入/输出的命名与形状并不统一（FaceFusion 的 codeformer.onnx 用
+    `input` + `weight`；另一些导出用 `w`/`fidelity`，或干脆没有保真度输入）。这里在加载时读一遍
+    session 的输入清单再决定怎么喂，而不是写死名字——避免「填了 URL 却因为名字不匹配而静默坏掉」。
+    """
     from pathlib import Path
 
     names = {"codeformer": "codeformer.onnx", "gfpgan": "gfpgan.onnx"}
@@ -260,20 +276,46 @@ def load_restorer(model_dir: str, model: str, log=print) -> Optional[FaceRestore
 
     class _OnnxRestorer:
         def __init__(self, source: str):
-            providers = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider") if p in ort.get_available_providers()]
+            providers = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider")
+                         if p in ort.get_available_providers()]
             self._session = ort.InferenceSession(source, providers=providers or None)
-            self._input = self._session.get_inputs()[0].name
-            self._size = int(self._session.get_inputs()[0].shape[-1] or 512)
+            inputs = self._session.get_inputs()
+            # 图像输入 = 形状为 4 维的那个（否则取第一个）；尺寸取最后一维的静态值，动态维回落 512。
+            image = next((item for item in inputs if len(item.shape) == 4), inputs[0])
+            self._image_input = image.name
+            self._size = 512
+            for dim in reversed(list(image.shape)):
+                if isinstance(dim, int) and dim > 1:
+                    self._size = int(dim)
+                    break
+            # 保真度输入 = 名字命中候选词、或以 "weight" 结尾的那个；没有就只喂图像。
+            self._fidelity_input = ""
+            self._fidelity_dtype = np.float32
+            for item in inputs:
+                if item is image:
+                    continue
+                lowered = item.name.lower()
+                if lowered in FIDELITY_INPUT_NAMES or lowered.endswith("weight"):
+                    self._fidelity_input = item.name
+                    self._fidelity_dtype = onnx_scalar_dtype(item.type)
+                    break
+            if log:
+                log(f"[face] ONNX 修复器就绪：image_input={self._image_input!r} size={self._size} "
+                    f"fidelity_input={self._fidelity_input or '<无>'}({np.dtype(self._fidelity_dtype).name}) "
+                    f"outputs={[out.name for out in self._session.get_outputs()]}")
 
         def restore(self, crop, fidelity):  # noqa: D102
             import cv2
 
             resized = cv2.resize(crop, (self._size, self._size), interpolation=cv2.INTER_LINEAR)
             tensor = (resized.astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
-            outputs = self._session.run(None, {self._input: tensor, "w": np.array([[float(fidelity)]], dtype=np.float32)}
-                                        if any(i.name == "w" for i in self._session.get_inputs())
-                                        else {self._input: tensor})
-            restored = np.clip(outputs[0][0].transpose(1, 2, 0), 0.0, 1.0) * 255.0
+            feeds = {self._image_input: tensor}
+            if self._fidelity_input:
+                feeds[self._fidelity_input] = np.array([[float(fidelity)]], dtype=self._fidelity_dtype)
+            output = np.asarray(self._session.run(None, feeds)[0])[0]
+            if output.shape[0] == 3:      # [3,H,W] → [H,W,3]
+                output = output.transpose(1, 2, 0)
+            restored = np.clip(output, 0.0, 1.0) * 255.0
             return restored.astype(np.uint8)
 
     return _OnnxRestorer(str(path))
@@ -396,6 +438,7 @@ def refine_video_bytes(data: bytes, params: RefineParams, model_dir: str = "", d
               "profile": "none", "fidelity": params.fidelity, "cropFactor": params.crop_factor,
               "canvas": params.canvas}
     log = log or (lambda *args, **kwargs: None)
+    started = time.time()
     if params.model == "off" or not data:
         report["reason"] = "disabled"
         return data, report
@@ -448,10 +491,13 @@ def refine_video_bytes(data: bytes, params: RefineParams, model_dir: str = "", d
             restored[task["frame"]][y:y + h, x:x + w] = np.clip(blended, 0, 255).astype(np.uint8)
         output = _encode(restored, fps, size, audio_packets, audio_template, log=log)
         report["applied"] = True
-        log(f"[face] 完成：修复 {report['faces']} 张脸（{report['profile']} 档），音轨原样保留")
+        report["elapsedSec"] = round(time.time() - started, 1)
+        log(f"[face] 完成：修复 {report['faces']} 张脸（{report['profile']} 档），"
+            f"用时 {report['elapsedSec']}s，音轨原样保留")
         return output, report
     except Exception as error:  # noqa: BLE001
         report["reason"] = f"{type(error).__name__}: {error}"
+        report["elapsedSec"] = round(time.time() - started, 1)
         log(f"[face] 人脸阶段失败（照常交付原始产物）：{report['reason']}")
         return data, report
     finally:
@@ -529,6 +575,13 @@ def _selftest() -> int:
         _assert(RefineParams.from_mapping({"faceRefine": "bogus"}).model == "codeformer")
 
     check("RefineParams.from_mapping 归一/夹取", mapping)
+
+    check("onnx_scalar_dtype 按声明类型构造标量", lambda: (
+        _assert(onnx_scalar_dtype("tensor(double)") is np.float64),
+        _assert(onnx_scalar_dtype("tensor(float)") is np.float32),
+        _assert(onnx_scalar_dtype("tensor(float16)") is np.float16),
+        _assert(onnx_scalar_dtype(None) is np.float32),
+    ))
 
     def sheet_skips_without_faces():
         from PIL import Image

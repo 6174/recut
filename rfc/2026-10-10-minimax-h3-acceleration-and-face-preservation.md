@@ -430,7 +430,11 @@ H3 的加速分三层，**很多教程把三层混着讲**，导致「叠加后�
 
 **本地已验证（可重复）**：`face_refine.py --selftest` **9/9**；`mock_sglang.py --selftest` 契约全绿；`publish_registry.py` 生成注册表并同步 `contributes.media`（新增 2 个平台模型 `modal-cloud/minimax-h3-ref`、`modal-cloud/minimax-h3-face-refine`）；`modal_runner.py invoke --mock` 对 `reference-to-video` **与链式的** `face-refine` 端到端跑通（含「模型缺失优雅降级」路径）；`cd service && go test -run TestModalStudio` 通过。
 
-**尚未验证（需首次真机 deploy；已写进 pack README 的「已知边界」）**：① **修复模型地址默认为空**（不臆造 URL）→ 需用 `RECUT_H3_CODEFORMER_URL`/`RECUT_H3_GFPGAN_URL` 指向一个已验证 I/O 的 ONNX 导出，**未配置前 `faceRefine` 优雅降级为「不修复」**（检测模型 YuNet 有默认地址）；② 人脸 ONNX 的 **I/O 约定**（`load_restorer` 假定 NCHW float32 + 可选 `w` 保真度）；③ 修复阶段的**真实耗时/显存**；④ 参考组增强对画质的**实际增益**（需同 prompt/seed A/B）。③④ 在首次 deploy 时补齐并把数字回填本 RFC 与 README。
+**真机已验证（2026-10-10 · RTX PRO 6000 96GB · fp8 · 精确注意力）**：① Ref2VA 用**复用的** `ref2va-transformer`（8 步）在云端起服务并出片——5s / 1344×768 / 8 次去噪：denoise 118.6s（≈14.8s/it）、decode 7.4s、峰值 **49.8 GB**，生成本身 **148.3s**；② **参考组增强（L1）在真实人脸上生效**：YuNet 检出参考图人脸 → 裁出放大拼成 404 KB 参考组 → 追加为 `<Picture 2>`（`meta.referenceSheet.applied=true`）；③ 修复模型缺失时按设计**优雅降级**（`meta.faceRefine.applied=false`，生成照常交付）；④ `fa` 在 SM12.x 自动回退**精确** `torch_sdpa`（日志可见）。
+
+**GPU 快照决策（实测后调整）**：首轮**首次调用 wall-clock 874.6s**，其中约 9 分钟用于建快照；**移除快照后重跑降到 326s（−63%）**，而生成本身不变（148.2s）。故**调试期关闭快照**（`enable_memory_snapshot` / `enable_gpu_snapshot` 均不启用、`@modal.enter()` 不带 `snap=True`、`WARMUP=False`）；将来需要时把这三处加回即可——预热本就是为把形状冻进快照而设，无快照时它只会让每次冷启动多付 ~90s。
+
+**仍未验证（已写进 pack README）**：① **修复模型地址默认为空**（不臆造 URL）→ 需用 `RECUT_H3_CODEFORMER_URL` / `RECUT_H3_GFPGAN_URL` 指向一个已验证 I/O 的 ONNX 导出，**L4 才真正生效——当前只跑通了 L1，L4（真实修复）尚未真正跑过**；② 人脸 ONNX 的 **I/O 约定**（`load_restorer` 假定 NCHW float32 + 可选 `w` 保真度）；③ 修复阶段的真实耗时/显存；④ 参考组增强对画质的实际增益（需同 prompt/seed A/B）。
 
 > 另：D10 的「把注意力后端提为预设包声明 + UI 可配」**尚未落地**——本包注意力是 `modal_app.ATTENTION_BACKEND` 常量（env `RECUT_H3_REF_ATTENTION` 可覆盖，部署期生效），manifest 里**没有**声明一个没人读的字段（避免误导性声明）。把它接成 UI 开关属 M2。
 

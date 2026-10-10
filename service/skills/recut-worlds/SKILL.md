@@ -1,7 +1,7 @@
 ---
 name: recut-worlds
 appId: recut.platform
-description: 操作 World 与 World Canvas 工具集的通用技能：属性/关系/类型的建模与关联、画布元素的显示与提升，以及世界语境里的媒体生成（视频待用户确认）。
+description: 操作 World 与 World Canvas 工具集的通用技能：属性/关系/类型的建模与关联、画布元素的显示与关联，以及世界语境里的媒体生成（视频待用户确认）。
 references: content-model.md, content-templates.md, production-layer.md, canvas-hierarchy.md, media-generation.md, pitfalls.md
 ---
 
@@ -89,7 +89,7 @@ type EdgeProps = {
 // entity → attr|media = 属性边（值不复制，属性卡只持引用投影，编辑按 label 回写实体）
 ```
 
-> 封面 / 属性粒度 / locked 字段 / 世界级属性 / 显示三层 / 提升语义 → `references/content-model.md`。
+> 封面 / 属性粒度 / locked 字段 / 世界级属性 / 显示三层 / 边的语义 → `references/content-model.md`。
 
 ## 二、默认实体与操作
 
@@ -125,16 +125,14 @@ type EdgeProps = {
 
 | 意图 | 工具 | 说明 |
 |---|---|---|
-| 发现 / 读取世界 | `recut.worlds.list` / `recut.worlds.get` | `get` 是**轻量读取索引**（恒定落在工具输出预算内）：概览 + world.md（`skillMd`）+ 实体图（`entities` 只给身份 meta `id/typeId/name/intro`；`relations` 语义边 `{from,to,role,toRole?}`；`tree` 结构链 `has_*` 按父 + role 归组）+ `readiness.missing`。**正文 / 属性 / 媒体不在这里**——按需 `entities.get` |
-| 读取内容 | `recut.worlds.entities.list` / `entities.get` / `entityTypes.list` | 只读；`entities.list` 支持 `typeId` / `parentId` / `text` / `includeProvisional` |
-| 读画布 | `recut.worlds.doc`（某层）/ `docs`（层索引） | `contextId=""` 为根画布 |
-| 写内容 | `recut.worlds.entity` | op：`create`（可带 `contextId` 落投影卡）/ `update` / `archive` / `restore` / `confirm` |
+| 发现 / 读取世界 | `recut.worlds.list` / `recut.worlds.get` | `get` 是**轻量读取索引**（恒定落在工具输出预算内）：概览 + world.md（`skillMd`）+ 实体图（`entities` 只给身份 meta `id/typeId/name/intro`；`relations` 紧凑边 `{from,to,role,toRole?}`——结构 `has_*` 与语义边都在这里；`canvases` **画布树**每层 `{contextId, parentContextId, elementCount}`）。**正文 / 属性 / 媒体不在这里**——按需 `entities.get` |
+| 读取内容 | `recut.worlds.entities.list` / `entities.get` | 只读；`entities.list` 支持 `typeId` / `parentId` / `text`；类型目录由 `get` 的 `entityTypes` 给出 |
+| 读画布 | `recut.worlds.doc`（某层）/ `docs`（层索引） | `contextId=""` 为根画布；画布是**一棵树**（根 + 各实体内层），`docs` 每层带 `parentContextId`（容纳该层实体卡 `shape:<contextId>` 的父层）、`get` 的 `canvases` 也给出这棵树；元素坐标 / 尺寸只在 `doc` 里 |
+| 写内容 | `recut.worlds.entity` | op：`create`（可带 `contextId` 落投影卡）/ `update` / `archive` / `restore` |
 | | `recut.worlds.relation` | op：`create` / `update` / `archive` / `restore`；`scopeEntityId` 非空为局部关系 |
 | | `recut.worlds.entityType` | 定义 / 覆盖类型 schema（不产 revision） |
 | 写画布布局（不产 revision） | `recut.worlds.doc.update` | 元素级 ops：insert / update / remove；自由元素含 `note` / `text` / `shape` / `arrow` / `link` / `attr` / `media` |
-| 提升草稿为 Canon | `recut.worlds.promote` | 便签 / 文本→草稿实体；箭头→关系 / 属性绑定 |
-| 多步会话 | `recut.worlds.lock` / `unlock` | 多步画布编辑前上 advisory 锁，结束务必释放 |
-| World 生命周期 | `recut.worlds.create` / `update`（world.md/identity）/ `fork` / `delete` / `revert` / `import` | 世界级操作，不是内容编辑 |
+| World 生命周期 | `recut.worlds.create` / `update`（world.md/identity）/ `fork` / `revert` / `import` | 世界级操作，不是内容编辑 |
 
 ## 四、常用工作流程
 
@@ -148,7 +146,7 @@ type EdgeProps = {
 2. **Plan**：把要建的资产、需要的参考、生成 / 排序列写成 `PLAN.md`，呈报用户。
 3. **建设定实体**：基础操作 B——`entity` op=`create`（世界根层），内容写 `detail`。
 4. **生成锚点参考并落位**：基础操作 C——`image.generate`（带参考）→ 节点 + 属性边 + Canon media 属性；一拿到 `assetId` 就落位。
-5. **连线 / 提升 / 排版**：`relation`、`promote`、`doc.update`；相关联内容放同一张画布（见《五、规则｜画布组织》）。
+5. **连线 / 排版**：`relation`、`doc.update`；相关联内容放同一张画布（见《五、规则｜画布组织》）。
 
 **本操作规则**
 
@@ -174,12 +172,12 @@ type EdgeProps = {
 
 ### 基础操作 A｜读世界（生成 / 编辑前必做）
 
-1. **`recut.worlds.get({ worldId })`（单一入口）**：一次拿到身份、world.md（`skillMd`）、实体图（实体 meta + 语义关系 + 结构链）与 `readiness.missing`。**正文、属性与媒体不在这个调用里**——需要某实体的 detail / attrs / 参考图时用 `entities.get`（单个实体全文，含 `character_reference` / `location_reference` / `prop_reference` / `voice_reference` 等 media 字段）。
+1. **`recut.worlds.get({ worldId })`（单一入口）**：一次拿到身份、world.md（`skillMd`）、实体图（实体 meta + 关系边）与 `readiness.missing`。**正文、属性与媒体不在这个调用里**——需要某实体的 detail / attrs / 参考图时用 `entities.get`（单个实体全文，含 `character_reference` / `location_reference` / `prop_reference` / `voice_reference` 等 media 字段）。
 2. **按需深读**：单实体用 `entities.get`；大世界用 `entities.list` 分页；`graphTruncated=true` 时补读。
 
 ### 基础操作 B｜建 / 改作品与内容
 
-写内容用 `entity` / `relation` / `entityType`；写布局用 `doc.update`；提升草稿用 `promote`。
+写内容用 `entity` / `relation` / `entityType`；写布局用 `doc.update`。
 
 **建一个作品 = 容器 + 子实体**：归属（`parentId`，进 Canon 的通用文件夹）与落卡（`contextId`，内层画布）是两件独立的事。
 
@@ -265,16 +263,15 @@ type EdgeProps = {
 9. **非 local 世界只读**：写工具返回 `WORLD_READ_ONLY` 是边界不是失败——提议 `recut.worlds.fork`，经用户确认在副本上继续。
 10. **写 Canon 需要用户明确授权**：无用户请求绝不主动写。
 11. **乐观并发**：所有 Canon 写携带 `expectedRevisionId`；`WORLD_REVISION_CONFLICT` 时停止整批、重读最新 revision、基于最新状态重做。
-12. **草稿免费**：`isProvisional: true` 的实体不产 revision、不进 Canon、不计入 readiness；用 op=`confirm` 转正。
-13. **删除是软删除**：op=`archive` 可 `restore`；`recut.worlds.delete` 只在用户明确要求并确认世界名称时调用；**底层 media asset 永不因世界内容删除而删除**。
-14. **生成产物默认不进 Canon**。
-15. **视频默认待用户确认**：落待确认全局素材（不花钱），用户确认后才生成；**Agent 只提交与落位，不代确认**。
+12. **删除是软删除**：op=`archive` 可 `restore`；**底层 media asset 永不因世界内容删除而删除**。（永久删除不暴露给 AI，需在 UI / HTTP 端操作。）
+13. **生成产物默认不进 Canon**。
+14. **视频默认待用户确认**：落待确认全局素材（不花钱），用户确认后才生成；**Agent 只提交与落位，不代确认**。
 
 ## References 路由表
 
 | 问题 | 读什么 |
 |---|---|
-| 封面 / 属性粒度 / 属性类型 / 预设 locked 字段 / 世界级属性 / media 属性 / 显示三层 / 提升语义 | `references/content-model.md` |
+| 封面 / 属性粒度 / 属性类型 / 预设 locked 字段 / 世界级属性 / media 属性 / 显示三层 / 边的语义 | `references/content-model.md` |
 | work / script 的完整正文模板与分集纪律 | `references/content-templates.md` |
 | 生产结构（work → script）、结构链 has_script、产物与视频节点 | `references/production-layer.md` |
 | 画布树形排版、加深例外、容器 / 递归边界 | `references/canvas-hierarchy.md` |

@@ -20,28 +20,25 @@ import (
 // worldsReadTools 是 recut.worlds.* 的只读工具（无副作用）。
 var worldsReadTools = []string{
 	"recut.worlds.list", "recut.worlds.get", "recut.worlds.entities.list", "recut.worlds.entities.get",
-	"recut.worlds.entityTypes.list", "recut.worlds.doc", "recut.worlds.docs",
-	"recut.worlds.revisions.list", "recut.worlds.export", "recut.worlds.proposals.list",
+	"recut.worlds.doc", "recut.worlds.docs",
+	"recut.worlds.revisions.list", "recut.worlds.export",
 }
-
-// worldsSessionTools 是画布会话锁，不属于读/写语义。
-var worldsSessionTools = []string{"recut.worlds.lock", "recut.worlds.unlock"}
 
 // worldsContentWriteTools 是经画布接口写内容（产/可产 revision）的工具。
 var worldsContentWriteTools = []string{
 	"recut.worlds.entity", "recut.worlds.relation", "recut.worlds.entityType",
-	"recut.worlds.doc.update", "recut.worlds.promote",
+	"recut.worlds.doc.update",
 }
 
 // worldsLifecycleTools 是世界级生命周期/元数据工具（不是实体内容编辑）。
 var worldsLifecycleTools = []string{
-	"recut.worlds.create", "recut.worlds.update", "recut.worlds.fork", "recut.worlds.delete",
+	"recut.worlds.create", "recut.worlds.update", "recut.worlds.fork",
 	"recut.worlds.revert", "recut.worlds.import",
 }
 
 // worldsMutatingTools 是必须广播 world.changed 的工具集合（= world_events.go 的 map）。
 var worldsBroadcastTools = []string{
-	"recut.worlds.create", "recut.worlds.update", "recut.worlds.doc.update", "recut.worlds.promote",
+	"recut.worlds.create", "recut.worlds.update", "recut.worlds.doc.update",
 	"recut.worlds.entity", "recut.worlds.relation", "recut.worlds.entityType", "recut.worlds.revert",
 	"recut.worlds.import",
 }
@@ -59,10 +56,14 @@ var retiredWorldsTools = []string{
 	// get.missing、resolve/bind_project 只服务运行时、relations.list 由 get/entities.get 覆盖。
 	"recut.worlds.evidence.list", "recut.worlds.evidence.archive", "recut.worlds.readiness",
 	"recut.worlds.resolve", "recut.worlds.relations.list", "recut.worlds.bind_project",
+	// 画布 MCP 面收口（2026-10-10）：提案列表（并入画布读）、类型目录（并入 get）、草稿提升
+	// （无草稿态）、删除（太危险，不给 AI）、会话锁（已支持人机共同编辑）全部下线。
+	"recut.worlds.proposals.list", "recut.worlds.entityTypes.list", "recut.worlds.promote",
+	"recut.worlds.delete", "recut.worlds.lock", "recut.worlds.unlock",
 }
 
 func worldsToolInventory() []string {
-	return concatStrings(worldsReadTools, worldsSessionTools, worldsContentWriteTools, worldsLifecycleTools)
+	return concatStrings(worldsReadTools, worldsContentWriteTools, worldsLifecycleTools)
 }
 
 func TestWorldsMCPToolInventoryIsExact(t *testing.T) {

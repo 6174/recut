@@ -47,14 +47,18 @@ WEIGHTS_MARKER = ".recut-download-complete"        # 复用 minimax-h3 的共享
 MERGED_MARKER = ".recut-merge-ref2va-complete"     # 复用 minimax-h3-turbo 的合并完成标记
 FACE_MARKER = ".recut-facemodels-complete"
 
-# 人脸模型（本包专有）：检测用 OpenCV Zoo 的 YuNet；修复默认 CodeFormer 的 ONNX 导出。
-# 说明：ONNX 的输入/输出已按「NCHW float32 [0,1] + 可选 w 保真度」约定封装（见 face_refine.load_restorer）；
-# 若换用其它导出，需核对 I/O 名称与形状——这一步必须在真机 deploy 后校验。
+# 人脸模型（本包专有）：检测用 OpenCV Zoo 的 YuNet；修复用 CodeFormer 的 ONNX 导出。
+# 修复模型取 FaceFusion 的导出（社区使用最广），并**按 commit pin 住**以保证可复现。下载在 Modal 侧进行
+# （本机常连不上 huggingface.co）。`load_restorer` 会自适应读取实际的输入名/尺寸，换导出不必改代码，
+# 但换之前请核对 I/O 是否 face-in/face-out。
 FACE_DETECTION_URL = os.environ.get(
     "RECUT_H3_FACE_DETECTION_URL",
     "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx")
 FACE_RESTORE_URLS = {
-    "codeformer": os.environ.get("RECUT_H3_CODEFORMER_URL", ""),
+    "codeformer": os.environ.get(
+        "RECUT_H3_CODEFORMER_URL",
+        "https://huggingface.co/facefusion/models-3.0.0/resolve/"
+        "728b9659bd9691bf32cbf7f61af478d94b7ba81e/codeformer.onnx"),
     "gfpgan": os.environ.get("RECUT_H3_GFPGAN_URL", ""),
 }
 
@@ -63,7 +67,9 @@ DEFAULT_STEPS = 9
 # 注意力后端：**人脸保持档默认精确**（`auto` 在 SM90/100/120 会选近似的 subblock_sparse，对微细节不利）。
 # SM12.x 无 fa kernel 时会自动回退精确 torch_sdpa。改用近似后端＝用脸部细节换速度，需自行抽检。
 ATTENTION_BACKEND = os.environ.get("RECUT_H3_REF_ATTENTION", "fa")
-WARMUP = True
+# 形状预热：原意是把分配器/算子/首帧成本冻进 GPU 快照。调试期不用快照，预热就变成「每次冷启动多付
+# 约 90s」，收益不再成立，故默认关闭（需要时置 True，并配合重新启用 snapshot）。
+WARMUP = False
 WARMUP_ASPECT = "16:9"
 WARMUP_DURATION_SEC = 4
 WARMUP_STEPS = 9
@@ -90,7 +96,9 @@ outputs = modal.Volume.from_name(OUT_VOLUME, create_if_missing=True)
 
 bootstrap_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("huggingface_hub", "requests")
+    # face_refine 在导入期就用 numpy/pillow，而 bootstrap 容器也会 import modal_app.py → face_refine，
+    # 所以这个轻量镜像必须带上它们（否则 bootstrap 一进容器就 ModuleNotFoundError）。
+    .pip_install("huggingface_hub", "requests", "numpy", "pillow")
     .add_local_python_source("h3_contract", "face_refine")
 )
 
@@ -293,12 +301,13 @@ def _run_ref_video(prompt: str, aspect_ratio: str, duration_sec: float, steps: i
 @app.cls(image=image, gpu="RTX-PRO-6000",
          volumes={MODELS_DIR: models, MERGED_DIR: merged, FACE_DIR: face_models, OUT_DIR: outputs},
          timeout=3600, max_containers=1, memory=262144,
-         retries=0,  # 确定性失败只报一次，避免 crash-loop 空烧 GPU
-         enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})
+         retries=0)  # 确定性失败只报一次，避免 crash-loop 空烧 GPU
+         # 调试期不启用 GPU memory snapshot（enable_memory_snapshot / enable_gpu_snapshot）：
+         # 实测首次调用要为建快照多付约 10 分钟，而快照增益不明显。后续需要时再把这两项加回来。
 class H3Ref:
     """Ref2VA 专用：服务 reference-to-video（参考生视频 + 人脸保持），只加载参考分区 + 复用的 8 步合并权重。"""
 
-    @modal.enter(snap=True)
+    @modal.enter()
     def start(self):
         try:
             _ensure_server()
@@ -401,33 +410,44 @@ def bootstrap_weights():
 
 
 @app.function(image=bootstrap_image, volumes={FACE_DIR: face_models}, timeout=1800)
-def bootstrap_facemodels():
-    """把本包的人脸检测/修复小模型下载进 /face 卷（公开仓库，无需 token）；幂等（有标记即短路）。"""
+def bootstrap_facemodels(force: bool = False):
+    """把人脸检测/修复模型下载进 /face 卷（公开仓库，无需 token）。
+
+    **逐文件校验**（而非只看一个总 marker）：文件存在且体积不小于预期下限才算就绪，因此后续新增或
+    更换模型不会被旧 marker 短路；`force=True` 强制重下。体积下限同时用于挡住「把 HTML 错误页
+    当成模型存下来」这种情况。
+    """
     import requests
 
-    if (Path(FACE_DIR) / FACE_MARKER).is_file():
-        print("[modal] 人脸模型已存在，跳过下载。", flush=True)
-        return {"ready": True, "skipped": True}
     Path(FACE_DIR).mkdir(parents=True, exist_ok=True)
-
-    def _download(url: str, dest: Path, label: str) -> bool:
-        if not url:
-            print(f"[modal] 未配置 {label} 的下载地址，跳过（可在 App 环境变量里覆盖）。", flush=True)
-            return False
+    targets = [("人脸检测（YuNet）", "face_detection_yunet.onnx", FACE_DETECTION_URL, 100 * 1024)]
+    for name, url in FACE_RESTORE_URLS.items():
+        if url:
+            targets.append((f"人脸修复（{name}）", f"{name}.onnx", url, 10 * 1024 * 1024))
+    downloaded, skipped = [], []
+    for label, filename, url, min_bytes in targets:
+        dest = Path(FACE_DIR) / filename
+        if not force and dest.is_file() and dest.stat().st_size >= min_bytes:
+            skipped.append(filename)
+            print(f"[modal] {label} 已就绪（{dest.stat().st_size / 1048576:.1f} MiB），跳过。", flush=True)
+            continue
         part = dest.with_suffix(dest.suffix + ".part")
-        with requests.get(url, stream=True, timeout=(10, 120)) as response:
+        print(f"[modal] 下载 {label} → {filename}…", flush=True)
+        with requests.get(url, stream=True, timeout=(10, 300)) as response:
             response.raise_for_status()
             with part.open("wb") as sink:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
                     sink.write(chunk)
+        if part.stat().st_size < min_bytes:
+            raise RuntimeError(
+                f"{label} 下载体积异常（{part.stat().st_size} B，期望 ≥ {min_bytes} B）：{url} "
+                "可能不是模型文件（例如返回了 HTML 错误页）。")
         part.replace(dest)
-        print(f"[modal] 已下载 {label} → {dest.name}", flush=True)
-        return True
-
-    _download(FACE_DETECTION_URL, Path(FACE_DIR) / "face_detection_yunet.onnx", "人脸检测（YuNet）")
-    for name, url in FACE_RESTORE_URLS.items():
-        _download(url, Path(FACE_DIR) / f"{name}.onnx", f"人脸修复（{name}）")
+        face_models.commit()
+        downloaded.append(filename)
+        print(f"[modal] 已下载 {label} → {filename}（{dest.stat().st_size / 1048576:.1f} MiB）", flush=True)
     (Path(FACE_DIR) / FACE_MARKER).write_text("ok", encoding="utf-8")
     face_models.commit()
-    print("[modal] 人脸模型目录已就绪。", flush=True)
-    return {"ready": True, "path": FACE_DIR}
+    files = sorted(path.name for path in Path(FACE_DIR).glob("*.onnx"))
+    print(f"[modal] /face 就绪：{files}", flush=True)
+    return {"ready": True, "downloaded": downloaded, "skipped": skipped, "files": files}

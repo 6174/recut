@@ -16,6 +16,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.join(here, "..");
 const code = readFileSync(path.join(appRoot, "background.js"), "utf8");
 const registry = readFileSync(path.join(appRoot, "python", "registry.json"), "utf8");
+// 期望数量从「单一信息源」现算（registry.json 的预设包数 / 根 manifest 的平台模型投影数），而不是写死：
+// 新增预设包或暴露模型时这两条断言自动跟随，不会假失败。
+const EXPECTED_MODALAPPS = JSON.parse(registry).modalapps.length;
+const rootManifest = JSON.parse(readFileSync(path.join(appRoot, "manifest.json"), "utf8"));
+const EXPECTED_MODELS = rootManifest.contributes.media.providers[0].models.length;
 const PROFILES = JSON.stringify({
   profiles: [{ id: "p1", name: "default", tokenId: "ak-1234567890", tokenSecret: "super-secret-value" }],
   defaultProfileId: "p1",
@@ -78,7 +83,7 @@ const READY_STATES = {
 {
   const w = makeWorld(READY_STATES);
   const ov = ops["modal.overview"]({}, w.ctx);
-  check("S1 overview 返回全部预设包与函数表单", ov.modalapps.length === 5 && ov.modalapps.every((a) => a.functions.length > 0 && Array.isArray(a.functions[0].formSchema)));
+  check("S1 overview 返回全部预设包与函数表单", ov.modalapps.length === EXPECTED_MODALAPPS && ov.modalapps.every((a) => a.functions.length > 0 && Array.isArray(a.functions[0].formSchema)));
   check("S1 未探测 → 就绪度字段缺省（未知 ≠ 未部署）", ov.modalapps.every((a) => a.deployed === undefined && a.volumeReady === undefined));
   check("S1 无快照时 snapshot=null", ov.snapshot === null);
   check("S1 overview 不拉起 modal CLI/Python", w.calls.shell === 0 && w.calls.python === 0);
@@ -105,7 +110,7 @@ const READY_STATES = {
   const w = makeWorld(READY_STATES);
   const cat = ops["modal.catalog"]({}, w.ctx);
   const byModel = new Map(cat.models.map((m) => [m.model, m]));
-  check("S3 models[] 非空且按 expose.model 命名", cat.models.length === 5 && byModel.has("qwen-image") && byModel.has("minimax-h3"));
+  check("S3 models[] 非空且按 expose.model 命名", cat.models.length === EXPECTED_MODELS && byModel.has("qwen-image") && byModel.has("minimax-h3"));
   check("S3 ready = deployed && volumeReady", byModel.get("minimax-h3").ready === true && byModel.get("sd-turbo").ready === false);
   check("S3 weight.installed 跟随 volumeReady", byModel.get("sd-turbo").weight.installed === false && byModel.get("minimax-h3").weight.installed === true);
   check("S3 catalog 也写快照（供下次首屏直接回放）", ops["modal.overview"]({}, w.ctx).snapshot?.modalapps?.["qwen-image-2.1"]?.deployed === true);

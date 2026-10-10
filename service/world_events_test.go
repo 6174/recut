@@ -69,54 +69,6 @@ func TestWorldCanvasPlacementDefaultsAndLayout(t *testing.T) {
 	}
 }
 
-func TestWorldCanvasAdvisoryLockBroadcast(t *testing.T) {
-	worlds, _, _ := newTestWorldStore(t)
-	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Locked World", Type: WorldFiction})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var events []map[string]any
-	worlds.SetEventPublisher(func(_ string, data map[string]any) {
-		events = append(events, data)
-	})
-
-	result, err := worldsMCPTool(worlds, "recut.worlds.lock", map[string]any{"worldId": world.ID, "owner": "agent"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	locked := result.(map[string]any)["structuredContent"].(map[string]any)
-	token, _ := locked["token"].(string)
-	if token == "" || locked["acquired"] != true {
-		t.Fatalf("lock result = %#v", locked)
-	}
-	if _, _, isLocked := worlds.canvasLockStatus(world.ID); !isLocked {
-		t.Fatal("lock status not active after lock")
-	}
-	if len(events) != 1 || events[0]["event"] != "world.canvas.lock" {
-		t.Fatalf("lock events = %#v", events)
-	}
-
-	// canvas.doc 回执携带锁状态，供 AI 自检。
-	docResult, err := worldsMCPTool(worlds, "recut.worlds.doc", map[string]any{"worldId": world.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	docPayload := docResult.(map[string]any)["structuredContent"].(map[string]any)
-	if lock, ok := docPayload["lock"].(map[string]any); !ok || lock["owner"] != "agent" {
-		t.Fatalf("canvas.doc lock = %#v", docPayload["lock"])
-	}
-
-	if _, err := worldsMCPTool(worlds, "recut.worlds.unlock", map[string]any{"worldId": world.ID, "token": token}); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, isLocked := worlds.canvasLockStatus(world.ID); isLocked {
-		t.Fatal("lock status still active after unlock")
-	}
-	if events[len(events)-1]["event"] != "world.canvas.unlock" {
-		t.Fatalf("unlock events = %#v", events)
-	}
-}
-
 func TestWorldCanvasDocUpdateBroadcastsChanged(t *testing.T) {
 	worlds, _, _ := newTestWorldStore(t)
 	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Changed World", Type: WorldFiction})

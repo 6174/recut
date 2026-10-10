@@ -679,7 +679,7 @@ func TestWorldFilesRootIsStableAndScoped(t *testing.T) {
 		t.Fatalf("second WorldFilesRoot = %q, %v", again, err)
 	}
 	// recut.worlds.get exposes the same stable path to the Agent.
-	context, err := worlds.GetWorldContext(BriefInput{WorldID: world.ID}, "")
+	context, err := worlds.GetWorldContext(BriefInput{WorldID: world.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

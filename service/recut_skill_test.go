@@ -369,7 +369,7 @@ func TestRecutSkillShipsAndServesOnboardingReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("onboarding reference not deployed: %v", err)
 	}
-	for _, required := range []string{"recut.worlds.get", "readiness.missing", "expectedRevisionId", "WORLD_READ_ONLY"} {
+	for _, required := range []string{"recut.worlds.get", "expectedRevisionId", "WORLD_READ_ONLY"} {
 		if !bytes.Contains(reference, []byte(required)) {
 			t.Fatalf("onboarding reference is missing %q", required)
 		}

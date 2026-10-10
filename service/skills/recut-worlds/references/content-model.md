@@ -52,10 +52,10 @@ locked 字段只放**真 meta 与一句话摘要**；正文细节写 `detail`。
 - **画布 → 实体**：编辑属性卡正文，按 label 映射回实体——`简介/介绍/intro → intro`、`正文/内容/detail → detail`，否则写同名 attr key（无则新建）。空值不回写；删除属性只在右侧面板做。
 - **实体 → 画布**：面板改字段后，绑定该字段的属性卡投影值自动刷新；字段被删则投影清空。
 
-## 提升（`recut.worlds.promote`）决定边的语义
+## 边的语义：关系 / 属性绑定
 
 - `entity → entity` = **关系**（写 `world_relations`）。
 - `entity → 自由元素` = **属性绑定**（`field` 绑定到实体属性；自由元素转为引用投影，并生成一个 attr 锚点元素，与右侧属性面板共享同一数据源）。
-- 便签 / 文本提升 = 变成**草稿实体**（`isProvisional`），原元素保留为投影。
+- 便签 / 文本只是画布表达，不再自动变实体：需要实体就直接 `recut.worlds.entity` op=`create` 建。
 
-画布元素**永不产 revision**；只有 `recut.worlds.promote` 与 Canon 写才产。
+画布元素**永不产 revision**；只有 Canon 写（`recut.worlds.entity` / `relation` / `entityType`）才产。

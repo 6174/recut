@@ -802,6 +802,117 @@
                   "name": "SD-Turbo t2i/i2i"
                 }
               }
+            },
+            {
+              "id": "video-upscale",
+              "name": "视频高清化·质量档（SeedVR2-7B）",
+              "capability": "video.generate",
+              "runtime": "modal",
+              "sizeGb": 45,
+              "inputModes": [
+                "text",
+                "video"
+              ],
+              "parameters": [
+                {
+                  "name": "targetLongEdge",
+                  "type": "string",
+                  "enum": [
+                    "source",
+                    "1280",
+                    "1920",
+                    "2560"
+                  ],
+                  "default": "1920"
+                },
+                {
+                  "name": "seed",
+                  "type": "number",
+                  "default": -1
+                },
+                {
+                  "name": "keepAudio",
+                  "type": "boolean",
+                  "default": true
+                }
+              ],
+              "referenceFields": [
+                {
+                  "field": "referenceVideos",
+                  "role": "video",
+                  "multiple": false
+                }
+              ],
+              "weights": {
+                "huggingFace": "ByteDance-Seed/SeedVR2-7B",
+                "modelScope": "ByteDance-Seed/SeedVR2-7B",
+                "revision": "main"
+              },
+              "referenceBudgets": [
+                {
+                  "maxVideos": 1
+                }
+              ],
+              "localized": {
+                "zh": {
+                  "name": "视频高清化·质量档（SeedVR2-7B）"
+                },
+                "en": {
+                  "name": "Video upscale, quality (SeedVR2-7B)"
+                }
+              }
+            },
+            {
+              "id": "video-upscale-fast",
+              "name": "视频高清化·快速档（FlashVSR v1.1）",
+              "capability": "video.generate",
+              "runtime": "modal",
+              "sizeGb": 45,
+              "inputModes": [
+                "text",
+                "video"
+              ],
+              "parameters": [
+                {
+                  "name": "mode",
+                  "type": "string",
+                  "enum": [
+                    "tiny",
+                    "full"
+                  ],
+                  "default": "tiny"
+                },
+                {
+                  "name": "keepAudio",
+                  "type": "boolean",
+                  "default": true
+                }
+              ],
+              "referenceFields": [
+                {
+                  "field": "referenceVideos",
+                  "role": "video",
+                  "multiple": false
+                }
+              ],
+              "weights": {
+                "huggingFace": "ByteDance-Seed/SeedVR2-7B",
+                "modelScope": "ByteDance-Seed/SeedVR2-7B",
+                "revision": "main"
+              },
+              "referenceBudgets": [
+                {
+                  "maxVideos": 1
+                }
+              ],
+              "localized": {
+                "zh": {
+                  "name": "视频高清化·快速档（FlashVSR v1.1）"
+                },
+                "en": {
+                  "name": "Video upscale, fast (FlashVSR v1.1)"
+                }
+              }
             }
           ]
         }

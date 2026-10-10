@@ -13,7 +13,7 @@ recut.worlds.get({ worldId, scenarioId? })
 
 - 一次拿到 `readiness`：`level`（skeleton / draft / ready）、`score`、`scenarioId` 与按优先级排序的
   `readiness.missing`（每项含 `kind`、`title`、`reason`、`suggestion`）；同一次调用还带回 world.md
-  （`skillMd`）与实体图（实体 meta + 语义关系 + 结构链）；**实体正文 / 属性 / 媒体参考不在这个调用里**，
+  （`skillMd`）与实体图（实体 meta + 关系边）；**实体正文 / 属性 / 媒体参考不在这个调用里**，
   按需 `recut.worlds.entities.get` 取单个实体全文。
 - `scenarioId` 缺省按世界类型推荐：`fiction_world→novel-adaptation`、`creator_brand→ip-account`、
   `character_ip→style-system`、`brand→brand-guide`、`custom→blank`。用户给了素材线索时可选更贴合的

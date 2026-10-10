@@ -963,21 +963,39 @@ type WorldBrief struct {
 }
 
 // WorldContext is the recut.worlds.get payload: the world overview with its
-// current entity graph (entities as identity meta, relations split into semantic
-// edges and the structural tree) plus the onboarding readiness gaps and the
-// stable local paths. world.md is inlined as WorldDetail.SkillMd. Body, attrs and
-// media are deliberately excluded — the payload stays a small read index, and one
-// entity's detail is fetched on demand via recut.worlds.entities.get.
+// current entity graph (entities as identity meta, relations as compact edges)
+// plus the stable local paths. world.md is inlined as WorldDetail.SkillMd. Body,
+// attrs and media are deliberately excluded — the payload stays a small read
+// index, and one entity's detail is fetched on demand via
+// recut.worlds.entities.get.
 type WorldContext struct {
 	WorldDetail
-	// Readiness carries level/score/scenarioId + the same actionable gaps the
-	// onboarding UI shows (merged; the standalone readiness tool was removed).
-	Readiness WorldReadiness `json:"readiness"`
+	// EntityTypes is the world's type directory (preset + custom schemas), folded
+	// in from the retired recut.worlds.entityTypes.list so a single read yields
+	// the shape of the world.
+	EntityTypes []WorldEntityType `json:"entityTypes"`
+	// RelationTypes is the built-in controlled relation vocabulary (id/label/
+	// group), also folded in from the retired entityTypes.list.
+	RelationTypes []map[string]any `json:"relationTypes"`
+	// Canvases is the world's canvas tree: one node per layer (contextId "" =
+	// root), each linked to the layer that nests it. Structure only — element
+	// positions/sizes live in recut.worlds.doc.
+	Canvases []WorldCanvasNode `json:"canvases"`
 	// Paths exposes the World's stable absolute locations, the World analogue of
 	// a Project's paths in recut.project_context. Both fields are empty for
 	// non-local (read-only) Worlds. Agents write PLAN.md and working docs under
 	// Paths.FilesRoot instead of the shared files/plans/ bucket.
 	Paths WorldPaths `json:"paths"`
+}
+
+// WorldCanvasNode is one layer of the world's canvas tree in world.get: the
+// layer id (contextId; "" = root), the layer that nests it (parentContextId,
+// empty for the root) and its element count. Positions/sizes live in
+// recut.worlds.doc.
+type WorldCanvasNode struct {
+	ContextID       string `json:"contextId"`
+	ParentContextID string `json:"parentContextId,omitempty"`
+	ElementCount    int    `json:"elementCount"`
 }
 
 // WorldPaths is the stable filesystem footprint of a local World.
@@ -986,17 +1004,26 @@ type WorldPaths struct {
 	FilesRoot string `json:"filesRoot,omitempty"`
 }
 
-// GetWorldContext merges GetWorldGraph (current graph), Readiness (onboarding
-// gaps) and Paths for recut.worlds.get. scenarioID is optional; empty uses the
-// blueprint recommended by type. The brief's facts/references/constraints were
-// retired from this payload — the world's content lives in world.md, and entity
-// detail is read on demand via entities.get.
-func (w *WorldStore) GetWorldContext(input BriefInput, scenarioID string) (WorldContext, error) {
+// GetWorldContext merges GetWorldGraph (current graph), the canvas tree and
+// Paths for recut.worlds.get. The brief's facts/references/constraints and the
+// readiness gaps were retired from this payload — the world's content lives in
+// world.md, and entity detail is read on demand via entities.get.
+func (w *WorldStore) GetWorldContext(input BriefInput) (WorldContext, error) {
 	graph, err := w.GetWorldGraph(input.WorldID)
 	if err != nil {
 		return WorldContext{}, err
 	}
-	readiness, err := w.Readiness(input.WorldID, scenarioID)
+	docs, err := w.canvasDocIndex(input.WorldID)
+	if err != nil {
+		return WorldContext{}, err
+	}
+	canvases := make([]WorldCanvasNode, 0, len(docs))
+	for _, doc := range docs {
+		canvases = append(canvases, WorldCanvasNode{
+			ContextID: doc.ContextID, ParentContextID: doc.ParentContextID, ElementCount: doc.ElementCount,
+		})
+	}
+	entityTypes, err := w.ListEntityTypes(input.WorldID)
 	if err != nil {
 		return WorldContext{}, err
 	}
@@ -1008,9 +1035,11 @@ func (w *WorldStore) GetWorldContext(input BriefInput, scenarioID string) (World
 		}
 	}
 	return WorldContext{
-		WorldDetail: graph,
-		Readiness:   readiness,
-		Paths:       paths,
+		WorldDetail:   graph,
+		EntityTypes:   entityTypes,
+		RelationTypes: ListWorldRelationTypes(),
+		Canvases:      canvases,
+		Paths:         paths,
 	}, nil
 }
 

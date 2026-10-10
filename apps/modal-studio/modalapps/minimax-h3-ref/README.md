@@ -105,12 +105,24 @@ python3 apps/modal-studio/python/modal_runner.py deploy --dir apps/modal-studio/
 modal run apps/modal-studio/modalapps/minimax-h3-ref/bench.py --runs 1 --duration 5
 ```
 
-> **尚未真机验证 / 默认未生效的部分**（诚实标注）：
-> ① **修复模型地址默认是空的**——`modal_app.FACE_RESTORE_URLS` 默认 `""`（不臆造 URL），需用环境变量 `RECUT_H3_CODEFORMER_URL` / `RECUT_H3_GFPGAN_URL` 指向一个**已验证 I/O** 的 ONNX 导出（检测模型 YuNet 有默认地址）。**未配置前，`faceRefine` 会优雅降级为「不修复」（`meta.faceRefine.applied=false`），生成照常交付。**
+### 真机实测（2026-10-10 · RTX PRO 6000 96GB · fp8 · 精确注意力）
+
+| 项 | 实测 |
+|---|---|
+| 首次调用 wall-clock（含建 GPU 快照） | **874.6s** |
+| 生成本身（5s / 1344×768 / 9 网格点 = 8 次去噪） | **148.3s**（denoise 118.6s ≈ 14.8s/it，decode 7.4s，峰值 **49.8 GB**） |
+| 预热档（1344×768 / 4s / 9 次去噪） | denoise 73.6s，decode 6.3s，合计 91.98s，峰值 **47.96 GB** |
+| **移除 GPU 快照后重跑** | **326s**（其中生成 148.2s）→ 快照移除省 **~548s（−63%）**，生成结果不变 |
+
+**已真机验证的能力**：① Ref2VA 用**复用的** `ref2va-transformer`（8 步）起服务并出片；② **参考组增强（L1）在真实人脸上生效**——YuNet 检出参考图人脸 → 裁出放大拼成 404 KB 的参考组 → 追加为 `<Picture 2>`（`meta.referenceSheet.applied=true`）；③ 修复模型缺失时按设计**优雅降级**（`meta.faceRefine.applied=false` + reason，生成照常交付）；④ `fa` 在 SM12.x 自动回退**精确** `torch_sdpa`（日志可见）；⑤ 同 seed 两次输出大小一致（807,494 B）。
+
+> **GPU 快照：调试期已关闭**（`enable_memory_snapshot` / `enable_gpu_snapshot` 均不启用，`@modal.enter()` 不带 `snap=True`）。理由就是上表：快照要为首次调用多付 ~9 分钟，而增益不明显。**需要时加回三处**：`@app.cls(..., enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})`、`@modal.enter(snap=True)`、以及 `WARMUP = True`（预热本来就是为把形状冻进快照而设，无快照时它只是让每次冷启动多付 ~90s）。
+
+> **尚未验证 / 默认未生效的部分**（诚实标注）：
+> ① **修复模型地址默认是空的**——`modal_app.FACE_RESTORE_URLS` 默认 `""`（不臆造 URL），需用环境变量 `RECUT_H3_CODEFORMER_URL` / `RECUT_H3_GFPGAN_URL` 指向一个**已验证 I/O** 的 ONNX 导出（检测模型 YuNet 有默认地址且已下载）。**未配置前 `faceRefine` 只会降级为「不修复」——本包目前只跑通了 L1（参考组增强），L4（真实修复）还没真正跑过。**
 > ② 人脸 ONNX 的 **I/O 约定**（`load_restorer` 假定 NCHW float32 [0,1] + 可选 `w` 保真度）需按实际导出核对；
-> ③ 修复阶段的**真实耗时/显存**（预期与 8 步生成的 ~125s 同量级，需 `bench` 实测）；
+> ③ 修复阶段的真实耗时/显存（未配模型，无法测）；
 > ④ 参考组增强对画质的**实际增益**（需同 prompt/seed 的 A/B）。
-> ③④ 在首次真机 deploy 时补齐，数字回填 README 与 RFC。
 >
 > **注意力后端**：本包默认精确 `fa`（人脸优先），由 `modal_app.ATTENTION_BACKEND` 控制（环境变量 `RECUT_H3_REF_ATTENTION` 可覆盖）。它是**部署期**的 server-wide 选择（改后需重新 deploy），目前**不是**表单/UI 可配项（把它提为预设包声明 + UI 开关见 RFC §D10，属 M2）。
 

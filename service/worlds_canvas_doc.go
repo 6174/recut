@@ -772,8 +772,23 @@ func numericGeometry(value any) (float64, bool) {
 	}
 }
 
-// ListCanvasDocuments returns the document index of one world (no bodies).
-func (w *WorldStore) ListCanvasDocuments(worldID string) ([]map[string]any, error) {
+// canvasDocSummary is one canvas layer's index row: which layer it is
+// (contextId, "" = root), which layer nests it (parentContextId), its element
+// count, version and updatedAt.
+type canvasDocSummary struct {
+	ContextID       string
+	ParentContextID string
+	Version         int
+	ElementCount    int
+	UpdatedAt       string
+}
+
+// canvasDocIndex reads a world's canvas layers and links each non-root layer to
+// its parent. Canvas documents form a tree ("" = root; <entityId> = that
+// entity's inner canvas) but the rows store no parent pointer, so the parent is
+// reconstructed: the layer that holds the owning entity's projection card
+// (shape:<contextId>). A layer whose card is not found anywhere stays parentless.
+func (w *WorldStore) canvasDocIndex(worldID string) ([]canvasDocSummary, error) {
 	db, err := w.database()
 	if err != nil {
 		return nil, err
@@ -786,7 +801,8 @@ func (w *WorldStore) ListCanvasDocuments(worldID string) ([]map[string]any, erro
 		return nil, err
 	}
 	defer rows.Close()
-	items := []map[string]any{}
+	summaries := []canvasDocSummary{}
+	layerOf := map[string]string{} // entity id -> contextId of the layer holding its card
 	for rows.Next() {
 		var contextID, updatedAt, raw string
 		var version int
@@ -797,11 +813,42 @@ func (w *WorldStore) ListCanvasDocuments(worldID string) ([]map[string]any, erro
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, map[string]any{
-			"contextId": contextID, "version": version, "updatedAt": updatedAt, "elementCount": len(payload.Elements),
+		for _, element := range payload.Elements {
+			if element.Kind == "entity" && element.RefID != "" {
+				layerOf[element.RefID] = contextID
+			}
+		}
+		summaries = append(summaries, canvasDocSummary{
+			ContextID: contextID, Version: version, UpdatedAt: updatedAt, ElementCount: len(payload.Elements),
 		})
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range summaries {
+		if summaries[i].ContextID == "" {
+			continue
+		}
+		summaries[i].ParentContextID = layerOf[summaries[i].ContextID]
+	}
+	return summaries, nil
+}
+
+// ListCanvasDocuments returns the document index of one world (no bodies), one
+// entry per layer with its parent layer so the tree is explicit.
+func (w *WorldStore) ListCanvasDocuments(worldID string) ([]map[string]any, error) {
+	docs, err := w.canvasDocIndex(worldID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]map[string]any, 0, len(docs))
+	for _, doc := range docs {
+		items = append(items, map[string]any{
+			"contextId": doc.ContextID, "parentContextId": doc.ParentContextID,
+			"version": doc.Version, "updatedAt": doc.UpdatedAt, "elementCount": doc.ElementCount,
+		})
+	}
+	return items, nil
 }
 
 // UpdateCanvasDocumentOps applies element-level ops inside one document
