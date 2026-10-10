@@ -25,7 +25,8 @@ def _face_params(params: dict) -> RefineParams:
     return RefineParams.from_mapping({"faceRefine": model, "faceFidelity": params.get("faceFidelity"),
                                       "faceCropFactor": params.get("faceCropFactor"),
                                       "faceCanvasSize": params.get("faceCanvasSize"),
-                                      "facePersonFallback": params.get("facePersonFallback")})
+                                      "facePersonFallback": params.get("facePersonFallback"),
+                                      "outputQuality": params.get("outputQuality")})
 
 
 def invoke(function_id: str, params: dict, refs: list, mock_url: str) -> dict:

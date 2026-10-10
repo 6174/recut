@@ -1351,6 +1351,24 @@
               }
             },
             {
+              "key": "outputQuality",
+              "type": "select",
+              "options": [
+                "detail",
+                "balanced",
+                "compact"
+              ],
+              "default": "detail",
+              "label": {
+                "zh": "输出画质（修复要整帧重编码，crf 16/20/23）",
+                "en": "Output quality (refine re-encodes the whole clip, crf 16/20/23)"
+              },
+              "hint": {
+                "zh": "detail 保脸细节（体积最大，默认）；balanced 均衡（≈2.7×）；compact 省体积（≈1.7×）。修复关闭时该项不生效。",
+                "en": "detail preserves face detail (largest, default); balanced (~2.7x); compact saves size (~1.7x). Ignored when face refinement is off."
+              }
+            },
+            {
               "key": "keepRaw",
               "type": "boolean",
               "default": true,
@@ -1454,6 +1472,20 @@
               "label": {
                 "zh": "远景丢帧兜底",
                 "en": "Person fallback"
+              }
+            },
+            {
+              "key": "outputQuality",
+              "type": "select",
+              "options": [
+                "detail",
+                "balanced",
+                "compact"
+              ],
+              "default": "detail",
+              "label": {
+                "zh": "输出画质（crf 16/20/23）",
+                "en": "Output quality (crf 16/20/23)"
               }
             }
           ],

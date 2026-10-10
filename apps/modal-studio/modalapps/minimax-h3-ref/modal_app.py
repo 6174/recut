@@ -331,14 +331,15 @@ class H3Ref:
                        steps: int = DEFAULT_STEPS, seed: int = -1, resolution: str = "", refs=None,
                        faceRefine: str = "auto", faceFidelity: float = 0.6, faceCropFactor: float = 2.5,
                        faceCanvasSize: str = "768", facePersonFallback: bool = False,
-                       referenceSheet: str = "auto", keepRaw: bool = True):
+                       outputQuality: str = "detail", referenceSheet: str = "auto", keepRaw: bool = True):
         if not (refs or []):
             raise ValueError("reference-to-video 需要至少一个参考素材（图像/视频/音频）")
         _assert_shared_ready()  # 调用级断言：前置缺失归属这一次调用，可直接返回本机
         params = RefineParams.from_mapping({
             "faceRefine": faceRefine if faceRefine != "auto" else "codeformer",
             "faceFidelity": faceFidelity, "faceCropFactor": faceCropFactor,
-            "faceCanvasSize": faceCanvasSize, "facePersonFallback": facePersonFallback})
+            "faceCanvasSize": faceCanvasSize, "facePersonFallback": facePersonFallback,
+            "outputQuality": outputQuality})
         return _run_ref_video(prompt, aspectRatio, durationSec, steps, seed, refs, resolution,
                               params, sheet_enabled=(referenceSheet != "off"), keep_raw=keepRaw)
 
@@ -373,13 +374,15 @@ class H3FaceRefine:
 
     @modal.method()
     def refine_video(self, refs=None, faceRefine: str = "codeformer", faceFidelity: float = 0.6,
-                     faceCropFactor: float = 2.5, faceCanvasSize: str = "768", facePersonFallback: bool = False):
+                     faceCropFactor: float = 2.5, faceCanvasSize: str = "768", facePersonFallback: bool = False,
+                     outputQuality: str = "detail"):
         source = next((ref for ref in (refs or []) if str(ref.get("mimeType") or "").startswith("video/")), None)
         if source is None or source.get("data") is None:
             raise ValueError("face-refine 需要一个视频参考素材")
         params = RefineParams.from_mapping({"faceRefine": faceRefine or "codeformer", "faceFidelity": faceFidelity,
                                             "faceCropFactor": faceCropFactor, "faceCanvasSize": faceCanvasSize,
-                                            "facePersonFallback": facePersonFallback})
+                                            "facePersonFallback": facePersonFallback,
+                                            "outputQuality": outputQuality})
         print("[modal] 对已有视频做人脸修复（不重新生成）…", flush=True)
         data, report = refine_video_bytes(bytes(source["data"]), params, model_dir=FACE_DIR, log=print)
         key = f"runs/{uuid.uuid4().hex}.refined.mp4"

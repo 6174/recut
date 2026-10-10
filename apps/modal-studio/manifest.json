@@ -366,6 +366,16 @@
                   "default": false
                 },
                 {
+                  "name": "outputQuality",
+                  "type": "string",
+                  "enum": [
+                    "detail",
+                    "balanced",
+                    "compact"
+                  ],
+                  "default": "detail"
+                },
+                {
                   "name": "keepRaw",
                   "type": "boolean",
                   "default": true
@@ -456,6 +466,16 @@
                   "name": "facePersonFallback",
                   "type": "boolean",
                   "default": false
+                },
+                {
+                  "name": "outputQuality",
+                  "type": "string",
+                  "enum": [
+                    "detail",
+                    "balanced",
+                    "compact"
+                  ],
+                  "default": "detail"
                 }
               ],
               "referenceFields": [

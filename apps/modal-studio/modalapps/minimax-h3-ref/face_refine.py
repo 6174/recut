@@ -31,6 +31,10 @@ DEFAULT_CANVAS = 768
 LONGSHOT_CANVAS = 512
 # 缝合椭圆相对人脸框的放大倍数（1.0 = 正好贴住人脸框，留一点边以覆盖下巴/额头）。
 DEFAULT_MASK_FACTOR = 1.5
+# 输出画质档：人脸修复必须**整帧重编码**，用哪个 crf 就是「细节 vs 体积」的取舍。
+# 默认 `detail`（保脸细节、体积最大）——把刚修清楚的脸再压掉不划算；要控体积再往下调。
+OUTPUT_QUALITY_CRF = {"detail": 16, "balanced": 20, "compact": 23}
+DEFAULT_OUTPUT_QUALITY = "detail"
 # 保真度标量输入的候选名（不同 ONNX 导出命名不一；另按 "...weight" 后缀兜底匹配）。
 FIDELITY_INPUT_NAMES = frozenset({"w", "weight", "fidelity", "fidelity_weight", "cf_weight",
                                   "codeformer_weight", "alpha", "strength"})
@@ -54,6 +58,7 @@ class RefineParams:
     feather: float = 0.15
     mask_factor: float = DEFAULT_MASK_FACTOR  # 缝合椭圆相对人脸框的放大倍数
     color_match: bool = True         # 缝合前把修复结果的颜色统计对齐到原图（消除边界色差）
+    quality: str = DEFAULT_OUTPUT_QUALITY  # 输出画质档（detail/balanced/compact → crf 16/20/23）
     sheet_prompt: bool = True        # 参考组增强后是否在提示词尾部补一句说明
 
     @staticmethod
@@ -63,9 +68,13 @@ class RefineParams:
         model = str(raw.get("faceRefine") or raw.get("model") or params.model)
         if model not in ("codeformer", "gfpgan", "off"):
             model = params.model
+        quality = str(raw.get("outputQuality") or raw.get("quality") or params.quality)
+        if quality not in OUTPUT_QUALITY_CRF:
+            quality = params.quality
         return replace(
             params,
             model=model,
+            quality=quality,
             fidelity=_clamp_float(raw.get("faceFidelity"), params.fidelity, 0.0, 1.0),
             crop_factor=_clamp_float(raw.get("faceCropFactor"), params.crop_factor, 1.0, 6.0),
             canvas=int(_clamp_float(raw.get("faceCanvasSize"), params.canvas, 256, 1024)),
@@ -441,13 +450,16 @@ def _decode(data: bytes):
     return frames, fps, size, audio_packets, audio, container
 
 
-def _encode(frames, fps: float, size, audio_packets, audio_template, log=print) -> bytes:
-    """重编码视频并**原样 copy** 音频流（不重编码音频，保住 H3 的原生立体声）。"""
+def _encode(frames, fps: float, size, audio_packets, audio_template, crf: int = 16, log=print) -> bytes:
+    """重编码视频并**原样 copy** 音频流（不重编码音频，保住 H3 的原生立体声）。
+
+    `crf` 由输出画质档决定（detail/balanced/compact → 16/20/23）：整帧重编码是像素域修复的固有代价。
+    """
     import av
 
     buffer = io.BytesIO()
     output = av.open(buffer, mode="w", format="mp4")
-    stream = output.add_stream("libx264", rate=int(round(fps)), options={"crf": "16", "preset": "veryfast"})
+    stream = output.add_stream("libx264", rate=int(round(fps)), options={"crf": str(int(crf)), "preset": "veryfast"})
     stream.width, stream.height = int(size[0]), int(size[1])
     stream.pix_fmt = "yuv420p"
     audio_out = None
@@ -476,7 +488,8 @@ def refine_video_bytes(data: bytes, params: RefineParams, model_dir: str = "", d
     """
     report = {"requested": params.model, "applied": False, "reason": "", "faces": 0, "minFacePx": 0,
               "profile": "none", "fidelity": params.fidelity, "cropFactor": params.crop_factor,
-              "canvas": params.canvas}
+              "canvas": params.canvas, "quality": params.quality,
+              "crf": OUTPUT_QUALITY_CRF.get(params.quality, OUTPUT_QUALITY_CRF[DEFAULT_OUTPUT_QUALITY])}
     log = log or (lambda *args, **kwargs: None)
     started = time.time()
     if params.model == "off" or not data:
@@ -532,11 +545,14 @@ def refine_video_bytes(data: bytes, params: RefineParams, model_dir: str = "", d
                 fixed = match_color(region, fixed, alpha)
             blended = region.astype(np.float32) * (1.0 - alpha[..., None]) + fixed.astype(np.float32) * alpha[..., None]
             restored[task["frame"]][y:y + h, x:x + w] = np.clip(blended, 0, 255).astype(np.uint8)
-        output = _encode(restored, fps, size, audio_packets, audio_template, log=log)
+        output = _encode(restored, fps, size, audio_packets, audio_template,
+                         crf=OUTPUT_QUALITY_CRF.get(params.quality, OUTPUT_QUALITY_CRF[DEFAULT_OUTPUT_QUALITY]), log=log)
         report["applied"] = True
+        report["quality"] = params.quality
+        report["crf"] = OUTPUT_QUALITY_CRF.get(params.quality, OUTPUT_QUALITY_CRF[DEFAULT_OUTPUT_QUALITY])
         report["elapsedSec"] = round(time.time() - started, 1)
         log(f"[face] 完成：修复 {report['faces']} 张脸（{report['profile']} 档），"
-            f"用时 {report['elapsedSec']}s，音轨原样保留")
+            f"用时 {report['elapsedSec']}s，输出画质 {report['quality']}(crf {report['crf']})，音轨原样保留")
         return output, report
     except Exception as error:  # noqa: BLE001
         report["reason"] = f"{type(error).__name__}: {error}"
@@ -636,6 +652,10 @@ def _selftest() -> int:
         _assert(params.model == "gfpgan" and params.fidelity == 1.0 and params.crop_factor == 1.0 and params.canvas == 512,
                 params)
         _assert(RefineParams.from_mapping({"faceRefine": "bogus"}).model == "codeformer")
+        _assert(RefineParams.from_mapping({}).quality == DEFAULT_OUTPUT_QUALITY, "默认应为保脸细节")
+        _assert(RefineParams.from_mapping({"outputQuality": "compact"}).quality == "compact")
+        _assert(RefineParams.from_mapping({"outputQuality": "bogus"}).quality == DEFAULT_OUTPUT_QUALITY)
+        _assert(OUTPUT_QUALITY_CRF == {"detail": 16, "balanced": 20, "compact": 23})
 
     check("RefineParams.from_mapping 归一/夹取", mapping)
 

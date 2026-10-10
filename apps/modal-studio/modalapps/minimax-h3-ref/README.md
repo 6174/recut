@@ -69,6 +69,7 @@ sglang serve --model-path /models/MiniMax-H3 --model-variant ref2va \
 | `faceCropFactor` | `2.5` | 裁剪外扩倍数（远景建议 3.5） |
 | `faceCanvasSize` | `768` | 修复画布（远景小脸自动降到 512） |
 | `facePersonFallback` | `false` | 远景丢帧兜底（用人体框顶部反推头部；中景/夜景开了会拉偏） |
+| `outputQuality` | `detail` | 输出画质（修复要**整帧重编码**）：`detail` crf 16（**默认，保脸细节**，体积 ≈4.6×）／`balanced` crf 20（≈2.7×）／`compact` crf 23（≈1.8×）。`faceRefine=off` 时不生效 |
 | `keepRaw` | `true` | 保留原始 mp4，便于只重跑修复 |
 
 **参数与 `face-refine` 函数保持一致**（同名同义）。Agent/平台路由调用只需传 `prompt` + 参考素材，其余走 App 内「AI 默认参数」。
@@ -134,7 +135,11 @@ modal run apps/modal-studio/modalapps/minimax-h3-ref/bench.py --runs 1 --duratio
 
 **已知取舍（本轮未改）**：
 
-- 重编码用 `libx264 crf 16`，产物比原始大约 **7×**（0.8 MB → 5.9 MB / 5s）。要更小可把 crf 调到 18–20（画质换体积）。
+- **整帧重编码的代价（由 `outputQuality` 选择，默认 `detail` 保脸细节）**：5s 片子原始 0.77 MB →
+  `detail`(crf 16) **3.51 MB ≈4.6×**｜`balanced`(crf 20) **2.10 MB ≈2.7×**｜`compact`(crf 23) **1.36 MB ≈1.8×**。
+  注意其中约 **2.9×** 来自「整帧重编码」本身（H3 原始码率只有 ~1.25 Mbps，**一帧不改也会这样**），其余来自修出来的细节。
+  实测（同一段已修复内容重编码）：detail 4.6× / balanced 2.7× / compact 1.8×。
+- 上述是「像素域修复」路线的固有代价：**只要改了画面就得整帧重编码**（H.264 不支持只重编一块），背景也会被再压一次。更彻底的做法是 latent 路径（RFC 的 Tier B/C），根本不解码-重编码。
 - 轻量 IoU 跟踪在人头转动时会断成多条轨迹（实测 9–10 条），因此 `meta.faceRefine.faces` **是轨迹数不是人数**——不影响修复结果，但读者别误读。
 
 > **GPU 快照：调试期已关闭**（`enable_memory_snapshot` / `enable_gpu_snapshot` 均不启用，`@modal.enter()` 不带 `snap=True`）。理由就是上表：快照要为首次调用多付 ~9 分钟，而增益不明显。**需要时加回三处**：`@app.cls(..., enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})`、`@modal.enter(snap=True)`、以及 `WARMUP = True`（预热本来就是为把形状冻进快照而设，无快照时它只是让每次冷启动多付 ~90s）。
