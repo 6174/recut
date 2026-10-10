@@ -1,18 +1,18 @@
 /*
  * [INPUT]: 依赖 locales.ts 的 Locale；文案源为 marketing-site / marketing-apps / marketing-home / marketing-posts / marketing-apps 现有中文文案与各页面 metadata
  * [OUTPUT]: 官网（marketing）文案的逐语言字典：zh / en 两组，en 必须覆盖 zh 全部 key（Record<keyof typeof zh, string> 编译期保证）；key 命名空间覆盖 meta/nav/hero/story/cases/player/flow/create/clone/agent/editor/batch/worlds/product/featured/how/audience/compare/faq/footer/apps/docs/blog/cta/share/preview/team
- * [POS]: web/lib/i18n 的官网文案边界；marketing-site / marketing-apps 组件与逐语言 metadata、JSON-LD 消费；叙事顺序为「价值承诺 → 三种起点 → 复刻爆款 → AI 全自动 → 批量派生 → 世界观一致性 → 本地/开源底座」，技术名词一律让位于用户可感知的结果
+ * [POS]: web/lib/i18n 的官网文案边界；marketing-site / marketing-apps 组件与逐语言 metadata、JSON-LD 消费；首屏 story 为「栏目/生产线」多 beat 轮播（story.beatN.*），叙事顺序为「价值承诺 → 三种起点 → 复刻爆款 → AI 全自动 → 批量派生 → 站点一致性 → 本地/开源底座」，技术名词一律让位于用户可感知的结果
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
 import type { Locale } from "./locales";
 
 const zh = {
   // —— 各页 metadata ——
-  "meta.landing.title": "从灵感到爆款视频，AI 全自动完成｜免费开源的本地 AI 视频创作",
-  "meta.landing.description": "给 Recut 一个想法、一条参考视频或一个故事，AI 自动完成策划、生成、剪辑与成片。素材不上传、可离线使用，免费开源，支持 macOS 与 Windows。",
-  "meta.landing.ogTitle": "Recut — 从灵感到爆款视频，AI 全自动完成",
-  "meta.landing.ogDescription": "给 Recut 一个想法或一条参考视频，AI 自动完成策划、生成、剪辑与成片。免费、开源、本地优先。",
-  "meta.landing.twitterDescription": "给 Recut 一个想法或一条参考视频，AI 自动完成策划、生成、剪辑与成片。免费、开源、本地优先。",
+  "meta.landing.title": "一个栏目，持续出片｜把账号做成一条生产线的 AI 视频创作",
+  "meta.landing.description": "想做短视频账号，却不知道怎么做、怎么持续？Recut 帮你把一档栏目定下来——选题、脚本、画面、剪辑交给 AI，格式、人设与素材越攒越省。第一条起步，第十条快得多。免费开源、本地优先，支持 macOS 与 Windows。",
+  "meta.landing.ogTitle": "Recut — 一个栏目，持续出片：把账号做成一条生产线",
+  "meta.landing.ogDescription": "把你账号的选题、格式、人设和素材沉淀成一条持续出片的生产线。免费、开源、本地优先。",
+  "meta.landing.twitterDescription": "把你账号的选题、格式、人设和素材沉淀成一条持续出片的生产线。免费、开源、本地优先。",
   "meta.docs.title": "文档",
   "meta.docs.description": "Recut 文档：安装本地 service，理解视频剪辑、世界观、授权语音和素材库如何协同，开发自己的 App，并在本地或局域网部署。",
   "meta.docs.ogTitle": "Recut 文档",
@@ -87,10 +87,19 @@ const zh = {
   "hero.readDocs": "看看怎么用",
   "hero.subtext": "免费 · 开源 · 本地优先",
 
-  // —— 首页第一区块：世界观驱动生成（3D 舞台）——
-  "story.title1": "别再靠抽卡做视频，",
-  "story.title2": "开始经营一个世界。",
-  "story.tagline": "在无限画布上沉淀角色、风格、场景与规则，AI 就能自动生成并剪出视频——越做越省力。",
+  // —— 首页第一区块：栏目/生产线多 beat 轮播（3D 舞台不变）——
+  "story.beat1.title1": "别每条视频都从零开始，",
+  "story.beat1.title2": "把你的账号做成一条生产线。",
+  "story.beat1.tagline": "想做账号却没方向、难坚持？Recut 帮你把一档栏目定下来——选题、脚本、画面、剪辑交给 AI，格式、人设与素材越攒越省。第一条起步，第十条快得多。",
+  "story.beat2.title1": "热点天天都有，",
+  "story.beat2.title2": "你不用天天从零想选题。",
+  "story.beat2.tagline": "定好栏目格式和模板，热点一到，AI 帮你查资料、写脚本、配画面、剪成片。",
+  "story.beat3.title1": "让角色记住你的世界，",
+  "story.beat3.title2": "每一集都在同一个世界里。",
+  "story.beat3.tagline": "人物、风格、场景、规则沉淀在画布上；做到第几十集，角色还是那个角色，画风还是那个画风。",
+  "story.beat4.title1": "好选题，",
+  "story.beat4.title2": "不该卡在找素材和剪辑上。",
+  "story.beat4.tagline": "选题库、资料、镜头结构沉淀成栏目模板，下一期从上一次的模板开始。",
   "story.input.document": "文稿",
   "story.input.video": "视频",
   "story.input.article": "文章",
@@ -101,9 +110,9 @@ const zh = {
 
   // —— 首页第二区块：案例网格与播放器 ——
   "cases.eyebrow": "MADE WITH RECUT",
-  "cases.title1": "同一个世界观，",
-  "cases.title2": "无限条视频。",
-  "cases.tagline": "每一个案例都由一个世界观生成。点开看片，也可以切到底部的世界观画布，看看这条视频是怎么被想出来的。",
+  "cases.title1": "同一个栏目，",
+  "cases.title2": "持续出片。",
+  "cases.tagline": "每个案例都是一档真实的栏目。点开看成片，也可以切到栏目画布，看看它的格式、人设与素材是怎么沉淀、让下一条更省力的。",
   "cases.anonymous": "未署名",
 
   // —— 案例播放器 ——
@@ -310,7 +319,7 @@ const zh = {
   "faq.a6": "能。声音工坊提供本地转写、字幕与 AI 配音，Worlds 保持角色与场景一致，还有 Remotion 程序化视频与时间线剪辑等应用；你还可以安装或自写 App 接入新的模型与工具。",
 
   // —— Footer ——
-  "footer.tagline": "从灵感到成片，AI 全自动完成；免费开源、本地优先。",
+  "footer.tagline": "把一个栏目，变成一条持续产出的生产线。免费开源、本地优先。",
   "footer.product": "产品",
   "footer.resources": "资源",
   "footer.openWorkspace": "打开工作台",
@@ -405,11 +414,11 @@ const zh = {
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
-  "meta.landing.title": "From idea to viral video, automatically — free, open-source local AI video creation",
-  "meta.landing.description": "Give Recut an idea, a reference video or a story, and AI plans, creates, edits and delivers the video. Nothing uploads, it works offline, and it's free and open source on macOS and Windows.",
-  "meta.landing.ogTitle": "Recut — From idea to viral video, automatically",
-  "meta.landing.ogDescription": "Give Recut an idea or a reference video. AI plans, creates, edits and delivers. Free, open source, local-first.",
-  "meta.landing.twitterDescription": "Give Recut an idea or a reference video. AI plans, creates, edits and delivers. Free, open source, local-first.",
+  "meta.landing.title": "One series, endless episodes — turn your account into a production line",
+  "meta.landing.description": "Trying to grow a short-video account but unsure what to post or how to keep going? Recut helps you settle a series — AI handles the topics, scripts, visuals and edits, while your format, persona and assets keep making it cheaper. Free, open source, local-first, on macOS and Windows.",
+  "meta.landing.ogTitle": "Recut — One series, endless episodes: turn your account into a production line",
+  "meta.landing.ogDescription": "Turn your topic, format, persona and assets into a production line that keeps shipping episodes. Free, open source, local-first.",
+  "meta.landing.twitterDescription": "Turn your topic, format, persona and assets into a production line that keeps shipping episodes. Free, open source, local-first.",
   "meta.docs.title": "Docs",
   "meta.docs.description": "Recut docs: install the local service, see how editing, Worlds, licensed voices and the media library fit together, build your own Apps, and deploy locally or on a LAN.",
   "meta.docs.ogTitle": "Recut Docs",
@@ -483,10 +492,19 @@ const en: Record<keyof typeof zh, string> = {
   "hero.readDocs": "See how it works",
   "hero.subtext": "Free · Open source · Local-first",
 
-  // Landing section 1: world-driven generation (3D stage)
-  "story.title1": "Stop rolling the dice on every video,",
-  "story.title2": "Start running a world.",
-  "story.tagline": "Build your characters, style, scenes and rules on an infinite canvas, and AI turns them into videos — on-model, on-brand, faster every time.",
+  // Landing section 1: series/production-line beat rotation (3D stage unchanged)
+  "story.beat1.title1": "Stop starting every video from scratch,",
+  "story.beat1.title2": "turn your account into a production line.",
+  "story.beat1.tagline": "No direction, hard to keep going? Recut helps you settle a series — AI handles the topics, scripts, visuals and edits, while the format, persona and assets you build up keep making it cheaper. Start with the first; the tenth comes far faster.",
+  "story.beat2.title1": "Trends never stop,",
+  "story.beat2.title2": "so you never start from a blank page.",
+  "story.beat2.tagline": "Set up your series format and templates once. When a trend lands, AI researches, scripts, sources visuals and edits it into a finished cut.",
+  "story.beat3.title1": "Let your characters remember the world,",
+  "story.beat3.title2": "so every episode lives in the same one.",
+  "story.beat3.tagline": "Characters, style, scenes and rules settle onto the canvas. By episode fifty, they are still the same characters, still the same look.",
+  "story.beat4.title1": "A good topic",
+  "story.beat4.title2": "should not stall on sourcing and editing.",
+  "story.beat4.tagline": "Your topic bank, references and shot structure settle into a series template — the next episode starts from the last one.",
   "story.input.document": "Script",
   "story.input.video": "Video",
   "story.input.article": "Article",
@@ -497,9 +515,9 @@ const en: Record<keyof typeof zh, string> = {
 
   // Landing section 2: case grid and player
   "cases.eyebrow": "MADE WITH RECUT",
-  "cases.title1": "One world,",
-  "cases.title2": "endless videos.",
-  "cases.tagline": "Every case is generated from a world. Open one to watch the film, or switch to the world canvas at the bottom to see how it was imagined.",
+  "cases.title1": "One series,",
+  "cases.title2": "endless episodes.",
+  "cases.tagline": "Every case is a real series. Open one to watch the film, or switch to the series canvas to see how its format, persona and assets accumulate and make the next one cheaper.",
   "cases.anonymous": "Unattributed",
 
   // Case player
@@ -692,7 +710,7 @@ const en: Record<keyof typeof zh, string> = {
   "faq.q6": "What can Recut do? Does it support AI video generation?",
   "faq.a6": "Yes. The Audio Studio provides local transcription, captions and AI dubbing, Worlds keeps characters and scenes consistent, and there are Remotion programmatic-video, timeline editing and more Apps. You can also install or write your own Apps to connect new models and tools.",
 
-  "footer.tagline": "From idea to finished video, automatically — free, open source, local-first.",
+  "footer.tagline": "Turn a series into a production line that keeps shipping. Free, open source, local-first.",
   "footer.language": "Language",
   "footer.product": "Product",
   "footer.resources": "Resources",

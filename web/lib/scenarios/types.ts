@@ -124,8 +124,8 @@ export function assetsField(labelZh: string, labelEn: string, kinds: ScenarioAss
   };
 }
 
-/** 可选的栏目 World 引用（组装为 `<creation_world>` 标签随草稿交 AI，绝不复制 World 内容）。 */
-export function worldField(labelZh = "栏目 World（可选）", labelEn = "Series World (optional)"): ScenarioField {
+/** 可选的已有世界引用：复用其中的作品与资产（组装为 `<creation_world>` 标签随草稿交 AI，绝不复制世界内容）。 */
+export function worldField(labelZh = "已有世界（可选）", labelEn = "Existing world (optional)"): ScenarioField {
   return {
     key: "world",
     type: "world",

@@ -3,7 +3,7 @@
 > L2 | 父级: /service/README.md
 
 成员清单
-recut/: Recut 对外平台 Skill 包；编译进 service，启动时原子同步到 `~/.recut/skills/recut`，供 Codex、Claude Code、OpenCode 和通用 Agent 软链接复用；支持的 Agent 同时注册匿名本机 Recut MCP。含 **Plan-first** 纪律：创建视频/World/研究等非简单任务先出可审阅计划，项目内计划写 `projectFilesRoot`、通用计划写 `files/plans/`（与内建 `prompts/core-agents.md.tmpl` 同规则）。
+recut/: Recut 对外平台 Skill 包；编译进 service，启动时原子同步到 `~/.recut/skills/recut`，供 Codex、Claude Code、OpenCode 和通用 Agent 软链接复用；支持的 Agent 同时注册匿名本机 Recut MCP。含 **Plan-first** 纪律：创建视频/World/研究等非简单任务先出可审阅计划，项目内计划写 `projectFilesRoot`、通用计划写 `files/plans/`（与内建 `prompts/core-agents.md.tmpl` 同规则）。另含 **「复用优先」纪律**（面向系列创作者）：把一个栏目做成一条产线——作品（work）是容器、一集是 `script`、资产以 assetId 全局共享、第 N 条要比第 1 条更快；与 **生成必先导演** 同为生成前的硬纪律。
 recut-design-system/: 全局设计系统参考库；直接复用 Open Design 的抽象风格定义，供任意 App 的 Agent 按风格 ID 读取。
 recut-create-app/: 全局「创建 App」参考库；指导从零打造标准 Recut App（manifest + background + 可选 iframe UI + 平台通讯契约），编译进 service 并同步到 `~/.recut/skills/recut-create-app`。
 recut-worlds/: World 与 World Canvas 的通用操作技能；World Canvas 是没有独立安装包的第一公民 App，本技能回答「怎么调用 `recut.worlds.*`」——读/写实体、关系、类型与画布 ops/promote（含「建一个作品 = 容器 + 子实体」的标准流程：作品是实体，靠 `parentId` 归属 + 内层画布 `contextId` 组织子实体；**层级纪律（2026-10-03）**：锚点实体（角色/场景/道具/作品）建在世界根层、生产实体（脚本）与视频节点平铺在作品层——`parentId` 只是文件夹、结构真源是 `has_script` 链，最多两层，别把无限画布当文件夹树），并在世界语境里把媒体生成接到 `recut-director` 的 `references/generation-prompt`（STYLE LOCK + `<reference>` 锚定）；**即时落位（2026-10-03）**：图片/视频/音频一拿到 `assetId`（含待确认/生成中）就落在所属画布层、不等生成成功，让用户实时看到进展。与 world.md（某个世界的内容/生产工作流）分层。**结构拆分 / 入口自足（2026-10-05）**：SKILL.md 入口自足覆盖常见操作（读世界 / 建改内容含建作品 / 媒体生成落位）；完整正文模板、树形排版、视频提案深规则、完整契约与误用清单下沉到 `references/`（content-model / content-templates / production-layer / canvas-hierarchy / media-generation / pitfalls）。
