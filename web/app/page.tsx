@@ -1,6 +1,6 @@
 /*
- * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文、工作台 i18n 字典与 Accept-Language 统一请求包装
- * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Projects、Assets、Community 工作台入口（创作台 Studio 暂时隐藏，根路径 `/` 与 `/projects` 同渲染项目桌面）及保持根壳的一级 Tab 切换（顶层 Header 统一经 WorkspaceHeader 承载：工作台根壳保留品牌 mark + 一级 Tab，世界画布/详情页则为单一返回入口 + 单行标题区；世界画布激活时左侧让位给 WorldCanvasTopBar 面包屑、画布工具组 WorldCanvasToolbar 居中于整个 Header，右侧保留全局状态）、内容区统一为单一外部滚动容器（`data-workspace-scroll` + max-w-6xl，项目页与素材页共用标题/筛选骨架）、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态（service 生命周期界面收敛在 `components/service-guide`，本页只按 phase 选择渲染）；项目桌面与 Studio 最近区把本地 World 与项目按 updatedAt 混排（平台/PGC 世界只在社区展示），新建项目入口可创建 World；全部文案经 useI18n 迁移到 workspace 字典
+ * [INPUT]: 依赖 React 状态能力、Zustand 共享的 Daemon 与按数据域区分失败原因的工作台目录状态、静态 App Catalog、统一 App 身份图标、Agent Session HTTP API 及全局 Agent 面板上下文、创作场景目录 lib/scenarios、工作台 i18n 字典与 Accept-Language 统一请求包装
+ * [OUTPUT]: 对外提供 app.recut.video / app.localhost:3000 的 Projects、Assets、Community 工作台入口（创作台 Studio 暂时隐藏，根路径 `/` 与 `/projects` 同渲染项目桌面；项目桌面顶部为面向用户需求层的创作场景卡片区 `components/scenario-gallery`）及保持根壳的一级 Tab 切换（顶层 Header 统一经 WorkspaceHeader 承载：工作台根壳保留品牌 mark + 一级 Tab，世界画布/详情页则为单一返回入口 + 单行标题区；世界画布激活时左侧让位给 WorldCanvasTopBar 面包屑、画布工具组 WorldCanvasToolbar 居中于整个 Header，右侧保留全局状态）、内容区统一为单一外部滚动容器（`data-workspace-scroll` + max-w-6xl，项目页与素材页共用标题/筛选骨架）、固定使用通用会话上下文的 Agent 面板（由根布局全局挂载，本页只声明作用域）、首次离线时的安装 service 引导与嵌入式工作台真实诊断空态（service 生命周期界面收敛在 `components/service-guide`，本页只按 phase 选择渲染）；项目桌面与 Studio 最近区把本地 World 与项目按 updatedAt 混排（平台/PGC 世界只在社区展示），新建项目入口可创建 World；全部文案经 useI18n 迁移到 workspace 字典
  * [POS]: web/app 的应用工作台框架；app Host 默认进入项目（创作台 Studio 暂时隐藏、代码保留），社区（Community）统一承载 PGC Worlds 与 Apps 目录两个可扩展分区，工作台目录由 lib/workspace-store 跨路由缓存，创建、安装、升级后显式刷新，绝不 5 秒轮询；Agent 面板不在此挂载，只经 agent-panel-context 声明会话作用域
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
  */
@@ -11,16 +11,11 @@ import {
   ArrowRight,
   Box,
   Captions,
-  Clapperboard,
-  Copy,
   FileImage,
   Globe2,
-  ImageIcon,
   Link2,
   Music2,
   Plus,
-  Scissors,
-  Sparkles,
   Video,
   X,
   type LucideIcon,
@@ -73,17 +68,10 @@ import { worldOrigin, type WorldSummary } from "@/lib/recut-worlds-client";
 import { useWorldsStore } from "@/lib/worlds-store";
 import { t, useI18n, type Locale } from "@/lib/i18n/index";
 import { interpolate } from "@/lib/i18n/workspace-dict";
-import {
-  STUDIO_INSPIRATION_COUNT,
-  STUDIO_TEMPLATE_COUNT,
-} from "@/lib/i18n/workspace-studio-dict";
+import { STUDIO_INSPIRATION_COUNT } from "@/lib/i18n/workspace-studio-dict";
 import { VideoFrame } from "@/components/video-frame";
 import { WebGLStudioHero } from "@/components/webgl-studio-hero";
-import { StudioScenarioDialog } from "@/components/studio-scenario-dialog";
-import {
-  STUDIO_SCENARIO_FIELDS,
-  type StudioFieldDef,
-} from "@/lib/studio-scenarios";
+import { ScenarioGallery } from "@/components/scenario-gallery";
 import type { Asset } from "./media/media-types";
 import { MediaLibraryPanel } from "./media/media-library-panel";
 import {
@@ -243,6 +231,11 @@ function WorkspaceFrame({
     setCreateWorld(true);
   }
 
+  // 需求场景卡片只把组装好的草稿回填 Agent 输入框，绝不自动发送。
+  function composeDraft(text: string) {
+    useAgentPanelContext.getState().setDraft({ id: `${Date.now()}`, text });
+  }
+
   async function createProjectWithApp(app: Installation, projectName: string) {
     const project = await fetchRecutJSON<Project>(apiBase, "/v1/projects", {
       method: "POST",
@@ -354,17 +347,8 @@ function WorkspaceFrame({
         apps={availableInstallations.filter(
           (app) => app.manifest.type === "project",
         )}
-        installations={availableInstallations}
-        onCompose={(text) =>
-          useAgentPanelContext
-            .getState()
-            .setDraft({ id: `${Date.now()}`, text })
-        }
         onCreateWorld={openCreateWorld}
         onDeleteProject={deleteProject}
-        onManageApps={(event) =>
-          navigateTab("community", "/community/apps", event)
-        }
         onRenameProject={renameProject}
         onStartProject={openCreateProject}
         projects={projects}
@@ -376,6 +360,7 @@ function WorkspaceFrame({
         apps={availableInstallations.filter(
           (app) => app.manifest.type === "project",
         )}
+        onCompose={composeDraft}
         onCreateWorld={openCreateWorld}
         onDeleteProject={deleteProject}
         onRenameProject={renameProject}
@@ -856,76 +841,6 @@ function inspirationForToday(locale: Locale) {
   return inspirations[Math.abs(dayIndex) % inspirations.length];
 }
 
-type StudioPromptTemplate = {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  prompt: string;
-  fields: StudioFieldDef[];
-};
-
-const STUDIO_TEMPLATE_ICONS: LucideIcon[] = [
-  Clapperboard,
-  Video,
-  ImageIcon,
-  Sparkles,
-  Sparkles,
-  Captions,
-  Video,
-  Clapperboard,
-  Sparkles,
-  Clapperboard,
-  Video,
-  Scissors,
-  Copy,
-  Globe2,
-  Sparkles,
-  Clapperboard,
-];
-const STUDIO_FIRST_VISIT_ICON: LucideIcon = Sparkles;
-
-function studioPromptTemplates(locale: Locale): StudioPromptTemplate[] {
-  return Array.from({ length: STUDIO_TEMPLATE_COUNT }, (_, index) => ({
-    icon: STUDIO_TEMPLATE_ICONS[index],
-    title: t("workspace", locale, `studio.template.${index}.title`),
-    description: t("workspace", locale, `studio.template.${index}.description`),
-    prompt: t("workspace", locale, `studio.template.${index}.prompt`),
-    fields: STUDIO_SCENARIO_FIELDS[index] ?? [],
-  }));
-}
-
-function studioFirstVisitTemplate(locale: Locale): StudioPromptTemplate {
-  return {
-    icon: STUDIO_FIRST_VISIT_ICON,
-    title: t("workspace", locale, "studio.firstVisit.title"),
-    description: t("workspace", locale, "studio.firstVisit.description"),
-    prompt: t("workspace", locale, "studio.firstVisit.prompt"),
-    fields: [],
-  };
-}
-
-function promptTemplatesForToday(locale: Locale) {
-  const templates = [
-    ...studioPromptTemplates(locale),
-    studioFirstVisitTemplate(locale),
-  ];
-  let seed = Math.floor(Date.now() / 86_400_000) >>> 0;
-  for (let index = templates.length - 1; index > 0; index -= 1) {
-    seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
-    const swapIndex = seed % (index + 1);
-    [templates[index], templates[swapIndex]] = [
-      templates[swapIndex],
-      templates[index],
-    ];
-  }
-  return templates.slice(0, 2);
-}
-
-const STUDIO_HOME_ORDER = [
-  "recut.editor",
-  "recut.audio-studio",
-  "recut.remotion-studio",
-];
 const PROJECT_APP_ORDER = [
   "recut.editor",
   "recut.remotion-studio",
@@ -943,11 +858,8 @@ function sortByOrder(list: Installation[], order: string[]) {
 function Studio({
   apiBase,
   apps,
-  installations,
-  onCompose,
   onCreateWorld,
   onDeleteProject,
-  onManageApps,
   onRenameProject,
   onStartProject,
   projects,
@@ -955,135 +867,70 @@ function Studio({
 }: {
   apiBase: string;
   apps: Installation[];
-  installations: Installation[];
-  onCompose: (text: string) => void;
   onCreateWorld: () => void;
   onDeleteProject: (project: Project) => Promise<void>;
-  onManageApps: (event: MouseEvent<HTMLAnchorElement>) => void;
   onRenameProject: (project: Project, name: string) => Promise<void>;
   onStartProject: (app: Installation) => void;
   projects: Project[];
   worlds: WorldSummary[];
 }) {
   const { t, locale } = useI18n();
-  const sortedInstallations = sortByOrder(installations, STUDIO_HOME_ORDER);
-  const editorApp = sortedInstallations.find(
-    (app) => app.manifest.id === "recut.editor",
-  );
-  const restInstallations = sortedInstallations.filter(
-    (app) => app.manifest.id !== "recut.editor",
-  );
-  const [promptTemplates, setPromptTemplates] = useState(() =>
-    studioPromptTemplates(locale).slice(0, 2),
-  );
-  useEffect(
-    () => setPromptTemplates(promptTemplatesForToday(locale)),
-    [locale],
-  );
-  const [scenario, setScenario] = useState<StudioPromptTemplate | null>(null);
   return (
-    <>
-      <div className="pb-10">
-        <section className="relative min-h-[17rem] overflow-hidden pt-7 sm:min-h-[19rem]">
-          <WebGLStudioHero />
-          <div className="relative z-10 max-w-xl">
-            <h1 className="mt-3 text-3xl font-semibold leading-tight">
-              {t("studio.title")}
-            </h1>
-            <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-              {inspirationForToday(locale)}
-            </p>
-            <div className="mt-7 flex max-w-2xl flex-col">
-              {promptTemplates.map(
-                ({ description, fields, icon: Icon, prompt, title }) => (
-                  <button
-                    aria-label={interpolate(t("studio.template.aria"), {
-                      title,
-                    })}
-                    className="group flex min-w-0 items-center gap-3 border-b border-border/80 py-3 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                    key={title}
-                    onClick={() =>
-                      setScenario({
-                        description,
-                        fields,
-                        icon: Icon,
-                        prompt,
-                        title,
-                      })
-                    }
-                    type="button"
-                  >
-                    <span className="grid size-7 shrink-0 place-items-center rounded-sm bg-muted text-muted-foreground">
-                      <Icon className="size-3.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="text-sm font-semibold">{title}</span>
-                      <span className="ml-2 hidden text-xs text-muted-foreground sm:inline">
-                        {description}
-                      </span>
-                    </span>
-                    <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                ),
-              )}
-            </div>
-          </div>
-        </section>
-        <section className="mt-1">
-          <SectionHeading
-            action={
-              <Link
-                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                href="/projects"
-              >
-                {t("studio.section.projects.all")}
-                <ArrowRight className="size-3.5" />
-              </Link>
-            }
-            description={t("studio.section.projects.desc")}
-            title={t("studio.section.projects")}
-          />
-          <ProjectSpaces
-            apiBase={apiBase}
-            apps={apps}
-            limit={11}
-            onCreateWorld={onCreateWorld}
-            onDeleteProject={onDeleteProject}
-            onRenameProject={onRenameProject}
-            onStartProject={onStartProject}
-            projects={projects}
-            worlds={worlds}
-          />
-        </section>
-        <section className="mt-9">
-          <SectionHeading
-            action={
-              <Link
-                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                href="/media"
-              >
-                {t("studio.section.assets.open")}
-                <ArrowRight className="size-3.5" />
-              </Link>
-            }
-            description={t("studio.section.assets.desc")}
-            title={t("studio.section.assets")}
-          />
-          <RecentAssets apiBase={apiBase} />
-        </section>
-      </div>
-      {scenario && (
-        <StudioScenarioDialog
-          apiBase={apiBase}
-          onClose={() => setScenario(null)}
-          onSubmit={(text) => {
-            onCompose(text);
-            setScenario(null);
-          }}
-          scenario={scenario}
+    <div className="pb-10">
+      <section className="relative min-h-[17rem] overflow-hidden pt-7 sm:min-h-[19rem]">
+        <WebGLStudioHero />
+        <div className="relative z-10 max-w-xl">
+          <h1 className="mt-3 text-3xl font-semibold leading-tight">
+            {t("studio.title")}
+          </h1>
+          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+            {inspirationForToday(locale)}
+          </p>
+        </div>
+      </section>
+      <section className="mt-1">
+        <SectionHeading
+          action={
+            <Link
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+              href="/projects"
+            >
+              {t("studio.section.projects.all")}
+              <ArrowRight className="size-3.5" />
+            </Link>
+          }
+          description={t("studio.section.projects.desc")}
+          title={t("studio.section.projects")}
         />
-      )}
-    </>
+        <ProjectSpaces
+          apiBase={apiBase}
+          apps={apps}
+          limit={11}
+          onCreateWorld={onCreateWorld}
+          onDeleteProject={onDeleteProject}
+          onRenameProject={onRenameProject}
+          onStartProject={onStartProject}
+          projects={projects}
+          worlds={worlds}
+        />
+      </section>
+      <section className="mt-9">
+        <SectionHeading
+          action={
+            <Link
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+              href="/media"
+            >
+              {t("studio.section.assets.open")}
+              <ArrowRight className="size-3.5" />
+            </Link>
+          }
+          description={t("studio.section.assets.desc")}
+          title={t("studio.section.assets")}
+        />
+        <RecentAssets apiBase={apiBase} />
+      </section>
+    </div>
   );
 }
 
@@ -1196,6 +1043,7 @@ function ProjectCoverPreview({
 function ProjectsPage({
   apiBase,
   apps,
+  onCompose,
   onCreateWorld,
   onDeleteProject,
   onRenameProject,
@@ -1205,6 +1053,7 @@ function ProjectsPage({
 }: {
   apiBase: string;
   apps: Installation[];
+  onCompose: (text: string) => void;
   onCreateWorld: () => void;
   onDeleteProject: (project: Project) => Promise<void>;
   onRenameProject: (project: Project, name: string) => Promise<void>;
@@ -1226,6 +1075,7 @@ function ProjectsPage({
   ];
   return (
     <>
+      <ScenarioGallery apiBase={apiBase} onCompose={onCompose} />
       <WorkspacePageHeader
         action={
           <Badge className="border bg-muted text-muted-foreground">

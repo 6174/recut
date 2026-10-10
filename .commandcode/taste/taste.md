@@ -1,2 +1,4 @@
-# Taste
-See [taste/taste.md](taste/taste.md)
+# Strategy
+See [strategy/taste.md](strategy/taste.md)
+# Features
+See [features/taste.md](features/taste.md)

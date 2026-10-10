@@ -9,6 +9,7 @@ import type { Locale } from "./locales";
 import { agentZh, agentEn } from "./workspace-agent-dict";
 import { worldsZh, worldsEn } from "./workspace-worlds-dict";
 import { studioZh, studioEn } from "./workspace-studio-dict";
+import { scenarioZh, scenarioEn } from "./workspace-scenario-dict";
 import { appstoreZh, appstoreEn } from "./workspace-appstore-dict";
 
 const zh = {
@@ -106,7 +107,6 @@ const zh = {
   "studio.section.assets": "最近使用的资源",
   "studio.section.assets.desc": "最近加入工作台的图片、视频和音频，可直接带入下一次创作。",
   "studio.section.assets.open": "打开素材库",
-  "studio.template.aria": "从「{title}」开始",
   "studio.worlds.title": "世界观",
   "studio.worlds.desc": "为角色、品牌或故事建立持续上下文，让每一次创作从同一个世界出发。",
   "studio.worlds.open": "打开世界观",
@@ -576,7 +576,6 @@ const en: Record<keyof typeof zh, string> = {
   "studio.section.assets": "Recent assets",
   "studio.section.assets.desc": "Images, videos and audio recently added to the workspace, ready for your next creation.",
   "studio.section.assets.open": "Open library",
-  "studio.template.aria": "Start with \"{title}\"",
   "studio.worlds.title": "Worlds",
   "studio.worlds.desc": "Build persistent context for characters, brands or stories, so every creation starts from the same world.",
   "studio.worlds.open": "Open Worlds",
@@ -956,9 +955,9 @@ export function interpolate(template: string, values: Record<string, string | nu
   return Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), template);
 }
 
-// 命名空间字典由各工作台面独立维护（agent/worlds/studio/appstore），此处合并；
+// 命名空间字典由各工作台面独立维护（agent/worlds/studio/scenario/appstore），此处合并；
 // 各命名空间文件内部强制 zh/en key 对齐，跨命名空间 key 不得重复（前缀已隔离）。
 export const workspaceDictionary: Record<Locale, Record<string, string>> = {
-  zh: { ...zh, ...studioZh, ...worldsZh, ...agentZh, ...appstoreZh },
-  en: { ...en, ...studioEn, ...worldsEn, ...agentEn, ...appstoreEn },
+  zh: { ...zh, ...studioZh, ...scenarioZh, ...worldsZh, ...agentZh, ...appstoreZh },
+  en: { ...en, ...studioEn, ...scenarioEn, ...worldsEn, ...agentEn, ...appstoreEn },
 };

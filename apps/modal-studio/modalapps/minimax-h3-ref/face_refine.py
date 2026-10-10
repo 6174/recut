@@ -18,7 +18,19 @@ import time
 from dataclasses import dataclass, replace
 from typing import Optional, Protocol
 
-import numpy as np
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - 只在 App 主 venv（轻量）里走到
+    # `modal deploy` / `modal run` 会在**本机** import 本模块，而 App 主 venv 只装 modal 客户端、没有
+    # numpy（重依赖在容器镜像里）。所以这里不能直接崩：改成惰性代理，真正用到时才去 import numpy——
+    # 而那些调用点都只在容器内执行（镜像已装 numpy/pillow）。
+    class _LazyNumpy:
+        def __getattr__(self, name):
+            import numpy
+
+            return getattr(numpy, name)
+
+    np = _LazyNumpy()  # type: ignore[assignment]
 
 # 社区实测区间：源脸高 < 40px 走远景档（把放大倍数从 ~9-13x 降到 ~5-7x，并降强度避免塑料感/独眼）。
 LONGSHOT_FACE_PX = 40
