@@ -64,6 +64,7 @@ func TestGlobalSkillSyncsEmbeddedTree(t *testing.T) {
 		"recut/references/world-onboarding.md",
 		"recut-create-app/SKILL.md",
 		"recut-worlds/SKILL.md",
+		"recut-worlds/references/memory.md",
 		"recut-design-system/design-systems/minimal/DESIGN.md",
 		"recut-director/SKILL.md",
 		"recut-director/references/shot/SKILL.md",

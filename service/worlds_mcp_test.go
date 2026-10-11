@@ -34,6 +34,7 @@ func TestWorldsMCPToolsAreAlwaysRegistered(t *testing.T) {
 		"recut.worlds.revert",
 		"recut.worlds.export",
 		"recut.worlds.import",
+		"recut.worlds.memory.update",
 		// 方案 A：内容写入收口在画布接口（无额外 canvas 层）。
 		"recut.worlds.entity",
 		"recut.worlds.relation",

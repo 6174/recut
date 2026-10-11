@@ -2,14 +2,14 @@
 name: recut-worlds
 appId: recut.platform
 description: 操作 World 与 World Canvas 工具集的通用技能：属性/关系/类型的建模与关联、画布元素的显示与关联，以及世界语境里的媒体生成（视频待用户确认）。
-references: content-model.md, content-templates.md, production-layer.md, canvas-hierarchy.md, media-generation.md, pitfalls.md
+references: content-model.md, content-templates.md, production-layer.md, canvas-hierarchy.md, media-generation.md, memory.md, pitfalls.md
 ---
 
 # World（Canvas）操作技能（recut-worlds）
 
 **World 默认指它的 World Canvas**：一个世界 = 一块无限画布，实体是画布上的节点、关系是连线、画布元素是投影。本技能回答：**怎么调用 `recut.worlds.*` 管理这块画布**——建 / 改节点与类型、连线、布局、生成并落位媒体。世界自身的内容在 `world.md`（`recut.worlds.get` 的 `skillMd`）；生成提示词的形状归 `recut-director（references/generation-prompt）`。
 
-结构：① 画布数据结构 → ② 默认节点（实体）与操作 → ③ 工具列表 → ④ 常用工作流程 → ⑤ 纪律与规则。细节按需读 `references/`（文末路由表）。
+结构：① 画布数据结构 → ② 默认节点（实体）与操作 → ③ 工具列表 → ④ 常用工作流程 → ⑤ 纪律与规则 → ⑥ 记忆（Memory）。细节按需读 `references/`（文末路由表）。
 
 ## 一、画布数据结构
 
@@ -26,6 +26,7 @@ type World = {
   entities: Entity[]       // 语义层
   relations: Relation[]
   canvases: CanvasDoc[]    // 表达层：多张画布，构成一棵树（见下）
+  memory?: string          // AI 记忆：记住用户习惯 / 偏好 / 反馈（世界级，非 Canon）
 }
 
 type Entity = {
@@ -133,6 +134,7 @@ type EdgeProps = {
 | | `recut.worlds.entityType` | 定义 / 覆盖类型 schema（不产 revision） |
 | 写画布布局（不产 revision） | `recut.worlds.doc.update` | 元素级 ops：insert / update / remove；自由元素含 `note` / `text` / `shape` / `arrow` / `link` / `attr` / `media` |
 | World 生命周期 | `recut.worlds.create` / `update`（world.md/identity）/ `fork` / `revert` / `import` | 世界级操作，不是内容编辑 |
+| 记忆（AI 习惯 / 偏好） | `recut.worlds.memory.update` | `op`：`append` 追加 / `replaceLine` 改某行 / `replace` 整体重写（压缩）；**非 Canon、不产 revision**；随 `world.get` 的 `memory` 返回 |
 
 ## 四、常用工作流程
 
@@ -258,14 +260,50 @@ type EdgeProps = {
 
 8. **画布树不是文件夹**：内层画布只在内容确实是独立子世界时才用；**相关联的内容尽量放同一张画布**——一个作品的 `work → script / 视频节点` 全铺在作品层这张画布，而不是逐级分层。画布是给人「一眼看全」的，每多一层就多下钻一次。
 
+**记忆（Memory）**
+
+9. **用户反馈即记忆**：用户给出偏好 / 纠正 / 反馈（"以后都…" "不要…" "我习惯…"）时，**主动**用 `recut.worlds.memory.update` 记下（`op=append` 追加；同类偏好并入同一条，别重复堆叠）；纯内容编辑不必写记忆。
+10. **记忆只服务 AI、且有预算**：`memory` 不是 Canon（不产 revision、不参与 `expectedRevisionId`）；`recut.worlds.get` 返回 `memory` 与 `memoryBytes`，超过软上限（约 6000 字节）就用 `op=replace` **压缩**（去重、合并同类项、删过时项）；超硬上限（约 16000 字节）的写入会被拒绝，必须先压缩。
+
 **门禁**
 
-9. **非 local 世界只读**：写工具返回 `WORLD_READ_ONLY` 是边界不是失败——提议 `recut.worlds.fork`，经用户确认在副本上继续。
-10. **写 Canon 需要用户明确授权**：无用户请求绝不主动写。
-11. **乐观并发**：所有 Canon 写携带 `expectedRevisionId`；`WORLD_REVISION_CONFLICT` 时停止整批、重读最新 revision、基于最新状态重做。
-12. **删除是软删除**：op=`archive` 可 `restore`；**底层 media asset 永不因世界内容删除而删除**。（永久删除不暴露给 AI，需在 UI / HTTP 端操作。）
-13. **生成产物默认不进 Canon**。
-14. **视频默认待用户确认**：落待确认全局素材（不花钱），用户确认后才生成；**Agent 只提交与落位，不代确认**。
+11. **非 local 世界只读**：写工具返回 `WORLD_READ_ONLY` 是边界不是失败——提议 `recut.worlds.fork`，经用户确认在副本上继续。
+12. **写 Canon 需要用户明确授权**：无用户请求绝不主动写。
+13. **乐观并发**：所有 Canon 写携带 `expectedRevisionId`；`WORLD_REVISION_CONFLICT` 时停止整批、重读最新 revision、基于最新状态重做。
+14. **删除是软删除**：op=`archive` 可 `restore`；**底层 media asset 永不因世界内容删除而删除**。（永久删除不暴露给 AI，需在 UI / HTTP 端操作。）
+15. **生成产物默认不进 Canon**。
+16. **视频默认待用户确认**：落待确认全局素材（不花钱），用户确认后才生成；**Agent 只提交与落位，不代确认**。
+
+## 六、记忆（Memory）
+
+**记忆是服务 AI 的世界级便签**：记住这个用户在这个世界里的习惯、偏好与反馈，让下一次会话不必重新交代。它不是 Canon（不产 revision），也不是内容——是给 Agent 的上下文。
+
+- **读**：`recut.worlds.get` 每次都返回 `memory`（自由 markdown）与 `memoryBytes`，无需单独读。
+- **写**：`recut.worlds.memory.update`，三种 op：
+
+| op | 作用 | 用法 |
+|---|---|---|
+| `append` | 末尾追加一段 | 新偏好 / 新反馈，最常用 |
+| `replaceLine` | 替换第 `line` 行（1 起）；`content` 为空=删除该行 | 修正 / 删除某条记忆（记错了就地改） |
+| `replace` | 整体重写 | **压缩**，或大改结构 |
+
+**何时写（核心）**：用户给出**反馈 / 纠正 / 偏好**时，**主动记下**——这是本工具的主要用途。
+
+- "以后都用竖屏" / "不要自动生成视频" / "分镜别太多" → `append`。
+- 用户说"上次不是这样" → 先看 `world.get` 的 `memory`，用 `replaceLine` 改掉那条。
+
+```jsonc
+// 追加一条偏好
+recut.worlds.memory.update({ worldId, op:"append", content:"偏好：竖屏 9:16；每段先给参考图再生成" })
+// 改掉第 3 行（记错了 / 用户改主意）
+recut.worlds.memory.update({ worldId, op:"replaceLine", line:3, content:"偏好：横屏 16:9（已从竖屏改）" })
+// 压缩：把散记忆收敛成短清单
+recut.worlds.memory.update({ worldId, op:"replace", content:"- 画幅：竖屏 9:16\n- 分镜：少而精\n- 视频：只提交、待用户确认" })
+```
+
+**尺寸纪律**：`memoryBytes` 超过软上限（约 6000 字节）就用 `replace` **压缩**成更短的等价文本（去重、合并同类、删过时项）；超过硬上限（约 16000 字节）的写入会被拒绝。压缩是常规动作——过时 / 被推翻的记忆会污染后续判断。
+
+> 记忆完整规则（写什么 / 何时写 / 压缩） → `references/memory.md`。
 
 ## References 路由表
 
@@ -276,6 +314,7 @@ type EdgeProps = {
 | 生产结构（work → script）、结构链 has_script、产物与视频节点 | `references/production-layer.md` |
 | 画布树形排版、加深例外、容器 / 递归边界 | `references/canvas-hierarchy.md` |
 | 媒体生成深规则（视频生命周期 / 改配方 / 绑定自检 / 资源口径） | `references/media-generation.md` |
+| 记忆（memory）：写什么 / 何时写 / 三种 op / 压缩预算 | `references/memory.md` |
 | 常见误用清单 | `references/pitfalls.md` |
 | 某个世界的内容与生产工作流 | `recut.worlds.get` 的 `skillMd`（world.md） |
 | 完善一个世界的标准工作流 | platform `recut` skill 的 `references/world-onboarding.md` |

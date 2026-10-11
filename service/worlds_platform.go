@@ -56,6 +56,7 @@ type WorldManifestWorld struct {
 	Description string         `json:"description"`
 	CoverURL    string         `json:"coverUrl"`
 	SkillMd     string         `json:"skillMd"`
+	Memory      string         `json:"memory,omitempty"`
 	Identity    map[string]any `json:"identity"`
 }
 
@@ -981,6 +982,11 @@ type WorldContext struct {
 	// root), each linked to the layer that nests it. Structure only — element
 	// positions/sizes live in recut.worlds.doc.
 	Canvases []WorldCanvasNode `json:"canvases"`
+	// MemoryBytes is the byte length of the World's AI memory (WorldDetail.Memory),
+	// so the Agent can tell whether it exceeds the compression budget (~6000 bytes)
+	// and should be compacted with recut.worlds.memory.update op=replace. Omitted
+	// when memory is empty.
+	MemoryBytes int `json:"memoryBytes,omitempty"`
 	// Paths exposes the World's stable absolute locations, the World analogue of
 	// a Project's paths in recut.project_context. Both fields are empty for
 	// non-local (read-only) Worlds. Agents write PLAN.md and working docs under
@@ -1039,6 +1045,7 @@ func (w *WorldStore) GetWorldContext(input BriefInput) (WorldContext, error) {
 		EntityTypes:   entityTypes,
 		RelationTypes: ListWorldRelationTypes(),
 		Canvases:      canvases,
+		MemoryBytes:   len(graph.Memory),
 		Paths:         paths,
 	}, nil
 }

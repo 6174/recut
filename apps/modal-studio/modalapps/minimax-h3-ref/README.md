@@ -129,6 +129,7 @@ modal run apps/modal-studio/modalapps/minimax-h3-ref/bench.py --runs 1 --duratio
 
 | 结论 | 依据 |
 |---|---|
+| **修复模型值域必须是 `[-1, 1]`（已修，见下）** | FaceFusion 系导出（CodeFormer/GFPGAN）官方预处理 `(x/255-0.5)/0.5`、后处理 `(clip(x,-1,1)+1)/2`；早期误按 **[0,1]** 喂入/裁出 → 模型被推出训练分布，输出灰糊/斑驳、缝回后整张脸像被“修坏”（同一帧 A/B：legacy 皮肤发脏带色块 vs 修正后干净） |
 | 保真度默认 **0.6** 可用；0.8 偏硬、0.35–0.5 更保守 | 同一帧扫 f=0.35/0.5/0.6/0.8：0.8 皮肤斑驳、色偏明显 |
 | **必须做 colour match**（已默认开启） | 缝合前按掩膜内均值/标准差把修复结果对齐回原图，否则边界色差与块状痕迹明显 |
 | 缝合掩膜**只能覆盖人脸**（按 `1/crop_factor` 的椭圆） | 覆盖整个外扩裁剪框 = 把背景交给模型重画 → 背景出块状伪影 |
@@ -145,9 +146,10 @@ modal run apps/modal-studio/modalapps/minimax-h3-ref/bench.py --runs 1 --duratio
 > **GPU 快照：调试期已关闭**（`enable_memory_snapshot` / `enable_gpu_snapshot` 均不启用，`@modal.enter()` 不带 `snap=True`）。理由就是上表：快照要为首次调用多付 ~9 分钟，而增益不明显。**需要时加回三处**：`@app.cls(..., enable_memory_snapshot=True, experimental_options={"enable_gpu_snapshot": True})`、`@modal.enter(snap=True)`、以及 `WARMUP = True`（预热本来就是为把形状冻进快照而设，无快照时它只是让每次冷启动多付 ~90s）。
 
 > **仍未做 / 需要注意的**：
-> ① 修复模型默认已指向 FaceFusion 的 `codeformer.onnx`（按 commit pin）；换用其它导出时**不必改代码**（`load_restorer` 会自适应读输入名/尺寸/标量类型），但请确认它是 face-in/face-out；
+> ① 修复模型默认已指向 FaceFusion 的 `codeformer.onnx`（按 commit pin）；`load_restorer` 会自适应读**输入名/尺寸/标量类型**，但**像素值域不自适应**（本包按 FaceFusion 系导出固定 `[-1,1]`，见 `to_model_input`）——换别的导出时**必须核对值域**，否则会静默把脸“修坏”；另请确认它是 face-in/face-out；
 > ② 参考组增强对画质的**实际增益**还没做 A/B（只确认了它生效、没量化它值多少）；
-> ③ 修复强度/羽化的**默认值来自单个样本**的扫参，换内容可能还要微调（可用表单里的 `faceFidelity` / `faceCropFactor` 调）。
+> ③ 修复强度/羽化的**默认值来自单个样本**的扫参，换内容可能还要微调（可用表单里的 `faceFidelity` / `faceCropFactor` 调）；
+> ④ `faceCanvasSize`（512/768）对本 pack 的模型**实际是空操作**：CodeFormer 导出把图像输入固定为 512×512，`load_restorer` 按模型声明取尺寸，所以“远景档降到 512 画布”并没有改变模型输入——远景档真正生效的是 `cropFactor` 与 `fidelity`。表单里的该项目前只是占位。
 >
 > **注意力后端**：本包默认精确 `fa`（人脸优先），由 `modal_app.ATTENTION_BACKEND` 控制（环境变量 `RECUT_H3_REF_ATTENTION` 可覆盖）。它是**部署期**的 server-wide 选择（改后需重新 deploy），目前**不是**表单/UI 可配项（把它提为预设包声明 + UI 开关见 RFC §D10，属 M2）。
 

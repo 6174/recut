@@ -1,6 +1,6 @@
 /*
  * [INPUT]: 依赖 WorldStore 的 export/import bundle 原语与既有 CreateWorld/UpsertEntity/relations/canvas API
- * [OUTPUT]: 验证 World 内容交换链路：export→import round-trip 保留 identity/skill/entities(attrs)/relations/canvas，
+ * [OUTPUT]: 验证 World 内容交换链路：export→import round-trip 保留 identity/skill/memory/entities(attrs)/relations/canvas，
  *           素材按内容哈希去重复用同一 asset，导入世界为 origin=local 且画布 refId 命名空间化
  * [POS]: service 的 World bundle 交换测试（RFC world-content-format-v2 P3）
  * [PROTOCOL]: 变更时更新此头部，然后检查 README.md
@@ -262,6 +262,9 @@ func TestWorldBundleExportImportRoundTrip(t *testing.T) {
 	if _, err := worlds.UpdateWorld(UpdateWorldInput{WorldID: created.ID, SkillMd: &skill}); err != nil {
 		t.Fatalf("update skill: %v", err)
 	}
+	if _, err := worlds.UpdateWorldMemory(UpdateWorldMemoryInput{WorldID: created.ID, Op: "append", Content: "偏好：竖屏 9:16"}); err != nil {
+		t.Fatalf("update memory: %v", err)
+	}
 
 	data, name, err := worlds.ExportWorldBundle(created.ID)
 	if err != nil {
@@ -280,6 +283,9 @@ func TestWorldBundleExportImportRoundTrip(t *testing.T) {
 	}
 	if imported.Name != "Imported World" || imported.SkillMd != skill {
 		t.Fatalf("imported name=%q skill=%q", imported.Name, imported.SkillMd)
+	}
+	if imported.Memory != "偏好：竖屏 9:16" {
+		t.Fatalf("imported memory = %q, want the exported memory", imported.Memory)
 	}
 	entities, _, err := worlds.ListEntities(ListEntitiesInput{WorldID: imported.ID})
 	if err != nil {

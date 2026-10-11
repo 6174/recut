@@ -31,9 +31,10 @@ var worldsContentWriteTools = []string{
 }
 
 // worldsLifecycleTools 是世界级生命周期/元数据工具（不是实体内容编辑）。
+// memory.update 是 World 级元数据写入（不是 Canon、不产 revision、不广播）。
 var worldsLifecycleTools = []string{
 	"recut.worlds.create", "recut.worlds.update", "recut.worlds.fork",
-	"recut.worlds.revert", "recut.worlds.import",
+	"recut.worlds.revert", "recut.worlds.import", "recut.worlds.memory.update",
 }
 
 // worldsMutatingTools 是必须广播 world.changed 的工具集合（= world_events.go 的 map）。

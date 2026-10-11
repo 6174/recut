@@ -1382,3 +1382,88 @@ func TestEntityReparent(t *testing.T) {
 		t.Fatalf("rooted parent = %q, want empty", rooted.ParentID)
 	}
 }
+
+func TestWorldMemoryUpdateOps(t *testing.T) {
+	worlds, _, _ := newTestWorldStore(t)
+	world, err := worlds.CreateWorld(CreateWorldInput{Name: "Memory World", Type: WorldFiction})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// append on an empty memory seeds it.
+	appended, err := worlds.UpdateWorldMemory(UpdateWorldMemoryInput{WorldID: world.ID, Op: "append", Content: "习惯：分镜要少而精\n偏好：竖屏 9:16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if appended.Memory != "习惯：分镜要少而精\n偏好：竖屏 9:16" {
+		t.Fatalf("memory after append = %q", appended.Memory)
+	}
+	if appended.Lines != 2 {
+		t.Fatalf("lines = %d, want 2", appended.Lines)
+	}
+
+	// append again joins with a single newline.
+	appended, err = worlds.UpdateWorldMemory(UpdateWorldMemoryInput{WorldID: world.ID, Op: "append", Content: "反馈：不要自动生成视频"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if appended.Lines != 3 {
+		t.Fatalf("lines = %d, want 3", appended.Lines)
+	}
+
+	// replaceLine swaps exactly one line (multi-line content is allowed).
+	replaced, err := worlds.UpdateWorldMemory(UpdateWorldMemoryInput{WorldID: world.ID, Op: "replaceLine", Line: 1, Content: "习惯：分镜要少而精\n习惯：每段先给参考图"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(replaced.Memory, "习惯：分镜要少而精\n习惯：每段先给参考图\n偏好：竖屏 9:16") {
+		t.Fatalf("memory after replaceLine = %q", replaced.Memory)
+	}
+	if replaced.Lines != 4 {
+		t.Fatalf("lines = %d, want 4", replaced.Lines)
+	}
+
+	// empty content deletes the line.
+	deleted, err := worlds.UpdateWorldMemory(UpdateWorldMemoryInput{WorldID: world.ID, Op: "replaceLine", Line: 3, Content: ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(deleted.Memory, "竖屏") {
+		t.Fatalf("deleted line still present: %q", deleted.Memory)
+	}
+	if deleted.Lines != 3 {
+		t.Fatalf("lines after delete = %d, want 3", deleted.Lines)
+	}
+
+	// world.get inlines the memory plus its byte count.
+	ctx, err := worlds.GetWorldContext(BriefInput{WorldID: world.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Memory != deleted.Memory {
+		t.Fatalf("world.get memory = %q, want %q", ctx.Memory, deleted.Memory)
+	}
+	if ctx.MemoryBytes != len(deleted.Memory) {
+		t.Fatalf("memoryBytes = %d, want %d", ctx.MemoryBytes, len(deleted.Memory))
+	}
+
+	// replace rewrites the whole memory (the compression op).
+	compacted, err := worlds.UpdateWorldMemory(UpdateWorldMemoryInput{WorldID: world.ID, Op: "replace", Content: "偏好：竖屏、少分镜；不自动生成视频。"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compacted.Memory != "偏好：竖屏、少分镜；不自动生成视频。" {
+		t.Fatalf("memory after replace = %q", compacted.Memory)
+	}
+
+	// replaceLine out of range is a structured error.
+	if _, err := worlds.UpdateWorldMemory(UpdateWorldMemoryInput{WorldID: world.ID, Op: "replaceLine", Line: 99, Content: "x"}); err == nil {
+		t.Fatal("expected out-of-range line error")
+	}
+
+	// a write over the hard limit is rejected so world.get stays budgeted.
+	oversized := strings.Repeat("长", worldMemoryHardLimitBytes)
+	if _, err := worlds.UpdateWorldMemory(UpdateWorldMemoryInput{WorldID: world.ID, Op: "replace", Content: oversized}); err == nil {
+		t.Fatal("expected over-limit memory write to be rejected")
+	}
+}

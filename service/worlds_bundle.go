@@ -438,7 +438,7 @@ func (w *WorldStore) ExportWorldBundle(worldID string) ([]byte, string, error) {
 		SourceVersion: 2,
 		World: WorldManifestWorld{
 			ID: detail.ID, Name: detail.Name, Type: detail.Type, Description: detail.Description,
-			Identity: detail.Identity,
+			Memory: detail.Memory, Identity: detail.Identity,
 		},
 		EntityTypes: entityTypes,
 		Relations:   relations,
@@ -760,9 +760,9 @@ func (w *WorldStore) ImportWorldBundle(data []byte, nameOverride, createdBy stri
 		return WorldDetail{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec("insert into worlds (id, name, type, description, identity_json, origin, origin_meta_json, skill_md, current_revision_id, cover_asset_id, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?)",
+	if _, err := tx.Exec("insert into worlds (id, name, type, description, identity_json, origin, origin_meta_json, skill_md, memory_md, current_revision_id, cover_asset_id, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?)",
 		worldID, strings.TrimSpace(manifest.World.Name), string(manifest.World.Type), strings.TrimSpace(manifest.World.Description),
-		string(identityJSON), WorldLocal, string(originMetaJSON), manifest.World.SkillMd, now, now); err != nil {
+		string(identityJSON), WorldLocal, string(originMetaJSON), manifest.World.SkillMd, manifest.World.Memory, now, now); err != nil {
 		return WorldDetail{}, err
 	}
 	if err := insertManifestV2Tx(tx, worldID, &manifest, now); err != nil {

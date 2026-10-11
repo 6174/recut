@@ -138,8 +138,13 @@ type WorldRevisionView struct {
 
 type WorldDetail struct {
 	WorldSummary
-	Identity             map[string]any    `json:"identity"`
-	SkillMd              string            `json:"skillMd"`
+	Identity map[string]any `json:"identity"`
+	SkillMd  string         `json:"skillMd"`
+	// Memory is the World's AI-serving working memory: user habits, preferences
+	// and feedback the Agent should carry across sessions, as free-form markdown.
+	// Unlike SkillMd it is NOT Canon — memory writes never produce a revision
+	// (see UpdateWorldMemory). world.get inlines it so every session reloads it.
+	Memory               string            `json:"memory,omitempty"`
 	Revision             WorldRevisionView `json:"revision"`
 	AvailableEntityKinds []string          `json:"availableEntityKinds"`
 	// Entities / Relations 是 World 的实体图。world.get 只是"读取索引"：实体仅身份
@@ -614,11 +619,11 @@ func (w *WorldStore) getWorldDetail(db *sql.DB, worldID string, includeGraph boo
 		return WorldDetail{}, err
 	}
 	detail.WorldSummary = summary
-	var identityJSON, skillMd string
+	var identityJSON, skillMd, memoryMd string
 	var revisionID, canonicalHash, revisionCreatedAt string
 	var cover sql.NullString
-	row := db.QueryRow("select identity_json, skill_md, current_revision_id, cover_asset_id from worlds where id = ?", worldID)
-	if err := row.Scan(&identityJSON, &skillMd, &revisionID, &cover); err != nil {
+	row := db.QueryRow("select identity_json, skill_md, memory_md, current_revision_id, cover_asset_id from worlds where id = ?", worldID)
+	if err := row.Scan(&identityJSON, &skillMd, &memoryMd, &revisionID, &cover); err != nil {
 		return WorldDetail{}, err
 	}
 	if err := json.Unmarshal([]byte(identityJSON), &detail.Identity); err != nil {
@@ -628,6 +633,7 @@ func (w *WorldStore) getWorldDetail(db *sql.DB, worldID string, includeGraph boo
 		detail.Identity = map[string]any{}
 	}
 	detail.SkillMd = skillMd
+	detail.Memory = memoryMd
 	if revisionID != "" {
 		revRow := db.QueryRow("select id, canonical_hash, created_at from world_revisions where id = ?", revisionID)
 		if err := revRow.Scan(&revisionID, &canonicalHash, &revisionCreatedAt); err != nil {
@@ -907,6 +913,120 @@ func (w *WorldStore) UpdateWorld(input UpdateWorldInput) (WorldDetail, error) {
 	}
 	logWorldEvent("world.updated", map[string]string{"worldId": input.WorldID})
 	return w.GetWorld(input.WorldID)
+}
+
+// worldMemoryHardLimitBytes bounds a memory write so recut.worlds.get stays
+// within its tool output budget: a write over it is rejected, and the Agent is
+// told to compact the memory with op=replace first. The Agent-facing soft budget
+// (~6000 bytes) is documented in the tool description and the recut-worlds skill.
+const worldMemoryHardLimitBytes = 16000
+
+// WorldMemory is the result of a memory write: the full memory after the op plus
+// its size, so the Agent can see whether it now exceeds the compression budget.
+type WorldMemory struct {
+	Memory string `json:"memory"`
+	Lines  int    `json:"lines"`
+	Bytes  int    `json:"bytes"`
+}
+
+// UpdateWorldMemoryInput is one line-oriented edit to a World's AI memory.
+// op=append adds a block at the end; op=replace overwrites the whole memory
+// (the compression op); op=replaceLine swaps one 1-based line with content
+// (content may span several lines, or be empty to delete the line).
+type UpdateWorldMemoryInput struct {
+	WorldID   string
+	Op        string
+	Content   string
+	Line      int
+	CreatedBy string
+}
+
+// UpdateWorldMemory edits a World's AI memory. Memory is not Canon, so this
+// never produces a revision; it only mutates worlds.memory_md. Non-local worlds
+// stay read-only. A write over worldMemoryHardLimitBytes is rejected with a
+// hint to compress, keeping world.get within its output budget.
+func (w *WorldStore) UpdateWorldMemory(input UpdateWorldMemoryInput) (WorldMemory, error) {
+	op := strings.TrimSpace(input.Op)
+	switch op {
+	case "append", "replace", "replaceLine":
+	default:
+		return WorldMemory{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf("unknown memory op %q (want append/replace/replaceLine)", input.Op))
+	}
+	if op == "replace" && strings.TrimSpace(input.Content) == "" {
+		return WorldMemory{}, worldsError(WorldsErrContextInvalid, "replace requires non-empty content")
+	}
+	db, err := w.database()
+	if err != nil {
+		return WorldMemory{}, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return WorldMemory{}, err
+	}
+	defer tx.Rollback()
+	if err := w.checkWritable(tx, input.WorldID); err != nil {
+		return WorldMemory{}, err
+	}
+	var current string
+	if err := tx.QueryRow("select memory_md from worlds where id = ?", input.WorldID).Scan(&current); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return WorldMemory{}, worldsError(WorldsErrNotFound, "world not found")
+		}
+		return WorldMemory{}, err
+	}
+	next, err := applyMemoryOp(current, op, input.Content, input.Line)
+	if err != nil {
+		return WorldMemory{}, err
+	}
+	if len(next) > worldMemoryHardLimitBytes {
+		return WorldMemory{}, worldsError(WorldsErrContextInvalid, fmt.Sprintf(
+			"memory would be %d bytes, over the %d-byte limit; rewrite it more concisely with op=replace before adding more",
+			len(next), worldMemoryHardLimitBytes))
+	}
+	now := iso(time.Now().UTC())
+	if _, err := tx.Exec("update worlds set memory_md = ?, updated_at = ? where id = ?", next, now, input.WorldID); err != nil {
+		return WorldMemory{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorldMemory{}, err
+	}
+	return WorldMemory{Memory: next, Lines: memoryLineCount(next), Bytes: len(next)}, nil
+}
+
+// applyMemoryOp applies one line-oriented memory edit to the current text.
+func applyMemoryOp(current, op, content string, line int) (string, error) {
+	switch op {
+	case "replace":
+		return content, nil
+	case "append":
+		block := strings.TrimRight(content, "\n")
+		if strings.TrimSpace(current) == "" {
+			return block, nil
+		}
+		return strings.TrimRight(current, "\n") + "\n" + block, nil
+	case "replaceLine":
+		lines := strings.Split(current, "\n")
+		if line < 1 || line > len(lines) {
+			return "", worldsError(WorldsErrContextInvalid, fmt.Sprintf("line %d out of range (memory has %d lines)", line, len(lines)))
+		}
+		replacement := []string{}
+		if strings.TrimSpace(content) != "" {
+			replacement = strings.Split(strings.TrimRight(content, "\n"), "\n")
+		}
+		out := make([]string, 0, len(lines)+len(replacement))
+		out = append(out, lines[:line-1]...)
+		out = append(out, replacement...)
+		out = append(out, lines[line:]...)
+		return strings.Join(out, "\n"), nil
+	}
+	return "", worldsError(WorldsErrContextInvalid, "unknown memory op")
+}
+
+func memoryLineCount(memory string) int {
+	if strings.TrimSpace(memory) == "" {
+		return 0
+	}
+	return strings.Count(memory, "\n") + 1
 }
 
 func (w *WorldStore) ListEntities(input ListEntitiesInput) ([]WorldEntitySummary, string, error) {
